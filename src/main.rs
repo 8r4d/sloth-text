@@ -2,6 +2,8 @@ mod app;
 mod commands;
 mod document;
 mod editor;
+#[cfg(target_os = "macos")]
+mod native_menu;
 
 use std::path::PathBuf;
 

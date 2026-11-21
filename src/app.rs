@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use eframe::egui::{self, Align, Layout, RichText, ViewportCommand};
+use eframe::egui::{self, Align, Key, Layout, Modifiers, RichText, ViewportCommand};
 
 use crate::commands::{self, Command};
 use crate::document::Document;
@@ -27,10 +27,19 @@ pub struct SlothApp {
     /// Set once the user has confirmed quitting, so the close goes through.
     allow_close: bool,
     last_title: String,
+    #[cfg(target_os = "macos")]
+    native_menu: crate::native_menu::NativeMenu,
 }
 
 impl SlothApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>, initial_file: Option<PathBuf>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, initial_file: Option<PathBuf>) -> Self {
+        // egui's iOS-style rubber-banding lets the text be dragged far past
+        // its ends with a trackpad, which feels like the page is floating.
+        // macOS already supplies trackpad momentum, so turn it off.
+        cc.egui_ctx.all_styles_mut(|style| {
+            style.spacing.scroll.kinetic.rubber_band = false;
+        });
+
         let mut app = Self {
             doc: Document::new(),
             settings: EditorSettings::default(),
@@ -39,6 +48,8 @@ impl SlothApp {
             status: None,
             allow_close: false,
             last_title: String::new(),
+            #[cfg(target_os = "macos")]
+            native_menu: crate::native_menu::NativeMenu::install(&cc.egui_ctx),
         };
         if let Some(path) = initial_file {
             if path.exists() {
@@ -64,6 +75,14 @@ impl SlothApp {
                 self.save_as();
             }
             Command::Quit => self.request(ctx, PendingAction::Quit),
+            Command::Cut => self.edit_clipboard(ctx, ViewportCommand::RequestCut),
+            Command::Copy => self.edit_clipboard(ctx, ViewportCommand::RequestCopy),
+            Command::Paste => self.edit_clipboard(ctx, ViewportCommand::RequestPaste),
+            Command::Undo => self.send_editor_key(ctx, Modifiers::COMMAND, Key::Z),
+            Command::Redo => {
+                self.send_editor_key(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
+            }
+            Command::SelectAll => self.send_editor_key(ctx, Modifiers::COMMAND, Key::A),
             Command::ToggleLineNumbers => {
                 self.settings.show_line_numbers = !self.settings.show_line_numbers
             }
@@ -72,6 +91,28 @@ impl SlothApp {
             Command::ZoomOut => self.settings.font_size = (self.settings.font_size - 1.0).max(6.0),
             Command::ZoomReset => self.settings.font_size = EditorSettings::DEFAULT_FONT_SIZE,
         }
+    }
+
+    /// Menu-driven Cut/Copy/Paste: ask the windowing layer to perform them,
+    /// exactly as if the user had pressed the keys.
+    fn edit_clipboard(&self, ctx: &egui::Context, request: ViewportCommand) {
+        ctx.memory_mut(|m| m.request_focus(editor::editor_id()));
+        ctx.send_viewport_cmd(request);
+    }
+
+    /// Menu-driven Undo/Redo/Select All: feed the editor the same key press
+    /// it would get from the keyboard. Must run before the editor is drawn.
+    fn send_editor_key(&self, ctx: &egui::Context, modifiers: Modifiers, key: Key) {
+        ctx.memory_mut(|m| m.request_focus(editor::editor_id()));
+        ctx.input_mut(|i| {
+            i.events.push(egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            })
+        });
     }
 
     fn is_checked(&self, cmd: Command) -> Option<bool> {
@@ -175,10 +216,12 @@ impl SlothApp {
 
     // ----- UI pieces --------------------------------------------------------
 
+    #[cfg_attr(target_os = "macos", allow(dead_code))] // used where there is no native menu
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
         // Check shortcuts with more modifiers first so ⌘⇧S isn't eaten by ⌘S.
         let mut cmds: Vec<_> = commands::ALL
             .iter()
+            .filter(|c| !c.is_handled_by_text_widget())
             .filter_map(|&c| c.shortcut().map(|s| (c, s)))
             .collect();
         cmds.sort_by_key(|(_, s)| std::cmp::Reverse(modifier_count(s.modifiers)));
@@ -194,6 +237,7 @@ impl SlothApp {
         }
     }
 
+    #[cfg_attr(target_os = "macos", allow(dead_code))] // used where there is no native menu
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         egui::MenuBar::new().ui(ui, |ui| {
@@ -306,6 +350,7 @@ enum DialogChoice {
     Cancel,
 }
 
+#[cfg_attr(target_os = "macos", allow(dead_code))] // used where there is no native menu
 fn modifier_count(m: egui::Modifiers) -> u8 {
     m.alt as u8 + m.ctrl as u8 + m.shift as u8 + m.mac_cmd as u8 + m.command as u8
 }
@@ -328,10 +373,19 @@ impl eframe::App for SlothApp {
             self.request(&ctx, PendingAction::Open(Some(path)));
         }
 
+        // On macOS, shortcuts are routed through the native menu bar.
+        #[cfg(target_os = "macos")]
+        for cmd in self.native_menu.drain() {
+            if self.pending.is_none() {
+                self.execute(&ctx, cmd);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
         if self.pending.is_none() {
             self.handle_shortcuts(&ctx);
         }
 
+        #[cfg(not(target_os = "macos"))]
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         egui::CentralPanel::default()
@@ -342,5 +396,12 @@ impl eframe::App for SlothApp {
 
         self.unsaved_changes_dialog(&ctx);
         self.update_title(&ctx);
+
+        #[cfg(target_os = "macos")]
+        for cmd in commands::ALL {
+            if let Some(checked) = self.is_checked(*cmd) {
+                self.native_menu.set_checked(*cmd, checked);
+            }
+        }
     }
 }
