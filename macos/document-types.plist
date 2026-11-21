@@ -1,0 +1,36 @@
+  <!-- Added to Sloth.app's Info.plist by cargo-bundle (see Cargo.toml).
+       Lets Finder offer Sloth for text files: double-click (once chosen as
+       the default), Open With, and dropping files on the Dock icon. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Text Document</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.plain-text</string>
+        <string>public.source-code</string>
+        <string>net.daringfireball.markdown</string>
+        <string>public.json</string>
+        <string>public.xml</string>
+      </array>
+    </dict>
+    <dict>
+      <!-- Files with no or unknown extension (Makefile, .env, …), so they
+           can be opened with "Open With → Sloth". -->
+      <key>CFBundleTypeName</key>
+      <string>Other File</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.data</string>
+      </array>
+    </dict>
+  </array>

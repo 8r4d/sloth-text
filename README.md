@@ -9,12 +9,16 @@ cargo run --release                 # empty document
 cargo run --release -- notes.txt    # open (or create) a file
 ```
 
-To build a double-clickable `Sloth.app`:
+To build `Sloth.app` and install it in Applications:
 
 ```sh
-cargo install cargo-bundle
-cargo bundle --release              # -> target/release/bundle/osx/Sloth.app
+cargo install cargo-bundle --locked   # once
+scripts/install.sh
 ```
+
+After installing, Sloth appears in Finder's **Open With** menu for text files.
+To make it the default for a type, select a file, choose **File → Get Info**,
+pick Sloth under **Open with**, and click **Change All**.
 
 ## Features
 
@@ -25,6 +29,7 @@ cargo bundle --release              # -> target/release/bundle/osx/Sloth.app
 | Save               | ⌘S       |
 | Save As…           | ⇧⌘S      |
 | Close tab          | ⌘W       |
+| Go to line         | ⌘L       |
 | Next / previous tab | ⌃⇥ / ⌃⇧⇥ |
 | Quit               | ⌘Q       |
 | Undo / Redo        | ⌘Z / ⇧⌘Z |
@@ -49,7 +54,10 @@ cargo bundle --release              # -> target/release/bundle/osx/Sloth.app
 - Line-number gutter (also works with word wrap on)
 - Cursor line/column and line count in the status bar
 - Native macOS open/save dialogs
-- Drag files onto the window to open them
+- Drag files onto the window to open them, or open them from Finder
+- File → Open Recent, and the tabs you had open are reopened at launch
+- Files changed by another program reload automatically, or Sloth asks if you
+  have unsaved edits
 - Asks before discarding unsaved changes (closing a tab, quitting, closing the window)
 - A `•` in the title bar marks unsaved changes
 
@@ -65,6 +73,11 @@ cargo bundle --release              # -> target/release/bundle/osx/Sloth.app
 | `src/find.rs`     | Search/replace logic (unit-tested) and the find bar |
 | `src/file_types.rs` | Save dialog formats and the default extension |
 | `src/version.rs`, `build.rs` | Version, git commit and build date shown in About |
+| `src/settings.rs` | Everything saved between launches (theme, view options, recent files, open tabs) |
+| `src/macos_open.rs` | Receives files opened from Finder |
+| `src/help.rs`     | The Help window's pages |
+| `src/app_ui_tests.rs` | UI tests that run the app in memory (`cargo test`) |
+| `macos/document-types.plist` | File types declared in Sloth.app, so Finder offers it |
 | `src/editor.rs`   | The text area and line-number gutter |
 | `src/theme.rs`    | Colour themes: each one is a small palette of colours |
 | `src/native_menu.rs` | macOS menu bar, built from `commands::MENUS` (other platforms get an in-window menu) |
@@ -85,6 +98,9 @@ palette, add it to `ALL` there, and add it to `THEME_MENU` in `commands.rs`.
 
 Settings are saved to `~/Library/Application Support/Sloth/app.ron`.
 
+`cargo test` runs the unit tests and the UI tests. The UI tests use
+`egui_kittest` to drive the app in memory, so they don't open a window.
+
 ## Versioning
 
 The version number is in `Cargo.toml` and follows semantic versioning. For a release:
@@ -96,5 +112,4 @@ The version number is in `Cargo.toml` and follows semantic versioning. For a rel
 The About window shows the version and the git commit it was built from.
 `+modified` means the build included uncommitted changes.
 
-Possible next steps: recent files, reopening tabs from the last session,
-regex search, and syntax highlighting (through the editor's layouter).
+See [ROADMAP.md](ROADMAP.md) for what's planned.

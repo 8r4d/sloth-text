@@ -14,6 +14,16 @@ pub struct Tab {
     pub doc: Document,
     /// The user chose "Don't Save" for this tab while quitting.
     pub discard_on_quit: bool,
+    /// Shown above the editor when another program changed or removed the file.
+    pub disk_notice: Option<DiskNotice>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiskNotice {
+    /// Changed on disk while this tab has unsaved edits.
+    Changed,
+    /// Deleted or moved.
+    Missing,
 }
 
 pub struct Tabs {
@@ -66,6 +76,7 @@ impl Tabs {
             id,
             doc,
             discard_on_quit: false,
+            disk_notice: None,
         };
         let index = if self.tabs.is_empty() { 0 } else { self.active + 1 };
         self.tabs.insert(index, tab);
@@ -78,7 +89,9 @@ impl Tabs {
         let active = self.active();
         if active.doc.path.is_none() && active.doc.text.is_empty() && !active.doc.is_dirty() {
             let id = active.id;
-            self.active_mut().doc = doc;
+            let tab = self.active_mut();
+            tab.doc = doc;
+            tab.disk_notice = None;
             id
         } else {
             self.add(doc)

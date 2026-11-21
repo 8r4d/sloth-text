@@ -4,8 +4,12 @@ mod document;
 mod editor;
 mod file_types;
 mod find;
+mod help;
+#[cfg(target_os = "macos")]
+mod macos_open;
 #[cfg(target_os = "macos")]
 mod native_menu;
+mod settings;
 mod tabs;
 mod theme;
 mod version;
@@ -40,6 +44,9 @@ fn main() -> eframe::Result {
         if let Some(mtm) = objc2::MainThreadMarker::new() {
             objc2_app_kit::NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
         }
+
+        // Receive files opened from Finder (double-click, Open With, Dock).
+        macos_open::install();
     }
 
     eframe::run_native(

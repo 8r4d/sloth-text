@@ -5,6 +5,7 @@
 //! every frame.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 
 use eframe::egui::{self, Key, KeyboardShortcut};
@@ -14,18 +15,29 @@ use muda::{
 };
 
 use crate::commands::{self, Command, MenuEntry};
+use crate::settings;
 
 pub struct NativeMenu {
     /// Must stay alive for the menu to keep working.
     _menu: Menu,
     events: Receiver<Command>,
+    items: Items,
+    /// The recent files currently shown in File → Open Recent.
+    shown_recent: Option<Vec<PathBuf>>,
+}
+
+/// Handles to menu items we update while the app runs.
+#[derive(Default)]
+struct Items {
     checkable: HashMap<Command, CheckMenuItem>,
+    plain: HashMap<Command, MenuItem>,
+    recent: Option<Submenu>,
 }
 
 impl NativeMenu {
     pub fn install(ctx: &egui::Context) -> Self {
         let menu = Menu::new();
-        let mut checkable = HashMap::new();
+        let mut items = Items::default();
 
         // Application menu (titled with the app name by macOS).
         let app_menu = Submenu::new("Sloth", true);
@@ -61,7 +73,7 @@ impl NativeMenu {
                             &PredefinedMenuItem::separator(),
                         ],
                     );
-                    fill(&submenu, entries, &mut checkable);
+                    fill(&submenu, entries, &mut items);
                     append(
                         &submenu,
                         &[
@@ -72,10 +84,10 @@ impl NativeMenu {
                     window_menu = Some(submenu.clone());
                 }
                 "Help" => {
-                    fill(&submenu, entries, &mut checkable);
+                    fill(&submenu, entries, &mut items);
                     help_menu = Some(submenu.clone());
                 }
-                _ => fill(&submenu, entries, &mut checkable),
+                _ => fill(&submenu, entries, &mut items),
             }
             menu.append(&submenu).ok();
         }
@@ -102,7 +114,8 @@ impl NativeMenu {
         Self {
             _menu: menu,
             events: rx,
-            checkable,
+            items,
+            shown_recent: None,
         }
     }
 
@@ -113,20 +126,50 @@ impl NativeMenu {
 
     /// Keep check marks in sync with app state.
     pub fn set_checked(&self, cmd: Command, checked: bool) {
-        if let Some(item) = self.checkable.get(&cmd)
+        if let Some(item) = self.items.checkable.get(&cmd)
             && item.is_checked() != checked
         {
             item.set_checked(checked);
         }
     }
+
+    /// Grey out (or re-enable) a menu item.
+    pub fn set_enabled(&self, cmd: Command, enabled: bool) {
+        if let Some(item) = self.items.plain.get(&cmd)
+            && item.is_enabled() != enabled
+        {
+            item.set_enabled(enabled);
+        }
+    }
+
+    /// Rebuild File → Open Recent if the list has changed.
+    pub fn set_recent_files(&mut self, paths: &[PathBuf]) {
+        if self.shown_recent.as_deref() == Some(paths) {
+            return;
+        }
+        let Some(submenu) = &self.items.recent else {
+            return;
+        };
+        while submenu.remove_at(0).is_some() {}
+
+        let labels = settings::recent_labels(paths);
+        for (i, label) in labels.iter().enumerate() {
+            let item = MenuItem::with_id(Command::OpenRecent(i as u8).id(), label, true, None);
+            submenu.append(&item).ok();
+        }
+        if !paths.is_empty() {
+            submenu.append(&PredefinedMenuItem::separator()).ok();
+        }
+        let clear = command_item(Command::ClearRecent);
+        clear.set_enabled(!paths.is_empty());
+        submenu.append(&clear).ok();
+
+        self.shown_recent = Some(paths.to_vec());
+    }
 }
 
 /// Add `entries` to `submenu`, recursing into nested submenus.
-fn fill(
-    submenu: &Submenu,
-    entries: &[MenuEntry],
-    checkable: &mut HashMap<Command, CheckMenuItem>,
-) {
+fn fill(submenu: &Submenu, entries: &[MenuEntry], items: &mut Items) {
     // About and Quit live in the app menu on macOS; drop them (and any
     // separator left dangling at the end) from the other menus.
     let mut entries: Vec<_> = entries
@@ -144,8 +187,14 @@ fn fill(
             }
             MenuEntry::Submenu(title, children) => {
                 let child = Submenu::new(*title, true);
-                fill(&child, children, checkable);
+                fill(&child, children, items);
                 submenu.append(&child).ok();
+            }
+            MenuEntry::RecentFiles => {
+                // Filled in by `set_recent_files`.
+                let child = Submenu::new("Open Recent", true);
+                submenu.append(&child).ok();
+                items.recent = Some(child);
             }
             MenuEntry::Item(cmd) if cmd.is_checkable() => {
                 let check = CheckMenuItem::with_id(
@@ -156,10 +205,12 @@ fn fill(
                     cmd.shortcut().and_then(to_accelerator),
                 );
                 submenu.append(&check).ok();
-                checkable.insert(*cmd, check);
+                items.checkable.insert(*cmd, check);
             }
             MenuEntry::Item(cmd) => {
-                submenu.append(&command_item(*cmd)).ok();
+                let item = command_item(*cmd);
+                submenu.append(&item).ok();
+                items.plain.insert(*cmd, item);
             }
         }
     }

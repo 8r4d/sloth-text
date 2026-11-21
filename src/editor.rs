@@ -10,6 +10,8 @@ use eframe::egui::{
 
 use crate::tabs::TabId;
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct EditorSettings {
     pub show_line_numbers: bool,
     pub word_wrap: bool,
@@ -149,6 +151,8 @@ pub fn show(
                 // Fill the rest of the viewport so clicking below the text focuses it.
                 let min_height = ui.available_height();
                 let output = edit.min_size(Vec2::new(0.0, min_height)).show(ui);
+                // Name it for VoiceOver (there's no visible label).
+                let _ = egui::Response::clone(&output.response).accessible_name("Document text");
 
                 if let Some(cursor) = output.cursor_range {
                     info.line_col = Some(line_col(text, cursor.primary));
@@ -261,6 +265,31 @@ fn paint_line_numbers(
     }
 }
 
+/// Parse "12" or "12:5" (1-based line and optional column).
+pub fn parse_line_col(input: &str) -> Option<(usize, usize)> {
+    let mut parts = input.trim().splitn(2, ':');
+    let line = parts.next()?.trim().parse().ok().filter(|&l| l > 0)?;
+    let col = match parts.next() {
+        Some(c) => c.trim().parse().ok().filter(|&c| c > 0)?,
+        None => 1,
+    };
+    Some((line, col))
+}
+
+/// Character index of a 1-based line and column, clamped to the text.
+pub fn char_index_of(text: &str, line: usize, col: usize) -> usize {
+    let mut index = 0;
+    for (i, l) in text.split('\n').enumerate() {
+        let len = l.chars().count();
+        if i + 1 == line {
+            return index + (col - 1).min(len);
+        }
+        index += len + 1; // + the newline
+    }
+    // Past the last line: go to the end.
+    text.chars().count()
+}
+
 /// Convert a character cursor into a 1-based (line, column).
 fn line_col(text: &str, cursor: CCursor) -> (usize, usize) {
     let mut line = 1;
@@ -274,4 +303,29 @@ fn line_col(text: &str, cursor: CCursor) -> (usize, usize) {
         }
     }
     (line, col)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_line_and_column() {
+        assert_eq!(parse_line_col("12"), Some((12, 1)));
+        assert_eq!(parse_line_col(" 3:7 "), Some((3, 7)));
+        assert_eq!(parse_line_col("0"), None);
+        assert_eq!(parse_line_col("x"), None);
+        assert_eq!(parse_line_col("4:"), None);
+    }
+
+    #[test]
+    fn finds_char_index_of_line_and_column() {
+        let text = "ab\ncdé\nf";
+        assert_eq!(char_index_of(text, 1, 1), 0);
+        assert_eq!(char_index_of(text, 2, 1), 3);
+        assert_eq!(char_index_of(text, 2, 3), 5);
+        assert_eq!(char_index_of(text, 2, 99), 6); // clamped to end of line
+        assert_eq!(char_index_of(text, 3, 1), 7);
+        assert_eq!(char_index_of(text, 99, 1), 8); // past the end
+    }
 }

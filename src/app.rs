@@ -2,25 +2,24 @@
 
 use std::ops::Range;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use eframe::egui::{
     self, Align, Key, Layout, Margin, Modifiers, RichText, ScrollArea, ViewportCommand,
 };
 
 use crate::commands::{self, Command, MenuEntry};
-use crate::document::Document;
+use crate::document::{DiskState, Document};
 use crate::editor::{self, CursorInfo, EditorSettings, Highlights};
 use crate::file_types;
 use crate::find::{self, FindAction, FindState};
-use crate::tabs::{self, TabBarAction, TabId, Tabs};
-use crate::theme::ThemeChoice;
+use crate::help;
+use crate::settings::{self, Settings};
+use crate::tabs::{self, DiskNotice, TabBarAction, TabId, Tabs};
 use crate::version;
 
-// Keys for settings remembered between launches.
-const KEY_THEME: &str = "theme";
-const KEY_LINE_NUMBERS: &str = "line_numbers";
-const KEY_WORD_WRAP: &str = "word_wrap";
-const KEY_FONT_SIZE: &str = "font_size";
+/// How often to check open files for changes made by other programs.
+const DISK_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Something waiting on the "unsaved changes" prompt.
 #[derive(Clone, Copy, Debug)]
@@ -38,8 +37,7 @@ enum HelpPage {
 
 pub struct SlothApp {
     tabs: Tabs,
-    settings: EditorSettings,
-    theme: ThemeChoice,
+    settings: Settings,
     find: FindState,
     cursor: CursorInfo,
     pending: Option<PendingAction>,
@@ -52,23 +50,43 @@ pub struct SlothApp {
     reveal: Option<usize>,
     show_about: bool,
     help: Option<HelpPage>,
+    /// Text typed into the Go to Line prompt, while it's open.
+    go_to_line: Option<String>,
+    confirm_revert: bool,
+    /// For noticing files changed by other programs.
+    last_disk_check: f64,
+    was_focused: bool,
+    /// `None` in tests, which run without a real menu bar.
     #[cfg(target_os = "macos")]
-    native_menu: crate::native_menu::NativeMenu,
+    native_menu: Option<crate::native_menu::NativeMenu>,
 }
 
 impl SlothApp {
     pub fn new(cc: &eframe::CreationContext<'_>, files: Vec<PathBuf>) -> Self {
+        let settings = Settings::load(cc.storage);
+        #[allow(unused_mut)]
+        let mut app = Self::with_settings(&cc.egui_ctx, settings, files);
+        #[cfg(target_os = "macos")]
+        {
+            app.native_menu = Some(crate::native_menu::NativeMenu::install(&cc.egui_ctx));
+            crate::macos_open::set_context(&cc.egui_ctx);
+        }
+        app
+    }
+
+    /// Build the app without touching the real menu bar or settings file
+    /// (shared by `new` and the tests).
+    pub fn with_settings(ctx: &egui::Context, settings: Settings, files: Vec<PathBuf>) -> Self {
         // egui's iOS-style rubber-banding lets the text be dragged far past
         // its ends with a trackpad, which feels like the page is floating.
         // macOS already supplies trackpad momentum, so turn it off.
-        cc.egui_ctx.all_styles_mut(|style| {
+        ctx.all_styles_mut(|style| {
             style.spacing.scroll.kinetic.rubber_band = false;
         });
 
         let mut app = Self {
             tabs: Tabs::new(),
-            settings: EditorSettings::default(),
-            theme: ThemeChoice::default(),
+            settings,
             find: FindState::default(),
             cursor: CursorInfo::default(),
             pending: None,
@@ -78,14 +96,29 @@ impl SlothApp {
             reveal: None,
             show_about: false,
             help: None,
+            go_to_line: None,
+            confirm_revert: false,
+            last_disk_check: 0.0,
+            was_focused: true,
             #[cfg(target_os = "macos")]
-            native_menu: crate::native_menu::NativeMenu::install(&cc.egui_ctx),
+            native_menu: None,
         };
-        if let Some(storage) = cc.storage {
-            app.restore_settings(storage);
-        }
-        app.theme.apply(&cc.egui_ctx);
+        app.settings.theme.apply(ctx);
 
+        // Reopen the tabs from last time, then any files we were asked to open.
+        let session = std::mem::take(&mut app.settings.session);
+        let mut active = None;
+        for (i, path) in session.files.into_iter().enumerate() {
+            if path.exists() {
+                app.open_path(path);
+                if i == session.active {
+                    active = Some(app.tabs.active().id);
+                }
+            }
+        }
+        if let Some(id) = active {
+            app.tabs.activate(id);
+        }
         for path in files {
             if path.exists() {
                 app.open_path(path);
@@ -147,15 +180,38 @@ impl SlothApp {
             }
 
             Command::ToggleLineNumbers => {
-                self.settings.show_line_numbers = !self.settings.show_line_numbers
+                let e = &mut self.settings.editor;
+                e.show_line_numbers = !e.show_line_numbers;
             }
-            Command::ToggleWordWrap => self.settings.word_wrap = !self.settings.word_wrap,
-            Command::ZoomIn => self.settings.font_size = (self.settings.font_size + 1.0).min(72.0),
-            Command::ZoomOut => self.settings.font_size = (self.settings.font_size - 1.0).max(6.0),
-            Command::ZoomReset => self.settings.font_size = EditorSettings::DEFAULT_FONT_SIZE,
+            Command::ToggleWordWrap => {
+                let e = &mut self.settings.editor;
+                e.word_wrap = !e.word_wrap;
+            }
+            Command::ZoomIn => {
+                let e = &mut self.settings.editor;
+                e.font_size = (e.font_size + 1.0).min(72.0);
+            }
+            Command::ZoomOut => {
+                let e = &mut self.settings.editor;
+                e.font_size = (e.font_size - 1.0).max(6.0);
+            }
+            Command::ZoomReset => self.settings.editor.font_size = EditorSettings::DEFAULT_FONT_SIZE,
             Command::SetTheme(theme) => {
-                self.theme = theme;
+                self.settings.theme = theme;
                 theme.apply(ctx);
+            }
+
+            Command::OpenRecent(i) => {
+                if let Some(path) = self.settings.recent_files.get(i as usize).cloned() {
+                    self.open_path(path);
+                }
+            }
+            Command::ClearRecent => self.settings.recent_files.clear(),
+            Command::GoToLine => self.go_to_line = Some(String::new()),
+            Command::RevertToSaved => {
+                if self.can_revert() {
+                    self.confirm_revert = true;
+                }
             }
 
             Command::About => self.show_about = true,
@@ -166,27 +222,30 @@ impl SlothApp {
 
     fn is_checked(&self, cmd: Command) -> Option<bool> {
         match cmd {
-            Command::ToggleLineNumbers => Some(self.settings.show_line_numbers),
-            Command::ToggleWordWrap => Some(self.settings.word_wrap),
-            Command::SetTheme(theme) => Some(self.theme == theme),
+            Command::ToggleLineNumbers => Some(self.settings.editor.show_line_numbers),
+            Command::ToggleWordWrap => Some(self.settings.editor.word_wrap),
+            Command::SetTheme(theme) => Some(self.settings.theme == theme),
             _ => None,
         }
     }
 
-    fn restore_settings(&mut self, storage: &dyn eframe::Storage) {
-        let get = |key| storage.get_string(key);
-        if let Some(theme) = get(KEY_THEME).and_then(|t| ThemeChoice::from_key(&t)) {
-            self.theme = theme;
+    /// Whether a menu item should be clickable right now.
+    fn is_enabled(&self, cmd: Command) -> bool {
+        match cmd {
+            Command::RevertToSaved => self.can_revert(),
+            Command::ClearRecent => !self.settings.recent_files.is_empty(),
+            _ => true,
         }
-        if let Some(v) = get(KEY_LINE_NUMBERS).and_then(|v| v.parse().ok()) {
-            self.settings.show_line_numbers = v;
-        }
-        if let Some(v) = get(KEY_WORD_WRAP).and_then(|v| v.parse().ok()) {
-            self.settings.word_wrap = v;
-        }
-        if let Some(v) = get(KEY_FONT_SIZE).and_then(|v| v.parse().ok()) {
-            self.settings.font_size = v;
-        }
+    }
+
+    fn can_revert(&self) -> bool {
+        let doc = &self.tabs.active().doc;
+        doc.path.is_some() && doc.is_dirty()
+    }
+
+    /// A dialog is up, so menu commands and shortcuts should wait.
+    fn modal_open(&self) -> bool {
+        self.pending.is_some() || self.show_about || self.confirm_revert || self.go_to_line.is_some()
     }
 
     fn focus_editor(&self, ctx: &egui::Context) {
@@ -329,10 +388,16 @@ impl SlothApp {
         match Document::open(&path) {
             Ok(doc) => {
                 self.tabs.open(doc);
+                self.settings.add_recent(&path);
                 self.find.current = None;
                 self.status = None;
             }
-            Err(e) => self.status = Some(format!("Could not open {}: {e}", path.display())),
+            Err(e) => {
+                if !path.exists() {
+                    self.settings.remove_recent(&path);
+                }
+                self.status = Some(format!("Could not open {}: {e}", path.display()));
+            }
         }
     }
 
@@ -345,6 +410,9 @@ impl SlothApp {
             return self.save_as(id);
         }
         let result = tab.doc.save();
+        if result.is_ok() {
+            tab.disk_notice = None;
+        }
         self.report_save(result)
     }
 
@@ -371,6 +439,10 @@ impl SlothApp {
         let path = file_types::with_default_extension(path);
 
         let result = tab.doc.save_as(&path);
+        if result.is_ok() {
+            tab.disk_notice = None;
+            self.settings.add_recent(&path);
+        }
         self.report_save(result)
     }
 
@@ -395,6 +467,169 @@ impl SlothApp {
             .as_ref()
             .and_then(|p| p.parent())
             .map(|p| p.to_path_buf())
+    }
+
+    // ----- session, outside changes, revert, go to line ---------------------
+
+    /// The open files, to reopen next launch.
+    fn session(&self) -> settings::Session {
+        let active_id = self.tabs.active().id;
+        let mut session = settings::Session::default();
+        for tab in self.tabs.iter() {
+            if let Some(path) = &tab.doc.path {
+                if tab.id == active_id {
+                    session.active = session.files.len();
+                }
+                session.files.push(path.clone());
+            }
+        }
+        session
+    }
+
+    /// Look for open files that other programs changed or removed.
+    fn check_disk(&mut self) {
+        let mut reloaded = Vec::new();
+        for tab in self.tabs.iter_mut() {
+            match tab.doc.disk_state() {
+                DiskState::Unchanged => {}
+                DiskState::Changed if !tab.doc.is_dirty() => {
+                    // Nothing to lose: just pick up the new version.
+                    if tab.doc.reload().is_ok() {
+                        tab.disk_notice = None;
+                        reloaded.push(tab.doc.display_name());
+                    }
+                }
+                DiskState::Changed => tab.disk_notice = Some(DiskNotice::Changed),
+                DiskState::Missing => tab.disk_notice = Some(DiskNotice::Missing),
+            }
+        }
+        if !reloaded.is_empty() {
+            self.find.current = None;
+            self.status = Some(format!("Reloaded {} (changed on disk)", reloaded.join(", ")));
+        }
+    }
+
+    fn reload_active(&mut self) {
+        let tab = self.tabs.active_mut();
+        match tab.doc.reload() {
+            Ok(()) => {
+                tab.disk_notice = None;
+                self.find.current = None;
+                self.status = Some(format!("Reverted {}", tab.doc.display_name()));
+            }
+            Err(e) => self.status = Some(format!("Could not reload: {e}")),
+        }
+    }
+
+    fn disk_notice_bar(&mut self, ui: &mut egui::Ui) {
+        let tab = self.tabs.active();
+        let Some(notice) = tab.disk_notice else {
+            return;
+        };
+        let name = tab.doc.display_name();
+        let mut reload = false;
+        let mut dismiss = false;
+        egui::Panel::top("disk-notice")
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().warn_fg_color.gamma_multiply(0.15))
+                    .inner_margin(Margin::symmetric(10, 6)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal(|ui| match notice {
+                    DiskNotice::Changed => {
+                        ui.label(format!(
+                            "\u{201c}{name}\u{201d} was changed by another program. \
+                             You also have unsaved changes."
+                        ));
+                        reload = ui.button("Reload from Disk").clicked();
+                        dismiss = ui.button("Keep My Version").clicked();
+                    }
+                    DiskNotice::Missing => {
+                        ui.label(format!(
+                            "\u{201c}{name}\u{201d} was deleted or moved. Saving will create it again."
+                        ));
+                        dismiss = ui.button("OK").clicked();
+                    }
+                });
+            });
+        if reload {
+            self.reload_active();
+        } else if dismiss {
+            let tab = self.tabs.active_mut();
+            tab.doc.acknowledge_disk_state();
+            tab.disk_notice = None;
+        }
+    }
+
+    fn revert_dialog(&mut self, ctx: &egui::Context) {
+        if !self.confirm_revert {
+            return;
+        }
+        let name = self.tabs.active().doc.display_name();
+        let mut choice = None;
+        egui::Modal::new(egui::Id::unique("revert")).show(ctx, |ui| {
+            ui.set_width(340.0);
+            ui.heading(format!("Revert \u{201c}{name}\u{201d}?"));
+            ui.label("Your unsaved changes will be lost.");
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Revert").clicked() {
+                    choice = Some(true);
+                }
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    choice = Some(false);
+                }
+            });
+        });
+        if let Some(revert) = choice {
+            self.confirm_revert = false;
+            if revert {
+                self.reload_active();
+            }
+        }
+    }
+
+    fn go_to_line_dialog(&mut self, ctx: &egui::Context) {
+        let Some(input) = &mut self.go_to_line else {
+            return;
+        };
+        let line_count = self.tabs.active().doc.line_count();
+        let mut target = None;
+        let mut close = false;
+        egui::Modal::new(egui::Id::unique("go-to-line")).show(ctx, |ui| {
+            ui.set_width(260.0);
+            ui.label("Go to line (or line:column)");
+            let field = ui.add(
+                egui::TextEdit::singleline(input)
+                    .hint_text(format!("1–{line_count}"))
+                    .desired_width(f32::INFINITY),
+            );
+            field.request_focus();
+            let parsed = editor::parse_line_col(input);
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let go = ui.add_enabled(parsed.is_some(), egui::Button::new("Go")).clicked();
+                if go || (parsed.is_some() && ui.input(|i| i.key_pressed(Key::Enter))) {
+                    target = parsed;
+                }
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    close = true;
+                }
+            });
+        });
+
+        if let Some((line, col)) = target {
+            let tab = self.tabs.active();
+            let index = editor::char_index_of(&tab.doc.text, line, col);
+            editor::set_selection(ctx, tab.id, index..index);
+            self.reveal = Some(index);
+            self.focus_editor(ctx);
+            close = true;
+        }
+        if close {
+            self.go_to_line = None;
+        }
     }
 
     // ----- find & replace ---------------------------------------------------
@@ -561,6 +796,23 @@ impl SlothApp {
                 MenuEntry::Submenu(title, children) => {
                     ui.menu_button(*title, |ui| self.menu_entries(ui, ctx, children));
                 }
+                MenuEntry::RecentFiles => {
+                    ui.menu_button("Open Recent", |ui| {
+                        let labels = settings::recent_labels(&self.settings.recent_files);
+                        for (i, label) in labels.into_iter().enumerate() {
+                            if ui.button(label).clicked() {
+                                self.execute(ctx, Command::OpenRecent(i as u8));
+                                ui.close();
+                            }
+                        }
+                        ui.separator();
+                        let clear = egui::Button::new(Command::ClearRecent.label());
+                        if ui.add_enabled(self.is_enabled(Command::ClearRecent), clear).clicked() {
+                            self.execute(ctx, Command::ClearRecent);
+                            ui.close();
+                        }
+                    });
+                }
                 MenuEntry::Item(cmd) => {
                     let cmd = *cmd;
                     let mut label = cmd.label().to_owned();
@@ -571,7 +823,7 @@ impl SlothApp {
                     if let Some(sc) = cmd.shortcut() {
                         button = button.shortcut_text(ctx.format_shortcut(&sc));
                     }
-                    if ui.add(button).clicked() {
+                    if ui.add_enabled(self.is_enabled(cmd), button).clicked() {
                         self.execute(ctx, cmd);
                         ui.close();
                     }
@@ -649,8 +901,8 @@ impl SlothApp {
                 });
                 ui.separator();
                 ScrollArea::vertical().show(ui, |ui| match page {
-                    HelpPage::Shortcuts => shortcuts_page(ui),
-                    HelpPage::ReleaseNotes => release_notes_page(ui),
+                    HelpPage::Shortcuts => help::shortcuts_page(ui),
+                    HelpPage::ReleaseNotes => help::release_notes_page(ui),
                 });
             });
         self.help = open.then_some(page);
@@ -688,69 +940,6 @@ fn modifier_count(m: egui::Modifiers) -> u8 {
     m.alt as u8 + m.ctrl as u8 + m.shift as u8 + m.mac_cmd as u8 + m.command as u8
 }
 
-/// Shortcut reference, generated from the menus so it never goes stale.
-fn shortcuts_page(ui: &mut egui::Ui) {
-    fn collect(entries: &[MenuEntry], out: &mut Vec<Command>) {
-        for entry in entries {
-            match entry {
-                MenuEntry::Item(cmd) if cmd.shortcut().is_some() => out.push(*cmd),
-                MenuEntry::Submenu(_, children) => collect(children, out),
-                _ => {}
-            }
-        }
-    }
-    let ctx = ui.ctx().clone();
-    // One grid for every menu so the shortcut column lines up.
-    egui::Grid::new("shortcuts")
-        .num_columns(2)
-        .spacing([40.0, 4.0])
-        .show(ui, |ui| {
-            for (title, entries) in commands::MENUS {
-                let mut cmds = Vec::new();
-                collect(entries, &mut cmds);
-                if cmds.is_empty() {
-                    continue;
-                }
-                ui.add_space(6.0);
-                ui.end_row();
-                ui.strong(*title);
-                ui.end_row();
-                for cmd in cmds {
-                    ui.label(cmd.label().trim_end_matches('…'));
-                    let sc = cmd.shortcut().expect("filtered above");
-                    ui.monospace(ctx.format_shortcut(&sc));
-                    ui.end_row();
-                }
-            }
-        });
-    ui.add_space(10.0);
-    ui.strong("Tips");
-    for tip in [
-        "Drag files onto the window to open them.",
-        "Middle-click a tab to close it.",
-        "In the find bar, Enter finds the next match and Shift-Enter the previous one.",
-        "Theme, line numbers, word wrap and text size are remembered between launches.",
-    ] {
-        ui.label(format!("•  {tip}"));
-    }
-}
-
-/// CHANGELOG.md, rendered simply.
-fn release_notes_page(ui: &mut egui::Ui) {
-    for line in version::CHANGELOG.lines() {
-        if line.starts_with("# ") {
-            continue; // the document title
-        } else if let Some(heading) = line.strip_prefix("## ") {
-            ui.add_space(8.0);
-            ui.heading(heading);
-        } else if let Some(item) = line.strip_prefix("- ") {
-            ui.label(format!("•  {item}"));
-        } else if !line.trim().is_empty() {
-            ui.label(RichText::new(line).weak());
-        }
-    }
-}
-
 impl eframe::App for SlothApp {
     /// Don't save egui's internal widget state (cursor positions and so on)
     /// between launches: it would be applied to whatever tabs happen to get
@@ -760,10 +949,8 @@ impl eframe::App for SlothApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        storage.set_string(KEY_THEME, self.theme.key());
-        storage.set_string(KEY_LINE_NUMBERS, self.settings.show_line_numbers.to_string());
-        storage.set_string(KEY_WORD_WRAP, self.settings.word_wrap.to_string());
-        storage.set_string(KEY_FONT_SIZE, self.settings.font_size.to_string());
+        self.settings.session = self.session();
+        self.settings.save(storage);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -786,26 +973,42 @@ impl eframe::App for SlothApp {
                 .filter(|p| !p.as_os_str().is_empty())
                 .collect()
         });
+        #[cfg(target_os = "macos")]
+        let dropped = [dropped, crate::macos_open::take_pending()].concat(); // + opened from Finder
         for path in dropped {
             self.open_path(path);
         }
 
+        // Check for outside changes when the window regains focus, and every
+        // couple of seconds while it has focus.
+        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        let now = ctx.input(|i| i.time);
+        if focused
+            && (!self.was_focused || now - self.last_disk_check >= DISK_CHECK_INTERVAL.as_secs_f64())
+        {
+            self.check_disk();
+            self.last_disk_check = now;
+        }
+        self.was_focused = focused;
+        if focused {
+            ctx.request_repaint_after(DISK_CHECK_INTERVAL);
+        }
+
         // On macOS, shortcuts are routed through the native menu bar.
         #[cfg(target_os = "macos")]
-        for cmd in self.native_menu.drain() {
-            if self.pending.is_none() {
+        let menu_commands = self.native_menu.as_ref().map(|m| m.drain()).unwrap_or_default();
+        #[cfg(target_os = "macos")]
+        for cmd in menu_commands {
+            if !self.modal_open() {
                 self.execute(&ctx, cmd);
             }
         }
         #[cfg(not(target_os = "macos"))]
-        if self.pending.is_none() {
+        if !self.modal_open() {
             self.handle_shortcuts(&ctx);
         }
 
-        if self.find.visible
-            && self.pending.is_none()
-            && !self.show_about
-            && ctx.input(|i| i.key_pressed(Key::Escape))
+        if self.find.visible && !self.modal_open() && ctx.input(|i| i.key_pressed(Key::Escape))
         {
             self.handle_find_action(&ctx, FindAction::Close);
         }
@@ -847,6 +1050,7 @@ impl eframe::App for SlothApp {
             }
         }
 
+        self.disk_notice_bar(ui);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
 
         // Computed after the find bar, which may have changed the text or query.
@@ -861,19 +1065,30 @@ impl eframe::App for SlothApp {
             .show(ui, |ui| {
                 let tab = self.tabs.active_mut();
                 self.cursor =
-                    editor::show(ui, tab.id, &mut tab.doc.text, &self.settings, highlights, reveal);
+                    editor::show(ui, tab.id, &mut tab.doc.text, &self.settings.editor, highlights, reveal);
             });
 
         self.unsaved_changes_dialog(&ctx);
+        self.revert_dialog(&ctx);
+        self.go_to_line_dialog(&ctx);
         self.about_window(&ctx);
         self.help_window(&ctx);
         self.update_title(&ctx);
 
         #[cfg(target_os = "macos")]
-        for cmd in commands::all() {
-            if let Some(checked) = self.is_checked(cmd) {
-                self.native_menu.set_checked(cmd, checked);
+        if let Some(mut menu) = self.native_menu.take() {
+            for cmd in commands::all() {
+                if let Some(checked) = self.is_checked(cmd) {
+                    menu.set_checked(cmd, checked);
+                }
+                menu.set_enabled(cmd, self.is_enabled(cmd));
             }
+            menu.set_recent_files(&self.settings.recent_files);
+            self.native_menu = Some(menu);
         }
     }
 }
+
+#[cfg(test)]
+#[path = "app_ui_tests.rs"]
+mod ui_tests;

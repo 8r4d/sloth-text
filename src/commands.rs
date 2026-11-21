@@ -9,6 +9,7 @@
 
 use eframe::egui::{Key, KeyboardShortcut, Modifiers};
 
+use crate::settings::MAX_RECENT;
 use crate::theme::ThemeChoice;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -41,15 +42,22 @@ pub enum Command {
     About,
     Help,
     ReleaseNotes,
+    /// Open the file at this position in File → Open Recent.
+    OpenRecent(u8),
+    ClearRecent,
+    GoToLine,
+    RevertToSaved,
 }
 
 pub enum MenuEntry {
     Item(Command),
     Separator,
     Submenu(&'static str, &'static [MenuEntry]),
+    /// File → Open Recent, whose items change at runtime.
+    RecentFiles,
 }
 
-use MenuEntry::{Item, Separator, Submenu};
+use MenuEntry::{Item, RecentFiles, Separator, Submenu};
 
 /// The menu bar. On macOS, `About` and `Quit` are moved into the application
 /// menu automatically, and the Window and Help menus gain the standard items.
@@ -59,10 +67,12 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
         &[
             Item(Command::New),
             Item(Command::Open),
+            RecentFiles,
             Separator,
             Item(Command::CloseTab),
             Item(Command::Save),
             Item(Command::SaveAs),
+            Item(Command::RevertToSaved),
             Separator,
             Item(Command::Quit),
         ],
@@ -79,6 +89,7 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Item(Command::SelectAll),
             Separator,
             Submenu("Find", FIND_MENU),
+            Item(Command::GoToLine),
         ],
     ),
     (
@@ -137,6 +148,10 @@ pub fn all() -> Vec<Command> {
                 Item(cmd) => out.push(*cmd),
                 Separator => {}
                 Submenu(_, children) => walk(children, out),
+                RecentFiles => {
+                    out.extend((0..MAX_RECENT as u8).map(Command::OpenRecent));
+                    out.push(Command::ClearRecent);
+                }
             }
         }
     }
@@ -178,6 +193,11 @@ impl Command {
             Command::About => "About Sloth",
             Command::Help => "Sloth Help",
             Command::ReleaseNotes => "Release Notes",
+            // Recent file items are labelled with the file name at runtime.
+            Command::OpenRecent(_) => "Open Recent File",
+            Command::ClearRecent => "Clear Menu",
+            Command::GoToLine => "Go to Line…",
+            Command::RevertToSaved => "Revert to Saved",
         }
     }
 
@@ -215,7 +235,13 @@ impl Command {
             Command::FindPrevious => sc(cmd_shift, Key::G),
             Command::UseSelectionForFind => sc(cmd, Key::E),
             Command::Help => sc(cmd_shift, Key::Slash), // ⌘?
-            Command::SetTheme(_) | Command::About | Command::ReleaseNotes => None,
+            Command::GoToLine => sc(cmd, Key::L),
+            Command::SetTheme(_)
+            | Command::About
+            | Command::ReleaseNotes
+            | Command::OpenRecent(_)
+            | Command::ClearRecent
+            | Command::RevertToSaved => None,
         }
     }
 

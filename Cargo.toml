@@ -1,16 +1,19 @@
 [package]
 name = "sloth"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]
 eframe = { version = "0.37.0", features = ["persistence"] }
 rfd = "0.18.0"
+serde = { version = "1.0.229", features = ["derive"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# macOS bindings (already used by muda); used to turn off automatic window tabbing.
+# macOS bindings (already used by muda): window tabbing setting and Finder file-open events.
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSWindow"] }
+# Apple Events, used to receive files opened from Finder.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSNotification", "NSString", "NSURL", "objc2-core-services"] }
 muda = "0.21.2"
 # Same major version eframe uses; needed only to tweak the macOS menu.
 winit = "0.30"
@@ -19,9 +22,17 @@ winit = "0.30"
 lto = true
 strip = true
 
-# `cargo install cargo-bundle && cargo bundle --release` builds Sloth.app
+[dev-dependencies]
+egui_kittest = { version = "0.37.0", features = ["eframe"] }
+ron = "0.12"
+
+# scripts/install.sh builds Sloth.app (via cargo-bundle) and installs it
 [package.metadata.bundle]
 name = "Sloth"
 identifier = "com.bradsalomons.sloth"
 category = "public.app-category.developer-tools"
 short_description = "A simple plain-text editor"
+
+[package.metadata.bundle.osx]
+# Declares which files Sloth can open, for Finder's Open With and the Dock.
+info_plist_exts = ["macos/document-types.plist"]

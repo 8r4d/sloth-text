@@ -6,7 +6,7 @@
 
 use eframe::egui::{self, Color32, SystemTheme, Theme, ThemePreference, ViewportCommand, Visuals};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ThemeChoice {
     /// Light or Dark, following the macOS appearance setting.
     #[default]
