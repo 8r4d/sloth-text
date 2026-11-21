@@ -13,7 +13,7 @@ use muda::{
     AboutMetadata, CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
 
-use crate::commands::{self, Command};
+use crate::commands::{self, Command, MenuEntry};
 
 pub struct NativeMenu {
     /// Must stay alive for the menu to keep working.
@@ -52,38 +52,9 @@ impl NativeMenu {
         );
         menu.append(&app_menu).ok();
 
-        for (title, items) in commands::MENUS {
+        for (title, entries) in commands::MENUS {
             let submenu = Submenu::new(*title, true);
-            // Quit lives in the app menu on macOS; drop it (and any separator
-            // left dangling at the end) from the other menus.
-            let mut items: Vec<_> = items
-                .iter()
-                .filter(|i| **i != Some(Command::Quit))
-                .collect();
-            while items.last() == Some(&&None) {
-                items.pop();
-            }
-            for item in items {
-                match *item {
-                    None => {
-                        submenu.append(&PredefinedMenuItem::separator()).ok();
-                    }
-                    Some(cmd) if is_toggle(cmd) => {
-                        let check = CheckMenuItem::with_id(
-                            cmd.id(),
-                            cmd.label(),
-                            true,
-                            false,
-                            cmd.shortcut().and_then(to_accelerator),
-                        );
-                        submenu.append(&check).ok();
-                        checkable.insert(cmd, check);
-                    }
-                    Some(cmd) => {
-                        submenu.append(&command_item(cmd)).ok();
-                    }
-                }
-            }
+            fill(&submenu, entries, &mut checkable);
             menu.append(&submenu).ok();
         }
 
@@ -135,8 +106,48 @@ impl NativeMenu {
     }
 }
 
-fn is_toggle(cmd: Command) -> bool {
-    matches!(cmd, Command::ToggleLineNumbers | Command::ToggleWordWrap)
+/// Add `entries` to `submenu`, recursing into nested submenus.
+fn fill(
+    submenu: &Submenu,
+    entries: &[MenuEntry],
+    checkable: &mut HashMap<Command, CheckMenuItem>,
+) {
+    // Quit lives in the app menu on macOS; drop it (and any separator left
+    // dangling at the end) from the other menus.
+    let mut entries: Vec<_> = entries
+        .iter()
+        .filter(|e| !matches!(e, MenuEntry::Item(Command::Quit)))
+        .collect();
+    while matches!(entries.last(), Some(MenuEntry::Separator)) {
+        entries.pop();
+    }
+
+    for entry in entries {
+        match entry {
+            MenuEntry::Separator => {
+                submenu.append(&PredefinedMenuItem::separator()).ok();
+            }
+            MenuEntry::Submenu(title, children) => {
+                let child = Submenu::new(*title, true);
+                fill(&child, children, checkable);
+                submenu.append(&child).ok();
+            }
+            MenuEntry::Item(cmd) if cmd.is_checkable() => {
+                let check = CheckMenuItem::with_id(
+                    cmd.id(),
+                    cmd.label(),
+                    true,
+                    false,
+                    cmd.shortcut().and_then(to_accelerator),
+                );
+                submenu.append(&check).ok();
+                checkable.insert(*cmd, check);
+            }
+            MenuEntry::Item(cmd) => {
+                submenu.append(&command_item(*cmd)).ok();
+            }
+        }
+    }
 }
 
 fn command_item(cmd: Command) -> MenuItem {

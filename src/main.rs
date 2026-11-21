@@ -2,6 +2,7 @@ mod app;
 mod commands;
 mod document;
 mod editor;
+mod theme;
 #[cfg(target_os = "macos")]
 mod native_menu;
 

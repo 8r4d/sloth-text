@@ -32,6 +32,9 @@ cargo bundle --release              # -> target/release/bundle/osx/Sloth.app
 | Zoom in / out / reset | ⌘= / ⌘- / ⌘0 |
 
 - Native macOS menu bar (Sloth, File, Edit, View, Window menus)
+- Colour themes (View → Theme): Match System, Light, Dark, Solarized Light,
+  Solarized Dark, Sepia, Midnight
+- Remembers theme, line numbers, word wrap, text size and window size between launches
 - Line-number gutter (also works with word wrap on)
 - Cursor line/column and line count in the status bar
 - Native macOS open/save dialogs
@@ -48,6 +51,7 @@ cargo bundle --release              # -> target/release/bundle/osx/Sloth.app
 | `src/commands.rs` | The `Command` enum: every action, its label, shortcut and menu placement |
 | `src/document.rs` | Loading, saving and unsaved-change tracking for one file |
 | `src/editor.rs`   | The text area and line-number gutter |
+| `src/theme.rs`    | Colour themes: each one is a small palette of colours |
 | `src/native_menu.rs` | macOS menu bar, built from `commands::MENUS` (other platforms get an in-window menu) |
 
 ### Adding a feature
@@ -55,11 +59,16 @@ cargo bundle --release              # -> target/release/bundle/osx/Sloth.app
 Most features start as a new `Command`:
 
 1. Add a variant to `Command` in `commands.rs`.
-2. Give it a `label()` and, if you want one, a `shortcut()`. Add it to `ALL`, and to a menu in `MENUS`.
+2. Give it a `label()` and, if you want one, a `shortcut()`. Put it in a menu in `MENUS`.
 3. Handle it in `SlothApp::execute` in `app.rs`.
 
 The menu item and keyboard shortcut are created from that automatically. If the
 shortcut uses a key that isn't mapped yet, add it to `to_accelerator` in `native_menu.rs`.
+
+To add a theme, add a variant to `ThemeChoice` in `theme.rs` with a label and
+palette, add it to `ALL` there, and add it to `THEME_MENU` in `commands.rs`.
+
+Settings are saved to `~/Library/Application Support/Sloth/app.ron`.
 
 Possible next steps: find/replace, recent files, tabs or several documents
 (`Document` is already separate, so `SlothApp` could hold a `Vec<Document>`),

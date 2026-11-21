@@ -4,9 +4,16 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, Align, Key, Layout, Modifiers, RichText, ViewportCommand};
 
-use crate::commands::{self, Command};
+use crate::commands::{self, Command, MenuEntry};
 use crate::document::Document;
 use crate::editor::{self, CursorInfo, EditorSettings};
+use crate::theme::ThemeChoice;
+
+// Keys for settings remembered between launches.
+const KEY_THEME: &str = "theme";
+const KEY_LINE_NUMBERS: &str = "line_numbers";
+const KEY_WORD_WRAP: &str = "word_wrap";
+const KEY_FONT_SIZE: &str = "font_size";
 
 /// An action that would discard the current document, held while we ask the
 /// user what to do about unsaved changes.
@@ -20,6 +27,7 @@ enum PendingAction {
 pub struct SlothApp {
     doc: Document,
     settings: EditorSettings,
+    theme: ThemeChoice,
     cursor: CursorInfo,
     pending: Option<PendingAction>,
     /// Transient message shown in the status bar (errors, "Saved", …).
@@ -43,6 +51,7 @@ impl SlothApp {
         let mut app = Self {
             doc: Document::new(),
             settings: EditorSettings::default(),
+            theme: ThemeChoice::default(),
             cursor: CursorInfo::default(),
             pending: None,
             status: None,
@@ -51,6 +60,11 @@ impl SlothApp {
             #[cfg(target_os = "macos")]
             native_menu: crate::native_menu::NativeMenu::install(&cc.egui_ctx),
         };
+        if let Some(storage) = cc.storage {
+            app.restore_settings(storage);
+        }
+        app.theme.apply(&cc.egui_ctx);
+
         if let Some(path) = initial_file {
             if path.exists() {
                 app.load(path);
@@ -90,6 +104,26 @@ impl SlothApp {
             Command::ZoomIn => self.settings.font_size = (self.settings.font_size + 1.0).min(72.0),
             Command::ZoomOut => self.settings.font_size = (self.settings.font_size - 1.0).max(6.0),
             Command::ZoomReset => self.settings.font_size = EditorSettings::DEFAULT_FONT_SIZE,
+            Command::SetTheme(theme) => {
+                self.theme = theme;
+                theme.apply(ctx);
+            }
+        }
+    }
+
+    fn restore_settings(&mut self, storage: &dyn eframe::Storage) {
+        let get = |key| storage.get_string(key);
+        if let Some(theme) = get(KEY_THEME).and_then(|t| ThemeChoice::from_key(&t)) {
+            self.theme = theme;
+        }
+        if let Some(v) = get(KEY_LINE_NUMBERS).and_then(|v| v.parse().ok()) {
+            self.settings.show_line_numbers = v;
+        }
+        if let Some(v) = get(KEY_WORD_WRAP).and_then(|v| v.parse().ok()) {
+            self.settings.word_wrap = v;
+        }
+        if let Some(v) = get(KEY_FONT_SIZE).and_then(|v| v.parse().ok()) {
+            self.settings.font_size = v;
         }
     }
 
@@ -119,6 +153,7 @@ impl SlothApp {
         match cmd {
             Command::ToggleLineNumbers => Some(self.settings.show_line_numbers),
             Command::ToggleWordWrap => Some(self.settings.word_wrap),
+            Command::SetTheme(theme) => Some(self.theme == theme),
             _ => None,
         }
     }
@@ -219,10 +254,10 @@ impl SlothApp {
     #[cfg_attr(target_os = "macos", allow(dead_code))] // used where there is no native menu
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
         // Check shortcuts with more modifiers first so ⌘⇧S isn't eaten by ⌘S.
-        let mut cmds: Vec<_> = commands::ALL
-            .iter()
+        let mut cmds: Vec<_> = commands::all()
+            .into_iter()
             .filter(|c| !c.is_handled_by_text_widget())
-            .filter_map(|&c| c.shortcut().map(|s| (c, s)))
+            .filter_map(|c| c.shortcut().map(|s| (c, s)))
             .collect();
         cmds.sort_by_key(|(_, s)| std::cmp::Reverse(modifier_count(s.modifiers)));
 
@@ -241,29 +276,39 @@ impl SlothApp {
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         egui::MenuBar::new().ui(ui, |ui| {
-            for (title, items) in commands::MENUS {
-                ui.menu_button(*title, |ui| {
-                    for item in *items {
-                        let Some(cmd) = *item else {
-                            ui.separator();
-                            continue;
-                        };
-                        let mut label = cmd.label().to_owned();
-                        if let Some(true) = self.is_checked(cmd) {
-                            label = format!("✔ {label}");
-                        }
-                        let mut button = egui::Button::new(label);
-                        if let Some(sc) = cmd.shortcut() {
-                            button = button.shortcut_text(ctx.format_shortcut(&sc));
-                        }
-                        if ui.add(button).clicked() {
-                            self.execute(&ctx, cmd);
-                            ui.close();
-                        }
-                    }
-                });
+            for (title, entries) in commands::MENUS {
+                ui.menu_button(*title, |ui| self.menu_entries(ui, &ctx, entries));
             }
         });
+    }
+
+    #[cfg_attr(target_os = "macos", allow(dead_code))] // used where there is no native menu
+    fn menu_entries(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, entries: &[MenuEntry]) {
+        for entry in entries {
+            match entry {
+                MenuEntry::Separator => {
+                    ui.separator();
+                }
+                MenuEntry::Submenu(title, children) => {
+                    ui.menu_button(*title, |ui| self.menu_entries(ui, ctx, children));
+                }
+                MenuEntry::Item(cmd) => {
+                    let cmd = *cmd;
+                    let mut label = cmd.label().to_owned();
+                    if let Some(true) = self.is_checked(cmd) {
+                        label = format!("✔ {label}");
+                    }
+                    let mut button = egui::Button::new(label);
+                    if let Some(sc) = cmd.shortcut() {
+                        button = button.shortcut_text(ctx.format_shortcut(&sc));
+                    }
+                    if ui.add(button).clicked() {
+                        self.execute(ctx, cmd);
+                        ui.close();
+                    }
+                }
+            }
+        }
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -356,6 +401,13 @@ fn modifier_count(m: egui::Modifiers) -> u8 {
 }
 
 impl eframe::App for SlothApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        storage.set_string(KEY_THEME, self.theme.key());
+        storage.set_string(KEY_LINE_NUMBERS, self.settings.show_line_numbers.to_string());
+        storage.set_string(KEY_WORD_WRAP, self.settings.word_wrap.to_string());
+        storage.set_string(KEY_FONT_SIZE, self.settings.font_size.to_string());
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
@@ -398,9 +450,9 @@ impl eframe::App for SlothApp {
         self.update_title(&ctx);
 
         #[cfg(target_os = "macos")]
-        for cmd in commands::ALL {
-            if let Some(checked) = self.is_checked(*cmd) {
-                self.native_menu.set_checked(*cmd, checked);
+        for cmd in commands::all() {
+            if let Some(checked) = self.is_checked(cmd) {
+                self.native_menu.set_checked(cmd, checked);
             }
         }
     }

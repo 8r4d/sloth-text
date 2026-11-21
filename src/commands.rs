@@ -1,13 +1,15 @@
 //! Every user-triggerable action lives here as a `Command`.
 //!
 //! Menus (native on macOS, in-window elsewhere) and keyboard shortcuts are
-//! both generated from this list, so adding a feature is:
-//!   1. add a variant to `Command` and to `ALL`
+//! both generated from `MENUS`, so adding a feature is:
+//!   1. add a variant to `Command`
 //!   2. give it a label (and optionally a shortcut) below
 //!   3. handle it in `SlothApp::execute` (app.rs)
-//!   4. list it in a menu in `MENUS`
+//!   4. put it in a menu in `MENUS` — every command must appear in a menu
 
 use eframe::egui::{Key, KeyboardShortcut, Modifiers};
+
+use crate::theme::ThemeChoice;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Command {
@@ -27,67 +29,87 @@ pub enum Command {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    SetTheme(ThemeChoice),
 }
 
-/// Menu layout: (menu title, commands). `None` draws a separator.
-///
-/// On macOS, `Quit` is moved into the application menu automatically.
-pub const MENUS: &[(&str, &[Option<Command>])] = &[
+pub enum MenuEntry {
+    Item(Command),
+    Separator,
+    Submenu(&'static str, &'static [MenuEntry]),
+}
+
+use MenuEntry::{Item, Separator, Submenu};
+
+/// The menu bar. On macOS, `Quit` is moved into the application menu automatically.
+pub const MENUS: &[(&str, &[MenuEntry])] = &[
     (
         "File",
         &[
-            Some(Command::New),
-            Some(Command::Open),
-            None,
-            Some(Command::Save),
-            Some(Command::SaveAs),
-            None,
-            Some(Command::Quit),
+            Item(Command::New),
+            Item(Command::Open),
+            Separator,
+            Item(Command::Save),
+            Item(Command::SaveAs),
+            Separator,
+            Item(Command::Quit),
         ],
     ),
     (
         "Edit",
         &[
-            Some(Command::Undo),
-            Some(Command::Redo),
-            None,
-            Some(Command::Cut),
-            Some(Command::Copy),
-            Some(Command::Paste),
-            Some(Command::SelectAll),
+            Item(Command::Undo),
+            Item(Command::Redo),
+            Separator,
+            Item(Command::Cut),
+            Item(Command::Copy),
+            Item(Command::Paste),
+            Item(Command::SelectAll),
         ],
     ),
     (
         "View",
         &[
-            Some(Command::ToggleLineNumbers),
-            Some(Command::ToggleWordWrap),
-            None,
-            Some(Command::ZoomIn),
-            Some(Command::ZoomOut),
-            Some(Command::ZoomReset),
+            Item(Command::ToggleLineNumbers),
+            Item(Command::ToggleWordWrap),
+            Separator,
+            Submenu("Theme", THEME_MENU),
+            Separator,
+            Item(Command::ZoomIn),
+            Item(Command::ZoomOut),
+            Item(Command::ZoomReset),
         ],
     ),
 ];
 
-pub const ALL: &[Command] = &[
-    Command::New,
-    Command::Open,
-    Command::Save,
-    Command::SaveAs,
-    Command::Quit,
-    Command::Undo,
-    Command::Redo,
-    Command::Cut,
-    Command::Copy,
-    Command::Paste,
-    Command::SelectAll,
-    Command::ToggleLineNumbers,
-    Command::ToggleWordWrap,
-    Command::ZoomIn,
-    Command::ZoomOut,
-    Command::ZoomReset,
+const THEME_MENU: &[MenuEntry] = &[
+    Item(Command::SetTheme(ThemeChoice::System)),
+    Separator,
+    Item(Command::SetTheme(ThemeChoice::Light)),
+    Item(Command::SetTheme(ThemeChoice::Dark)),
+    Separator,
+    Item(Command::SetTheme(ThemeChoice::SolarizedLight)),
+    Item(Command::SetTheme(ThemeChoice::SolarizedDark)),
+    Item(Command::SetTheme(ThemeChoice::Sepia)),
+    Item(Command::SetTheme(ThemeChoice::Midnight)),
 ];
+
+/// Every command, in menu order.
+pub fn all() -> Vec<Command> {
+    fn walk(entries: &[MenuEntry], out: &mut Vec<Command>) {
+        for entry in entries {
+            match entry {
+                Item(cmd) => out.push(*cmd),
+                Separator => {}
+                Submenu(_, children) => walk(children, out),
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (_, entries) in MENUS {
+        walk(entries, &mut out);
+    }
+    out
+}
 
 impl Command {
     pub fn label(self) -> &'static str {
@@ -108,6 +130,7 @@ impl Command {
             Command::ZoomIn => "Zoom In",
             Command::ZoomOut => "Zoom Out",
             Command::ZoomReset => "Actual Size",
+            Command::SetTheme(theme) => theme.label(),
         }
     }
 
@@ -134,7 +157,16 @@ impl Command {
             Command::ZoomIn => sc(cmd, Key::Equals),
             Command::ZoomOut => sc(cmd, Key::Minus),
             Command::ZoomReset => sc(cmd, Key::Num0),
+            Command::SetTheme(_) => None,
         }
+    }
+
+    /// Commands shown with a check mark reflecting current state.
+    pub fn is_checkable(self) -> bool {
+        matches!(
+            self,
+            Command::ToggleLineNumbers | Command::ToggleWordWrap | Command::SetTheme(_)
+        )
     }
 
     /// Editing commands the text widget already handles from the keyboard.
@@ -158,6 +190,6 @@ impl Command {
     }
 
     pub fn from_id(id: &str) -> Option<Command> {
-        ALL.iter().copied().find(|c| c.id() == id)
+        all().into_iter().find(|c| c.id() == id)
     }
 }
