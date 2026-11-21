@@ -49,6 +49,8 @@ impl NativeMenu {
             &[
                 &command_item(Command::About),
                 &PredefinedMenuItem::separator(),
+                &command_item(Command::Settings),
+                &PredefinedMenuItem::separator(),
                 &PredefinedMenuItem::services(None),
                 &PredefinedMenuItem::separator(),
                 &PredefinedMenuItem::hide(None),
@@ -301,6 +303,7 @@ fn to_accelerator(sc: KeyboardShortcut) -> Option<Accelerator> {
         Key::Slash => Code::Slash,
         Key::OpenBracket => Code::BracketLeft,
         Key::P => Code::KeyP,
+        Key::Comma => Code::Comma,
         Key::CloseBracket => Code::BracketRight,
         _ => return None, // add more keys here as new shortcuts need them
     };

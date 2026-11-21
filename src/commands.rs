@@ -42,6 +42,7 @@ pub enum Command {
     UseSelectionForFind,
     FindInTabs,
     About,
+    Settings,
     Help,
     ReleaseNotes,
     /// Open the file at this position in File → Open Recent.
@@ -131,6 +132,8 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Separator,
             Item(Command::Indent),
             Item(Command::Outdent),
+            Separator,
+            Item(Command::Settings),
         ],
     ),
     (
@@ -275,6 +278,7 @@ impl Command {
             Command::UseSelectionForFind => "Use Selection for Find",
             Command::FindInTabs => "Find in All Tabs\u{2026}",
             Command::About => "About Sloth",
+            Command::Settings => "Settings\u{2026}",
             Command::Help => "Sloth Help",
             Command::ReleaseNotes => "Release Notes",
             // Recent file items are labelled with the file name at runtime.
@@ -347,6 +351,7 @@ impl Command {
             Command::FindInTabs => sc(cmd_shift, Key::F),
             Command::Help => sc(cmd_shift, Key::Slash), // ⌘?
             Command::GoToLine => sc(cmd, Key::L),
+            Command::Settings => sc(cmd, Key::Comma),
             Command::Indent => sc(cmd, Key::CloseBracket),
             Command::Outdent => sc(cmd, Key::OpenBracket),
             Command::ToggleMarkdownPreview => sc(cmd_alt, Key::P),
@@ -412,7 +417,7 @@ impl Command {
 
     /// On macOS these live in the application menu rather than where `MENUS` puts them.
     pub fn in_app_menu_on_macos(self) -> bool {
-        matches!(self, Command::About | Command::Quit)
+        matches!(self, Command::About | Command::Settings | Command::Quit)
     }
 
     /// Stable string id, used for native menu items.

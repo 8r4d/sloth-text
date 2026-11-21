@@ -106,6 +106,7 @@ struct WindowState {
     /// Character index to scroll into view on the next frame.
     reveal: Option<usize>,
     show_about: bool,
+    show_settings: bool,
     help: Option<HelpPage>,
     /// Text typed into the Go to Line prompt, while it's open.
     go_to_line: Option<String>,
@@ -143,6 +144,7 @@ impl WindowState {
             last_title: String::new(),
             reveal: None,
             show_about: false,
+            show_settings: false,
             help: None,
             go_to_line: None,
             confirm_reload: None,
@@ -261,11 +263,14 @@ impl SlothApp {
         // Reopen the windows and tabs from last time, then any files we were
         // asked to open.
         let session = std::mem::take(&mut app.settings.session);
-        app.restore_session(session);
-        for session in std::mem::take(&mut app.settings.other_windows) {
-            let id = app.add_window(None);
-            app.select(id);
+        let others = std::mem::take(&mut app.settings.other_windows);
+        if app.settings.reopen_at_launch {
             app.restore_session(session);
+            for session in others {
+                let id = app.add_window(None);
+                app.select(id);
+                app.restore_session(session);
+            }
         }
         app.select(ViewportId::ROOT);
         for path in files {
@@ -575,6 +580,7 @@ impl SlothApp {
             }
 
             Command::About => self.w.show_about = true,
+            Command::Settings => self.w.show_settings = true,
             Command::Help => self.w.help = Some(HelpPage::Shortcuts),
             Command::ReleaseNotes => self.w.help = Some(HelpPage::ReleaseNotes),
         }
@@ -693,6 +699,22 @@ impl SlothApp {
                         egui_commonmark::CommonMarkViewer::new().show(ui, cache, &doc.text);
                     });
             });
+    }
+
+    fn settings_window(&mut self, ctx: &egui::Context) {
+        if !self.w.show_settings {
+            return;
+        }
+        let mut open = true;
+        let changes =
+            crate::settings_window::show(ctx, &mut open, &mut self.settings, fonts::families());
+        self.w.show_settings = open;
+        if changes.theme {
+            self.settings.theme.apply(ctx);
+        }
+        if changes.fonts {
+            self.apply_fonts(ctx);
+        }
     }
 
     fn apply_fonts(&self, ctx: &egui::Context) {
@@ -1650,7 +1672,10 @@ impl SlothApp {
                 ui.label(&syntax.name);
                 ui.separator();
             }
-            ui.label(format!("{} lines", doc.line_count()));
+            ui.label(match doc.line_count() {
+                1 => "1 line".to_owned(),
+                n => format!("{n} lines"),
+            });
             if let Some(counts) = &self.w.word_counts {
                 ui.separator();
                 ui.label(counts);
@@ -2013,6 +2038,7 @@ impl SlothApp {
         self.go_to_line_dialog(&ctx);
         self.about_window(&ctx);
         self.help_window(&ctx);
+        self.settings_window(&ctx);
         self.update_title(&ctx);
 
     }

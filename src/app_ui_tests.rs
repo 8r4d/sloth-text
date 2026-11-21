@@ -466,6 +466,13 @@ fn preview_editor() {
     harness.run_steps(4);
     let image = harness.render().expect("render");
     image.save(Path::new(&out).join("markdown.png")).unwrap();
+    // The settings window.
+    let mut harness = self::harness(Settings::default(), vec![]);
+    harness.set_size(egui::vec2(700.0, 620.0));
+    execute(&mut harness, Command::Settings);
+    harness.run_steps(4);
+    let image = harness.render().expect("render");
+    image.save(Path::new(&out).join("settings.png")).unwrap();
 }
 
 #[test]
@@ -808,4 +815,32 @@ fn perf_plain_context() {
              idle (editing) {idle_focused:>8.1?}  typing {typing:>8.1?}"
         );
     }
+}
+
+// ----- 1.0: settings window ---------------------------------------------------
+
+#[test]
+fn settings_window_changes_apply_straight_away() {
+    let mut harness = harness(Settings::default(), vec![]);
+    execute(&mut harness, Command::Settings);
+    harness.get_by_label("Settings");
+
+    harness.get_by_label("Spaces").click();
+    harness.get_by_label("Reopen the windows and tabs from last time").click();
+    harness.run_steps(2);
+    assert!(harness.state().settings.editor.indent_with_spaces);
+    assert!(!harness.state().settings.reopen_at_launch);
+}
+
+#[test]
+fn reopening_at_launch_can_be_turned_off() {
+    let dir = TempDir::new("noreopen");
+    let a = dir.file("a.txt", "A");
+    let settings = Settings {
+        session: crate::settings::Session { files: vec![a], active: 0 },
+        reopen_at_launch: false,
+        ..Settings::default()
+    };
+    let harness = harness(settings, vec![]);
+    assert!(harness.state().w.tabs.is_pristine());
 }

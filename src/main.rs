@@ -16,6 +16,7 @@ mod native_menu;
 mod recovery;
 mod search_results;
 mod settings;
+mod settings_window;
 mod syntax;
 mod tabs;
 mod text_format;

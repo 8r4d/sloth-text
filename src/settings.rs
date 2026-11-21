@@ -16,7 +16,7 @@ pub const MAX_SEARCH_HISTORY: usize = 20;
 
 const STORAGE_KEY: &str = "settings";
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub theme: ThemeChoice,
@@ -29,6 +29,22 @@ pub struct Settings {
     pub other_windows: Vec<Session>,
     /// Recent searches, newest first.
     pub search_history: Vec<String>,
+    /// Reopen last session's windows and tabs at launch.
+    pub reopen_at_launch: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            theme: ThemeChoice::default(),
+            editor: EditorSettings::default(),
+            recent_files: Vec::new(),
+            session: Session::default(),
+            other_windows: Vec::new(),
+            search_history: Vec::new(),
+            reopen_at_launch: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
