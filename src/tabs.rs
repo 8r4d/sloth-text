@@ -1,6 +1,7 @@
 //! Open documents, shown as tabs.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui::{self, Color32, CornerRadius, Frame, Id, Margin, RichText, Sense};
 
@@ -8,7 +9,13 @@ use crate::document::Document;
 use crate::syntax::HighlightCache;
 
 /// Stable identity for a tab (indices shift as tabs close; ids don't).
+/// Unique across all windows, since editor state is keyed by it.
 pub type TabId = u64;
+
+fn next_tab_id() -> TabId {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
 
 pub struct Tab {
     pub id: TabId,
@@ -31,7 +38,6 @@ pub enum DiskNotice {
 pub struct Tabs {
     tabs: Vec<Tab>,
     active: usize,
-    next_id: TabId,
 }
 
 impl Tabs {
@@ -40,7 +46,6 @@ impl Tabs {
         let mut tabs = Self {
             tabs: Vec::new(),
             active: 0,
-            next_id: 0,
         };
         tabs.add(Document::new());
         tabs
@@ -62,6 +67,32 @@ impl Tabs {
         self.tabs.iter_mut()
     }
 
+    /// A tab list holding just this tab (moved from another window).
+    pub fn with_tab(tab: Tab) -> Self {
+        Self { tabs: vec![tab], active: 0 }
+    }
+
+    /// Take a tab out (to move it to another window). There is always at
+    /// least one tab left.
+    pub fn take(&mut self, id: TabId) -> Option<Tab> {
+        let i = self.index_of(id)?;
+        let tab = self.tabs.remove(i);
+        if self.tabs.is_empty() {
+            self.add(Document::new());
+        } else if self.active > i || self.active == self.tabs.len() {
+            self.active = self.active.saturating_sub(1);
+        }
+        Some(tab)
+    }
+
+    /// True if this is just the blank tab every window starts with.
+    pub fn is_pristine(&self) -> bool {
+        self.tabs.len() == 1 && {
+            let doc = &self.tabs[0].doc;
+            doc.path.is_none() && doc.text.is_empty() && !doc.is_dirty()
+        }
+    }
+
     pub fn get_mut(&mut self, id: TabId) -> Option<&mut Tab> {
         self.tabs.iter_mut().find(|t| t.id == id)
     }
@@ -72,8 +103,7 @@ impl Tabs {
 
     /// Add a new tab after the active one and switch to it.
     pub fn add(&mut self, doc: Document) -> TabId {
-        let id = self.next_id;
-        self.next_id += 1;
+        let id = next_tab_id();
         let tab = Tab {
             id,
             doc,

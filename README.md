@@ -25,10 +25,13 @@ pick Sloth under **Open with**, and click **Change All**.
 | Action             | Shortcut |
 |--------------------|----------|
 | New                | ⌘N       |
+| New window         | ⇧⌘N      |
 | Open…              | ⌘O       |
 | Save               | ⌘S       |
 | Save As…           | ⇧⌘S      |
 | Close tab          | ⌘W       |
+| Close window       | ⇧⌘W      |
+| Print              | ⌘P       |
 | Go to line         | ⌘L       |
 | Indent / outdent lines | ⌘] / ⌘[ |
 | Next / previous tab | ⌃⇥ / ⌃⇧⇥ |
@@ -70,6 +73,7 @@ pick Sloth under **Open with**, and click **Change All**.
   brackets, word count, and any installed fixed-width font
 - Drag tabs to reorder them; right-click a tab for more close options
 - Syntax highlighting in theme colours, and a Markdown preview
+- Several windows, each with its own tabs; printing and Save as PDF
 - Asks before discarding unsaved changes (closing a tab, quitting, closing the window)
 - A `•` in the title bar marks unsaved changes
 
@@ -78,7 +82,7 @@ pick Sloth under **Open with**, and click **Change All**.
 | File | What's in it |
 |------|--------------|
 | `src/main.rs`     | Window setup and startup |
-| `src/app.rs`      | App state, command handling, menu bar, status bar, dialogs |
+| `src/app.rs`      | App and window state, command handling, menu bar, status bar, dialogs |
 | `src/commands.rs` | The `Command` enum: every action, its label, shortcut and menu placement |
 | `src/document.rs` | Loading, saving and unsaved-change tracking for one file |
 | `src/tabs.rs`     | The list of open documents and the tab bar |
@@ -89,6 +93,7 @@ pick Sloth under **Open with**, and click **Change All**.
 | `src/version.rs`, `build.rs` | Version, git commit and build date shown in About |
 | `src/settings.rs` | Everything saved between launches (theme, view options, recent files, open tabs) |
 | `src/macos_open.rs` | Receives files opened from Finder |
+| `src/macos_print.rs` | Printing through the macOS print dialog |
 | `src/help.rs`     | The Help window's pages |
 | `src/text_format.rs` | Encodings, byte-order marks and line endings (reading and writing) |
 | `src/recovery.rs` | Crash-recovery copies of unsaved documents |

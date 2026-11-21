@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eframe::egui::{
-    self, Align, Key, Layout, Margin, Modifiers, RichText, ScrollArea, ViewportCommand,
+    self, Align, Key, Layout, Margin, Modifiers, RichText, ScrollArea, ViewportCommand, ViewportId,
 };
 
 use crate::commands::{self, Command, MenuEntry};
@@ -86,16 +86,17 @@ enum HelpPage {
     ReleaseNotes,
 }
 
-pub struct SlothApp {
+/// Everything that belongs to one window.
+struct WindowState {
+    viewport: ViewportId,
+    /// Where and how big a new window opens.
+    builder: egui::ViewportBuilder,
     tabs: Tabs,
-    settings: Settings,
     find: FindState,
     cursor: CursorInfo,
     pending: Option<PendingAction>,
     /// Transient message shown in the status bar (errors, "Saved", …).
     status: Option<String>,
-    /// Set once the user has confirmed quitting, so the close goes through.
-    allow_close: bool,
     last_title: String,
     /// Character index to scroll into view on the next frame.
     reveal: Option<usize>,
@@ -105,11 +106,6 @@ pub struct SlothApp {
     go_to_line: Option<String>,
     confirm_reload: Option<ReloadKind>,
     save_problem: Option<SaveProblem>,
-    /// `None` in tests unless a test turns it on.
-    recovery: Option<Recovery>,
-    /// Documents found from a session that crashed, waiting for the user.
-    recovery_prompt: Option<Leftovers>,
-    last_recovery_save: f64,
     /// Tabs waiting to be closed (Close Other Tabs etc.), one at a time so
     /// each can ask about unsaved changes.
     close_queue: Vec<TabId>,
@@ -118,6 +114,76 @@ pub struct SlothApp {
     match_cache: RefCell<MatchCache>,
     /// The all-tabs search results panel is open.
     show_results: bool,
+    /// The user asked to close this window; it goes once its tabs have closed.
+    closing: bool,
+    /// Finished closing: removed after this frame.
+    closed: bool,
+    /// The main window, hidden because it was closed while others are open.
+    hidden: bool,
+}
+
+impl WindowState {
+    fn new(viewport: ViewportId, builder: egui::ViewportBuilder, tabs: Tabs) -> Self {
+        Self {
+            viewport,
+            builder,
+            tabs,
+            find: FindState::default(),
+            cursor: CursorInfo::default(),
+            pending: None,
+            status: None,
+            last_title: String::new(),
+            reveal: None,
+            show_about: false,
+            help: None,
+            go_to_line: None,
+            confirm_reload: None,
+            save_problem: None,
+            close_queue: Vec::new(),
+            word_counts: None,
+            match_cache: RefCell::default(),
+            show_results: false,
+            closing: false,
+            closed: false,
+            hidden: false,
+        }
+    }
+}
+
+/// The open files in a window, to reopen next launch.
+fn session_of(w: &WindowState) -> settings::Session {
+    let active_id = w.tabs.active().id;
+    let mut session = settings::Session::default();
+    for tab in w.tabs.iter() {
+        if let Some(path) = &tab.doc.path {
+            if tab.id == active_id {
+                session.active = session.files.len();
+            }
+            session.files.push(path.clone());
+        }
+    }
+    session
+}
+
+pub struct SlothApp {
+    /// The window being drawn or acted on right now. Between frames this is
+    /// the focused window, so menu commands apply to it.
+    w: WindowState,
+    /// All other windows. Windows are swapped in and out of `w` as needed.
+    others: Vec<WindowState>,
+    /// The window that last had keyboard focus.
+    focused: ViewportId,
+    /// Some window had focus during this frame.
+    any_focused: bool,
+    next_window: u64,
+    settings: Settings,
+    /// Set once the user has confirmed quitting, so the close goes through.
+    allow_close: bool,
+    /// `None` in tests unless a test turns it on.
+    recovery: Option<Recovery>,
+    /// Documents found from a session that crashed, waiting for the user.
+    recovery_prompt: Option<Leftovers>,
+    last_recovery_save: f64,
     markdown_cache: egui_commonmark::CommonMarkCache,
     /// For noticing files changed by other programs.
     last_disk_check: f64,
@@ -163,27 +229,16 @@ impl SlothApp {
         });
 
         let mut app = Self {
-            tabs: Tabs::new(),
+            w: WindowState::new(ViewportId::ROOT, egui::ViewportBuilder::default(), Tabs::new()),
+            others: Vec::new(),
+            focused: ViewportId::ROOT,
+            any_focused: false,
+            next_window: 0,
             settings,
-            find: FindState::default(),
-            cursor: CursorInfo::default(),
-            pending: None,
-            status: None,
             allow_close: false,
-            last_title: String::new(),
-            reveal: None,
-            show_about: false,
-            help: None,
-            go_to_line: None,
-            confirm_reload: None,
-            save_problem: None,
             recovery: None,
             recovery_prompt: None,
             last_recovery_save: 0.0,
-            close_queue: Vec::new(),
-            word_counts: None,
-            match_cache: RefCell::default(),
-            show_results: false,
             markdown_cache: Default::default(),
             last_disk_check: 0.0,
             was_focused: true,
@@ -193,20 +248,16 @@ impl SlothApp {
         app.settings.theme.apply(ctx);
         app.apply_fonts(ctx);
 
-        // Reopen the tabs from last time, then any files we were asked to open.
+        // Reopen the windows and tabs from last time, then any files we were
+        // asked to open.
         let session = std::mem::take(&mut app.settings.session);
-        let mut active = None;
-        for (i, path) in session.files.into_iter().enumerate() {
-            if path.exists() {
-                app.open_path(path);
-                if i == session.active {
-                    active = Some(app.tabs.active().id);
-                }
-            }
+        app.restore_session(session);
+        for session in std::mem::take(&mut app.settings.other_windows) {
+            let id = app.add_window(None);
+            app.select(id);
+            app.restore_session(session);
         }
-        if let Some(id) = active {
-            app.tabs.activate(id);
-        }
+        app.select(ViewportId::ROOT);
         for path in files {
             if path.exists() {
                 app.open_path(path);
@@ -214,10 +265,136 @@ impl SlothApp {
                 // `sloth newfile.txt` starts an empty doc that saves there.
                 let mut doc = Document::new();
                 doc.path = Some(path);
-                app.tabs.open(doc);
+                app.w.tabs.open(doc);
             }
         }
         app
+    }
+
+    fn restore_session(&mut self, session: settings::Session) {
+        let mut active = None;
+        for (i, path) in session.files.into_iter().enumerate() {
+            if path.exists() {
+                self.open_path(path);
+                if i == session.active {
+                    active = Some(self.w.tabs.active().id);
+                }
+            }
+        }
+        if let Some(id) = active {
+            self.w.tabs.activate(id);
+        }
+    }
+
+    // ----- windows ----------------------------------------------------------
+
+    /// Make the window with this viewport the current one (`self.w`).
+    fn select(&mut self, viewport: ViewportId) {
+        if self.w.viewport == viewport {
+            return;
+        }
+        if let Some(i) = self.others.iter().position(|w| w.viewport == viewport) {
+            std::mem::swap(&mut self.w, &mut self.others[i]);
+        }
+    }
+
+    fn viewports(&self) -> Vec<ViewportId> {
+        let mut ids: Vec<ViewportId> = self.windows().map(|w| w.viewport).collect();
+        // The main window first: the others are drawn from inside its frame.
+        ids.sort_by_key(|id| *id != ViewportId::ROOT);
+        ids
+    }
+
+    fn windows(&self) -> impl Iterator<Item = &WindowState> {
+        std::iter::once(&self.w).chain(&self.others)
+    }
+
+    fn window_mut(&mut self, viewport: ViewportId) -> Option<&mut WindowState> {
+        if self.w.viewport == viewport {
+            return Some(&mut self.w);
+        }
+        self.others.iter_mut().find(|w| w.viewport == viewport)
+    }
+
+    /// Windows the user can see (the main window may be hidden).
+    fn visible_window_count(&self) -> usize {
+        self.windows().filter(|w| !w.hidden && !w.closed).count()
+    }
+
+    /// Run `f` with each window in turn as the current one.
+    fn for_each_window(&mut self, mut f: impl FnMut(&mut Self)) {
+        let start = self.w.viewport;
+        for id in self.viewports() {
+            self.select(id);
+            f(self);
+        }
+        self.select(start);
+    }
+
+    /// Create a window (it appears on the next frame) and return its
+    /// viewport. With `tab`, the window starts with that tab.
+    fn add_window(&mut self, tab: Option<tabs::Tab>) -> ViewportId {
+        let tabs = tab.map(Tabs::with_tab).unwrap_or_else(Tabs::new);
+        self.next_window += 1;
+        let id = ViewportId::from_hash_of(("sloth-window", self.next_window));
+        // Cascade new windows a little down and to the right.
+        let offset = 28.0 * (self.next_window % 8) as f32;
+        let builder = egui::ViewportBuilder::default()
+            .with_title("Sloth")
+            .with_inner_size([900.0, 650.0])
+            .with_min_inner_size([300.0, 200.0])
+            .with_position([120.0 + offset, 120.0 + offset])
+            .with_drag_and_drop(true);
+        self.others.push(WindowState::new(id, builder, tabs));
+        id
+    }
+
+    /// File → New Window (or bring back the main window if it's hidden).
+    fn new_window(&mut self, ctx: &egui::Context, tab: Option<tabs::Tab>) {
+        if let Some(root) = self.window_mut(ViewportId::ROOT)
+            && root.hidden
+        {
+            root.hidden = false;
+            if let Some(tab) = tab {
+                root.tabs = Tabs::with_tab(tab);
+            }
+            ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+            self.focused = ViewportId::ROOT;
+            return;
+        }
+        self.focused = self.add_window(tab);
+    }
+
+    /// Close the current window: its tabs first (asking about unsaved ones),
+    /// then the window. Closing the last window quits.
+    fn request_close_window(&mut self, ctx: &egui::Context) {
+        if self.visible_window_count() <= 1 {
+            self.request_quit(ctx);
+            return;
+        }
+        self.w.closing = true;
+        self.w.close_queue = self.w.tabs.iter().map(|t| t.id).collect();
+    }
+
+    /// Once a closing window's tabs are all closed, close (or for the main
+    /// window, hide) it.
+    fn finish_closing(&mut self, ctx: &egui::Context) {
+        if !self.w.closing || !self.w.close_queue.is_empty() || self.w.pending.is_some() {
+            return;
+        }
+        self.w.closing = false;
+        if !self.w.tabs.is_pristine() {
+            return; // something was cancelled
+        }
+        if self.w.viewport == ViewportId::ROOT {
+            // The main window can't really close while others are open
+            // (that would quit), so hide it until it's needed again.
+            self.w.hidden = true;
+            ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+        } else {
+            self.w.closed = true;
+        }
     }
 
     // ----- command dispatch -------------------------------------------------
@@ -225,24 +402,24 @@ impl SlothApp {
     pub fn execute(&mut self, ctx: &egui::Context, cmd: Command) {
         match cmd {
             Command::New => {
-                self.tabs.add(Document::new());
+                self.w.tabs.add(Document::new());
                 self.after_tab_switch(ctx);
             }
             Command::Open => self.open_dialog(),
             Command::Save => {
-                self.save(self.tabs.active().id);
+                self.save(self.w.tabs.active().id);
             }
             Command::SaveAs => {
-                self.save_as(self.tabs.active().id);
+                self.save_as(self.w.tabs.active().id);
             }
-            Command::CloseTab => self.request_close_tab(self.tabs.active().id),
+            Command::CloseTab => self.request_close_tab(self.w.tabs.active().id),
             Command::Quit => self.request_quit(ctx),
             Command::NextTab => {
-                self.tabs.select_next();
+                self.w.tabs.select_next();
                 self.after_tab_switch(ctx);
             }
             Command::PreviousTab => {
-                self.tabs.select_previous();
+                self.w.tabs.select_previous();
                 self.after_tab_switch(ctx);
             }
 
@@ -255,25 +432,25 @@ impl SlothApp {
             }
             Command::SelectAll => self.send_editor_key(ctx, Modifiers::COMMAND, Key::A),
 
-            Command::Find => self.find.open(false, self.selected_text(ctx)),
-            Command::FindAndReplace => self.find.open(true, self.selected_text(ctx)),
+            Command::Find => self.w.find.open(false, self.selected_text(ctx)),
+            Command::FindAndReplace => self.w.find.open(true, self.selected_text(ctx)),
             Command::FindNext => {
-                self.settings.add_search(&self.find.query);
+                self.settings.add_search(&self.w.find.query);
                 self.find_step(ctx, Direction::Next);
             }
             Command::FindPrevious => {
-                self.settings.add_search(&self.find.query);
+                self.settings.add_search(&self.w.find.query);
                 self.find_step(ctx, Direction::Previous);
             }
             Command::FindInTabs => {
-                self.find.open(false, self.selected_text(ctx));
-                self.show_results = true;
+                self.w.find.open(false, self.selected_text(ctx));
+                self.w.show_results = true;
             }
             Command::UseSelectionForFind => {
                 if let Some(text) = self.selected_text(ctx) {
-                    self.find.query = text;
-                    self.find.visible = true;
-                    self.find.current = None;
+                    self.w.find.query = text;
+                    self.w.find.visible = true;
+                    self.w.find.current = None;
                 }
             }
 
@@ -305,31 +482,31 @@ impl SlothApp {
                 }
             }
             Command::ClearRecent => self.settings.recent_files.clear(),
-            Command::GoToLine => self.go_to_line = Some(String::new()),
+            Command::GoToLine => self.w.go_to_line = Some(String::new()),
             Command::RevertToSaved => {
                 if self.can_revert() {
-                    self.confirm_reload = Some(ReloadKind::Revert);
+                    self.w.confirm_reload = Some(ReloadKind::Revert);
                 }
             }
             Command::ReopenWithEncoding(encoding) => {
-                if self.tabs.active().doc.path.is_some() {
-                    if self.tabs.active().doc.is_dirty() {
-                        self.confirm_reload = Some(ReloadKind::WithEncoding(encoding));
+                if self.w.tabs.active().doc.path.is_some() {
+                    if self.w.tabs.active().doc.is_dirty() {
+                        self.w.confirm_reload = Some(ReloadKind::WithEncoding(encoding));
                     } else {
                         self.reload_active(ReloadKind::WithEncoding(encoding));
                     }
                 }
             }
             Command::ConvertEncoding(encoding) => {
-                self.tabs.active_mut().doc.convert_encoding(encoding.encoding());
+                self.w.tabs.active_mut().doc.convert_encoding(encoding.encoding());
             }
             Command::SetLineEnding(line_ending) => {
-                self.tabs.active_mut().doc.set_line_ending(line_ending);
+                self.w.tabs.active_mut().doc.set_line_ending(line_ending);
             }
 
             Command::Indent | Command::Outdent => {
                 let indent = self.settings.editor.indent();
-                let tab = self.tabs.active_mut();
+                let tab = self.w.tabs.active_mut();
                 editor::apply_edit(ctx, tab.id, &mut tab.doc.text, |t, s| {
                     if cmd == Command::Indent {
                         editing::indent_lines(t, s, indent)
@@ -358,6 +535,14 @@ impl SlothApp {
                 e.syntax_highlighting = !e.syntax_highlighting;
             }
             Command::Print => self.print(),
+            Command::NewWindow => self.new_window(ctx, None),
+            Command::CloseWindow => self.request_close_window(ctx),
+            Command::MoveTabToNewWindow => {
+                let id = self.w.tabs.active().id;
+                if let Some(tab) = self.w.tabs.take(id) {
+                    self.new_window(ctx, Some(tab));
+                }
+            }
             Command::ToggleMarkdownPreview => {
                 let e = &mut self.settings.editor;
                 e.markdown_preview = !e.markdown_preview;
@@ -373,15 +558,15 @@ impl SlothApp {
                 }
             }
             Command::CloseOtherTabs => {
-                self.close_queue = self.tabs.others(self.tabs.active().id);
+                self.w.close_queue = self.w.tabs.others(self.w.tabs.active().id);
             }
             Command::CloseTabsToRight => {
-                self.close_queue = self.tabs.to_the_right_of(self.tabs.active().id);
+                self.w.close_queue = self.w.tabs.to_the_right_of(self.w.tabs.active().id);
             }
 
-            Command::About => self.show_about = true,
-            Command::Help => self.help = Some(HelpPage::Shortcuts),
-            Command::ReleaseNotes => self.help = Some(HelpPage::ReleaseNotes),
+            Command::About => self.w.show_about = true,
+            Command::Help => self.w.help = Some(HelpPage::Shortcuts),
+            Command::ReleaseNotes => self.w.help = Some(HelpPage::ReleaseNotes),
         }
     }
 
@@ -391,9 +576,9 @@ impl SlothApp {
             Command::ToggleWordWrap => Some(self.settings.editor.word_wrap),
             Command::SetTheme(theme) => Some(self.settings.theme == theme),
             Command::ConvertEncoding(e) => {
-                Some(e.encoding() == self.tabs.active().doc.format.encoding)
+                Some(e.encoding() == self.w.tabs.active().doc.format.encoding)
             }
-            Command::SetLineEnding(l) => Some(self.tabs.active().doc.format.line_ending == l),
+            Command::SetLineEnding(l) => Some(self.w.tabs.active().doc.format.line_ending == l),
             Command::IndentWithTabs => Some(!self.settings.editor.indent_with_spaces),
             Command::IndentWithSpaces => Some(self.settings.editor.indent_with_spaces),
             Command::SetTabWidth(w) => Some(self.settings.editor.tab_width == w as usize),
@@ -413,10 +598,11 @@ impl SlothApp {
     fn is_enabled(&self, cmd: Command) -> bool {
         match cmd {
             Command::RevertToSaved => self.can_revert(),
-            Command::ReopenWithEncoding(_) => self.tabs.active().doc.path.is_some(),
-            Command::CloseOtherTabs => self.tabs.iter().count() > 1,
+            Command::ReopenWithEncoding(_) => self.w.tabs.active().doc.path.is_some(),
+            Command::CloseOtherTabs => self.w.tabs.iter().count() > 1,
+            Command::MoveTabToNewWindow => !self.w.tabs.is_pristine(),
             Command::CloseTabsToRight => {
-                !self.tabs.to_the_right_of(self.tabs.active().id).is_empty()
+                !self.w.tabs.to_the_right_of(self.w.tabs.active().id).is_empty()
             }
             Command::ClearRecent => !self.settings.recent_files.is_empty(),
             _ => true,
@@ -424,14 +610,14 @@ impl SlothApp {
     }
 
     fn can_revert(&self) -> bool {
-        let doc = &self.tabs.active().doc;
+        let doc = &self.w.tabs.active().doc;
         doc.path.is_some() && doc.is_dirty()
     }
 
     /// Word count for the status bar: the selection's, or the whole
     /// document's. Skipped for very large files to keep typing fast.
     fn count_words(&self, ctx: &egui::Context) -> Option<String> {
-        let tab = self.tabs.active();
+        let tab = self.w.tabs.active();
         if tab.doc.text.len() > 5_000_000 {
             return None;
         }
@@ -449,26 +635,28 @@ impl SlothApp {
     }
 
     fn print(&mut self) {
-        let doc = &self.tabs.active().doc;
+        let doc = &self.w.tabs.active().doc;
         #[cfg(target_os = "macos")]
         crate::macos_print::print(&doc.display_name(), &doc.text, self.settings.editor.font.as_deref());
         #[cfg(not(target_os = "macos"))]
         {
             let _ = doc;
-            self.status = Some("Printing is only available on macOS".into());
+            self.w.status = Some("Printing is only available on macOS".into());
         }
     }
 
     /// Rendered Markdown beside the editor, for Markdown documents.
     fn markdown_preview(&mut self, ui: &mut egui::Ui) {
-        let doc = &self.tabs.active().doc;
+        let doc = &self.w.tabs.active().doc;
         if !self.settings.editor.markdown_preview || !syntax::is_markdown(doc.path.as_deref()) {
             return;
         }
         let width = ui.available_width();
         let fill = ui.visuals().extreme_bg_color;
+        let panel = self.panel_id("markdown-preview");
+        let doc = &self.w.tabs.active().doc;
         let cache = &mut self.markdown_cache;
-        egui::Panel::right("markdown-preview")
+        egui::Panel::right(panel)
             .resizable(true)
             .default_size(width / 2.0)
             .size_range(200.0..=width * 0.8)
@@ -490,29 +678,34 @@ impl SlothApp {
 
     /// Close queued tabs, stopping to ask about any with unsaved changes.
     fn process_close_queue(&mut self) {
-        while self.pending.is_none() && !self.close_queue.is_empty() {
-            let id = self.close_queue.remove(0);
+        while self.w.pending.is_none() && !self.w.close_queue.is_empty() {
+            let id = self.w.close_queue.remove(0);
             self.request_close_tab(id);
         }
     }
 
+    /// Panel ids include the window, so each window keeps its own layout.
+    fn panel_id(&self, name: &str) -> egui::Id {
+        egui::Id::unique((name, self.w.viewport))
+    }
+
     /// A dialog is up, so menu commands and shortcuts should wait.
     fn modal_open(&self) -> bool {
-        self.pending.is_some()
-            || self.show_about
-            || self.confirm_reload.is_some()
-            || self.go_to_line.is_some()
-            || self.save_problem.is_some()
+        self.w.pending.is_some()
+            || self.w.show_about
+            || self.w.confirm_reload.is_some()
+            || self.w.go_to_line.is_some()
+            || self.w.save_problem.is_some()
             || self.recovery_prompt.is_some()
     }
 
     fn focus_editor(&self, ctx: &egui::Context) {
-        let id = editor::editor_id(self.tabs.active().id);
+        let id = editor::editor_id(self.w.tabs.active().id);
         ctx.memory_mut(|m| m.request_focus(id));
     }
 
     fn after_tab_switch(&mut self, ctx: &egui::Context) {
-        self.find.current = None;
+        self.w.find.current = None;
         self.focus_editor(ctx);
     }
 
@@ -541,41 +734,48 @@ impl SlothApp {
     // ----- closing tabs and quitting ---------------------------------------
 
     fn request_close_tab(&mut self, id: TabId) {
-        match self.tabs.get(id) {
+        match self.w.tabs.get(id) {
             Some(tab) if tab.doc.is_dirty() => {
-                self.tabs.activate(id);
-                self.pending = Some(PendingAction::CloseTab(id));
+                self.w.tabs.activate(id);
+                self.w.pending = Some(PendingAction::CloseTab(id));
             }
-            Some(_) => self.tabs.close(id),
+            Some(_) => self.w.tabs.close(id),
             None => {}
         }
     }
 
     /// Ask about each tab with unsaved changes, then quit.
     fn request_quit(&mut self, ctx: &egui::Context) {
-        if let Some(id) = self.tabs.first_unsaved() {
-            self.tabs.activate(id);
-            self.pending = Some(PendingAction::Quit);
+        if let Some(id) = self.w.tabs.first_unsaved() {
+            self.w.tabs.activate(id);
+            self.w.pending = Some(PendingAction::Quit);
+        } else if let Some(other) = self.others.iter_mut().find(|w| w.tabs.first_unsaved().is_some()) {
+            // Ask in the other window, and bring it to the front.
+            let id = other.tabs.first_unsaved().expect("checked above");
+            other.tabs.activate(id);
+            other.pending = Some(PendingAction::Quit);
+            ctx.send_viewport_cmd_to(other.viewport, ViewportCommand::Focus);
         } else {
             // A clean quit: crash-recovery copies are no longer needed.
             if let Some(recovery) = &mut self.recovery {
                 recovery.clear();
             }
             self.allow_close = true;
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+            // Closing the main window ends the app (and its other windows).
+            ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close);
         }
     }
 
     fn unsaved_changes_dialog(&mut self, ctx: &egui::Context) {
-        let Some(action) = self.pending else {
+        let Some(action) = self.w.pending else {
             return;
         };
         let tab_id = match action {
             PendingAction::CloseTab(id) => id,
-            PendingAction::Quit => self.tabs.active().id,
+            PendingAction::Quit => self.w.tabs.active().id,
         };
-        let Some(tab) = self.tabs.get(tab_id) else {
-            self.pending = None;
+        let Some(tab) = self.w.tabs.get(tab_id) else {
+            self.w.pending = None;
             return;
         };
         let name = tab.doc.display_name();
@@ -602,27 +802,30 @@ impl SlothApp {
         let Some(choice) = choice else {
             return;
         };
-        self.pending = None;
+        self.w.pending = None;
         match (choice, action) {
             (DialogChoice::Cancel, _) => {
-                for tab in self.tabs.iter_mut() {
-                    tab.discard_on_quit = false;
+                for w in std::iter::once(&mut self.w).chain(self.others.iter_mut()) {
+                    for tab in w.tabs.iter_mut() {
+                        tab.discard_on_quit = false;
+                    }
                 }
-                self.close_queue.clear();
+                self.w.close_queue.clear();
+                self.w.closing = false;
             }
             (DialogChoice::Save, PendingAction::CloseTab(id)) => {
                 if self.save(id) {
-                    self.tabs.close(id);
+                    self.w.tabs.close(id);
                 }
             }
-            (DialogChoice::Discard, PendingAction::CloseTab(id)) => self.tabs.close(id),
+            (DialogChoice::Discard, PendingAction::CloseTab(id)) => self.w.tabs.close(id),
             (DialogChoice::Save, PendingAction::Quit) => {
                 if self.save(tab_id) {
                     self.request_quit(ctx);
                 }
             }
             (DialogChoice::Discard, PendingAction::Quit) => {
-                if let Some(tab) = self.tabs.get_mut(tab_id) {
+                if let Some(tab) = self.w.tabs.get_mut(tab_id) {
                     tab.discard_on_quit = true;
                 }
                 self.request_quit(ctx);
@@ -644,35 +847,35 @@ impl SlothApp {
 
     /// Open a file in a tab, or switch to it if it's already open.
     fn open_path(&mut self, path: PathBuf) {
-        if let Some(id) = self.tabs.find_by_path(&path) {
-            self.tabs.activate(id);
+        if let Some(id) = self.w.tabs.find_by_path(&path) {
+            self.w.tabs.activate(id);
             return;
         }
         match Document::open(&path) {
             Ok(doc) => {
-                self.status = doc.read_with_errors.then(|| {
+                self.w.status = doc.read_with_errors.then(|| {
                     format!(
                         "Some of {} isn't valid {}; try File \u{2192} Reopen with Encoding",
                         doc.display_name(),
                         doc.format.encoding.name()
                     )
                 });
-                self.tabs.open(doc);
+                self.w.tabs.open(doc);
                 self.settings.add_recent(&path);
-                self.find.current = None;
+                self.w.find.current = None;
             }
             Err(e) => {
                 if !path.exists() {
                     self.settings.remove_recent(&path);
                 }
-                self.status = Some(format!("Could not open {}: {e}", path.display()));
+                self.w.status = Some(format!("Could not open {}: {e}", path.display()));
             }
         }
     }
 
     /// Returns true if the document was saved.
     fn save(&mut self, id: TabId) -> bool {
-        let Some(tab) = self.tabs.get_mut(id) else {
+        let Some(tab) = self.w.tabs.get_mut(id) else {
             return false;
         };
         if tab.doc.path.is_none() {
@@ -687,7 +890,7 @@ impl SlothApp {
 
     fn save_as(&mut self, id: TabId) -> bool {
         let dir = self.current_dir();
-        let Some(tab) = self.tabs.get_mut(id) else {
+        let Some(tab) = self.w.tabs.get_mut(id) else {
             return false;
         };
         let current = tab.doc.path.as_deref();
@@ -720,27 +923,27 @@ impl SlothApp {
     fn report_save(&mut self, tab: TabId, path: Option<PathBuf>, result: Result<(), SaveError>) -> bool {
         let kind = match result {
             Ok(()) => {
-                self.status = Some("Saved".into());
+                self.w.status = Some("Saved".into());
                 return true;
             }
             Err(SaveError::Unmappable(encoding)) => SaveProblemKind::Unmappable(encoding),
             Err(SaveError::ReadWithErrors) => SaveProblemKind::ReadWithErrors,
             Err(e) => {
-                self.status = Some(format!("Save failed: {e}"));
+                self.w.status = Some(format!("Save failed: {e}"));
                 return false;
             }
         };
-        self.tabs.activate(tab);
-        self.save_problem = Some(SaveProblem { tab, path, kind });
+        self.w.tabs.activate(tab);
+        self.w.save_problem = Some(SaveProblem { tab, path, kind });
         false
     }
 
     fn save_problem_dialog(&mut self, ctx: &egui::Context) {
-        let Some(problem) = &self.save_problem else {
+        let Some(problem) = &self.w.save_problem else {
             return;
         };
-        let Some(tab) = self.tabs.get(problem.tab) else {
-            self.save_problem = None;
+        let Some(tab) = self.w.tabs.get(problem.tab) else {
+            self.w.save_problem = None;
             return;
         };
         let name = tab.doc.display_name();
@@ -783,11 +986,11 @@ impl SlothApp {
         let Some(proceed) = proceed else {
             return;
         };
-        let problem = self.save_problem.take().expect("checked above");
+        let problem = self.w.save_problem.take().expect("checked above");
         if !proceed {
             return;
         }
-        let Some(tab) = self.tabs.get_mut(problem.tab) else {
+        let Some(tab) = self.w.tabs.get_mut(problem.tab) else {
             return;
         };
         match problem.kind {
@@ -806,22 +1009,30 @@ impl SlothApp {
 
     // ----- crash recovery ---------------------------------------------------
 
-    /// Write recovery copies of unsaved documents; drop the rest.
+    /// Write recovery copies of unsaved documents (in every window); drop
+    /// the rest.
     fn save_recovery_copies(&mut self) {
         let Some(recovery) = &mut self.recovery else {
             return;
         };
-        for tab in self.tabs.iter() {
-            if tab.doc.is_dirty() {
-                if let Err(e) = recovery.save(tab.id, &tab.doc) {
-                    self.status = Some(format!("Couldn't write recovery copy: {e}"));
+        let mut error = None;
+        let mut open = std::collections::HashSet::new();
+        for w in std::iter::once(&self.w).chain(&self.others) {
+            for tab in w.tabs.iter() {
+                open.insert(tab.id);
+                if tab.doc.is_dirty() {
+                    if let Err(e) = recovery.save(tab.id, &tab.doc) {
+                        error = Some(format!("Couldn't write recovery copy: {e}"));
+                    }
+                } else {
+                    recovery.remove(tab.id);
                 }
-            } else {
-                recovery.remove(tab.id);
             }
         }
-        let tabs = &self.tabs;
-        recovery.retain(|id| tabs.get(id).is_some());
+        recovery.retain(|id| open.contains(&id));
+        if error.is_some() {
+            self.w.status = error;
+        }
     }
 
     fn recovery_dialog(&mut self, ctx: &egui::Context) {
@@ -856,20 +1067,20 @@ impl SlothApp {
         if restore {
             for record in leftovers.records.clone() {
                 // If that file is already open, put the recovered text there.
-                let existing = record.path.as_deref().and_then(|p| self.tabs.find_by_path(p));
+                let existing = record.path.as_deref().and_then(|p| self.w.tabs.find_by_path(p));
                 match existing {
                     Some(id) => {
-                        if let Some(tab) = self.tabs.get_mut(id) {
+                        if let Some(tab) = self.w.tabs.get_mut(id) {
                             tab.doc.text = record.text;
                         }
-                        self.tabs.activate(id);
+                        self.w.tabs.activate(id);
                     }
                     None => {
-                        self.tabs.open(record.into_document());
+                        self.w.tabs.open(record.into_document());
                     }
                 }
             }
-            self.status = Some("Restored unsaved documents".into());
+            self.w.status = Some("Restored unsaved documents".into());
             // Write them into this session's folder before deleting the old one.
             self.save_recovery_copies();
         }
@@ -877,7 +1088,7 @@ impl SlothApp {
     }
 
     fn current_dir(&self) -> Option<PathBuf> {
-        self.tabs
+        self.w.tabs
             .active()
             .doc
             .path
@@ -888,25 +1099,32 @@ impl SlothApp {
 
     // ----- session, outside changes, revert, go to line ---------------------
 
-    /// The open files, to reopen next launch.
+    /// The open files in the current window, to reopen next launch.
+    #[cfg(test)]
     fn session(&self) -> settings::Session {
-        let active_id = self.tabs.active().id;
-        let mut session = settings::Session::default();
-        for tab in self.tabs.iter() {
-            if let Some(path) = &tab.doc.path {
-                if tab.id == active_id {
-                    session.active = session.files.len();
-                }
-                session.files.push(path.clone());
-            }
-        }
-        session
+        session_of(&self.w)
+    }
+
+    /// Main window, then the other windows that have files open.
+    fn all_sessions(&self) -> (settings::Session, Vec<settings::Session>) {
+        let main = self
+            .windows()
+            .find(|w| w.viewport == ViewportId::ROOT)
+            .map(session_of)
+            .unwrap_or_default();
+        let others = self
+            .windows()
+            .filter(|w| w.viewport != ViewportId::ROOT && !w.closed)
+            .map(session_of)
+            .filter(|s| !s.files.is_empty())
+            .collect();
+        (main, others)
     }
 
     /// Look for open files that other programs changed or removed.
     fn check_disk(&mut self) {
         let mut reloaded = Vec::new();
-        for tab in self.tabs.iter_mut() {
+        for tab in self.w.tabs.iter_mut() {
             match tab.doc.disk_state() {
                 DiskState::Unchanged => {}
                 DiskState::Changed if !tab.doc.is_dirty() => {
@@ -922,13 +1140,13 @@ impl SlothApp {
             }
         }
         if !reloaded.is_empty() {
-            self.find.current = None;
-            self.status = Some(format!("Reloaded {} (changed on disk)", reloaded.join(", ")));
+            self.w.find.current = None;
+            self.w.status = Some(format!("Reloaded {} (changed on disk)", reloaded.join(", ")));
         }
     }
 
     fn reload_active(&mut self, kind: ReloadKind) {
-        let tab = self.tabs.active_mut();
+        let tab = self.w.tabs.active_mut();
         let encoding = match kind {
             // Keep reading it the way it's being read now.
             ReloadKind::Revert => tab.doc.format.encoding,
@@ -937,9 +1155,9 @@ impl SlothApp {
         match tab.doc.reload_with_encoding(Some(encoding)) {
             Ok(()) => {
                 tab.disk_notice = None;
-                self.find.current = None;
+                self.w.find.current = None;
                 let name = tab.doc.display_name();
-                self.status = Some(match kind {
+                self.w.status = Some(match kind {
                     ReloadKind::Revert => format!("Reverted {name}"),
                     ReloadKind::WithEncoding(e) if tab.doc.read_with_errors => {
                         format!("{name} isn't valid {} either", e.short_name())
@@ -947,19 +1165,19 @@ impl SlothApp {
                     ReloadKind::WithEncoding(e) => format!("Reopened {name} as {}", e.short_name()),
                 });
             }
-            Err(e) => self.status = Some(format!("Could not reload: {e}")),
+            Err(e) => self.w.status = Some(format!("Could not reload: {e}")),
         }
     }
 
     fn disk_notice_bar(&mut self, ui: &mut egui::Ui) {
-        let tab = self.tabs.active();
+        let tab = self.w.tabs.active();
         let Some(notice) = tab.disk_notice else {
             return;
         };
         let name = tab.doc.display_name();
         let mut reload = false;
         let mut dismiss = false;
-        egui::Panel::top("disk-notice")
+        egui::Panel::top(self.panel_id("disk-notice"))
             .frame(
                 egui::Frame::NONE
                     .fill(ui.visuals().warn_fg_color.gamma_multiply(0.15))
@@ -986,7 +1204,7 @@ impl SlothApp {
         if reload {
             self.reload_active(ReloadKind::Revert);
         } else if dismiss {
-            let tab = self.tabs.active_mut();
+            let tab = self.w.tabs.active_mut();
             tab.doc.acknowledge_disk_state();
             tab.disk_notice = None;
         }
@@ -994,10 +1212,10 @@ impl SlothApp {
 
     /// Confirm discarding unsaved changes before Revert or Reopen with Encoding.
     fn reload_dialog(&mut self, ctx: &egui::Context) {
-        let Some(kind) = self.confirm_reload else {
+        let Some(kind) = self.w.confirm_reload else {
             return;
         };
-        let name = self.tabs.active().doc.display_name();
+        let name = self.w.tabs.active().doc.display_name();
         let (heading, button) = match kind {
             ReloadKind::Revert => (format!("Revert \u{201c}{name}\u{201d}?"), "Revert".to_owned()),
             ReloadKind::WithEncoding(e) => (
@@ -1021,7 +1239,7 @@ impl SlothApp {
             });
         });
         if let Some(go) = choice {
-            self.confirm_reload = None;
+            self.w.confirm_reload = None;
             if go {
                 self.reload_active(kind);
             }
@@ -1029,10 +1247,10 @@ impl SlothApp {
     }
 
     fn go_to_line_dialog(&mut self, ctx: &egui::Context) {
-        let Some(input) = &mut self.go_to_line else {
+        let Some(input) = &mut self.w.go_to_line else {
             return;
         };
-        let line_count = self.tabs.active().doc.line_count();
+        let line_count = self.w.tabs.active().doc.line_count();
         let mut target = None;
         let mut close = false;
         egui::Modal::new(egui::Id::unique("go-to-line")).show(ctx, |ui| {
@@ -1058,15 +1276,15 @@ impl SlothApp {
         });
 
         if let Some((line, col)) = target {
-            let tab = self.tabs.active();
+            let tab = self.w.tabs.active();
             let index = editor::char_index_of(&tab.doc.text, line, col);
             editor::set_selection(ctx, tab.id, index..index);
-            self.reveal = Some(index);
+            self.w.reveal = Some(index);
             self.focus_editor(ctx);
             close = true;
         }
         if close {
-            self.go_to_line = None;
+            self.w.go_to_line = None;
         }
     }
 
@@ -1075,27 +1293,27 @@ impl SlothApp {
     /// Matches in the active tab (empty when not searching or the pattern
     /// is invalid).
     fn matches(&self) -> Arc<Vec<Range<usize>>> {
-        if !self.find.is_searching() {
+        if !self.w.find.is_searching() {
             return Arc::default();
         }
-        self.search_tab(self.tabs.active()).unwrap_or_default()
+        self.search_tab(self.w.tabs.active()).unwrap_or_default()
     }
 
     /// Why the current search can't run, if it can't (an invalid regex).
     fn find_error(&self) -> Option<String> {
-        if !self.find.is_searching() {
+        if !self.w.find.is_searching() {
             return None;
         }
-        self.search_tab(self.tabs.active()).err()
+        self.search_tab(self.w.tabs.active()).err()
     }
 
     /// Search one tab, reusing the last result if nothing has changed.
     fn search_tab(&self, tab: &Tab) -> Result<Arc<Vec<Range<usize>>>, String> {
-        let mut cache = self.match_cache.borrow_mut();
-        if cache.query != self.find.query || cache.options != self.find.options {
+        let mut cache = self.w.match_cache.borrow_mut();
+        if cache.query != self.w.find.query || cache.options != self.w.find.options {
             *cache = MatchCache {
-                query: self.find.query.clone(),
-                options: self.find.options,
+                query: self.w.find.query.clone(),
+                options: self.w.find.options,
                 tabs: HashMap::new(),
             };
         }
@@ -1104,7 +1322,7 @@ impl SlothApp {
         {
             return hit.matches.clone();
         }
-        let matches = find::find_all(&tab.doc.text, &self.find.query, self.find.options).map(Arc::new);
+        let matches = find::find_all(&tab.doc.text, &self.w.find.query, self.w.find.options).map(Arc::new);
         cache.tabs.insert(
             tab.id,
             CachedSearch { text: tab.doc.text.clone(), matches: matches.clone(), rows: None },
@@ -1117,7 +1335,7 @@ impl SlothApp {
         let Ok(matches) = self.search_tab(tab) else {
             return Arc::default();
         };
-        let mut cache = self.match_cache.borrow_mut();
+        let mut cache = self.w.match_cache.borrow_mut();
         let entry = cache.tabs.get_mut(&tab.id).expect("just searched");
         entry
             .rows
@@ -1126,11 +1344,11 @@ impl SlothApp {
     }
 
     fn results_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
-        if !self.show_results || !self.find.is_searching() {
+        if !self.w.show_results || !self.w.find.is_searching() {
             return;
         }
         let rows: Vec<(TabId, String, Arc<Vec<ResultRow>>)> = self
-            .tabs
+            .w.tabs
             .iter()
             .map(|t| (t.id, t.doc.display_name(), self.result_rows(t)))
             .collect();
@@ -1139,28 +1357,28 @@ impl SlothApp {
             .map(|(id, name, rows)| TabResults { tab: *id, name: name.clone(), rows })
             .collect();
         let error = self.find_error();
-        let action = egui::Panel::bottom("search-results")
+        let action = egui::Panel::bottom(self.panel_id("search-results"))
             .resizable(true)
             .default_size(200.0)
             .show(ui, |ui| search_results::results_panel(ui, &results, error.as_deref()))
             .inner;
         match action {
             Some(ResultsAction::Jump(tab, range)) => {
-                self.tabs.activate(tab);
+                self.w.tabs.activate(tab);
                 self.select_match(ctx, range);
                 self.focus_editor(ctx);
             }
-            Some(ResultsAction::Close) => self.show_results = false,
+            Some(ResultsAction::Close) => self.w.show_results = false,
             None => {}
         }
         // Forget closed tabs.
-        let tabs = &self.tabs;
-        self.match_cache.borrow_mut().tabs.retain(|id, _| tabs.get(*id).is_some());
+        let tabs = &self.w.tabs;
+        self.w.match_cache.borrow_mut().tabs.retain(|id, _| tabs.get(*id).is_some());
     }
 
     /// The editor's selection as a byte range.
     fn selection_bytes(&self, ctx: &egui::Context) -> Range<usize> {
-        let tab = self.tabs.active();
+        let tab = self.w.tabs.active();
         let text = &tab.doc.text;
         editor::selection(ctx, tab.id)
             .map(|r| find::char_to_byte(text, r.start)..find::char_to_byte(text, r.end))
@@ -1170,24 +1388,24 @@ impl SlothApp {
     /// Selected text, if it's a short single line (used to pre-fill Find).
     fn selected_text(&self, ctx: &egui::Context) -> Option<String> {
         let range = self.selection_bytes(ctx);
-        let text = self.tabs.active().doc.text.get(range)?;
+        let text = self.w.tabs.active().doc.text.get(range)?;
         (!text.is_empty() && !text.contains('\n') && text.len() < 200).then(|| text.to_owned())
     }
 
     fn find_step(&mut self, ctx: &egui::Context, direction: Direction) {
-        if self.find.query.is_empty() {
-            self.find.open(false, self.selected_text(ctx));
+        if self.w.find.query.is_empty() {
+            self.w.find.open(false, self.selected_text(ctx));
             return;
         }
-        self.find.visible = true;
+        self.w.find.visible = true;
         let matches = self.matches();
         if matches.is_empty() {
-            self.find.current = None;
+            self.w.find.current = None;
             return;
         }
         // Search relative to the current match, or else the cursor/selection.
         let anchor = self
-            .find
+            .w.find
             .current
             .clone()
             .filter(|c| matches.contains(c))
@@ -1207,63 +1425,63 @@ impl SlothApp {
     }
 
     fn select_match(&mut self, ctx: &egui::Context, range: Range<usize>) {
-        let tab = self.tabs.active();
+        let tab = self.w.tabs.active();
         let start = find::byte_to_char(&tab.doc.text, range.start);
         let end = find::byte_to_char(&tab.doc.text, range.end);
         editor::set_selection(ctx, tab.id, start..end);
-        self.reveal = Some(start);
-        self.find.current = Some(range);
+        self.w.reveal = Some(start);
+        self.w.find.current = Some(range);
     }
 
     fn replace_current(&mut self, ctx: &egui::Context) {
         let matches = self.matches();
-        let Some(current) = self.find.current.clone().filter(|c| matches.contains(c)) else {
+        let Some(current) = self.w.find.current.clone().filter(|c| matches.contains(c)) else {
             // Nothing selected yet: the first press just finds.
             self.find_step(ctx, Direction::Next);
             return;
         };
         let replacement = match find::replacement_for(
-            &self.tabs.active().doc.text,
+            &self.w.tabs.active().doc.text,
             current.clone(),
-            &self.find.query,
-            &self.find.replacement,
-            self.find.options,
+            &self.w.find.query,
+            &self.w.find.replacement,
+            self.w.find.options,
         ) {
             Ok(r) => r,
             Err(e) => {
-                self.status = Some(format!("Can't replace: {e}"));
+                self.w.status = Some(format!("Can't replace: {e}"));
                 return;
             }
         };
-        let tab = self.tabs.active_mut();
+        let tab = self.w.tabs.active_mut();
         tab.doc.text.replace_range(current.clone(), &replacement);
         let after = current.start + replacement.len();
         let after_char = find::byte_to_char(&tab.doc.text, after);
         let id = tab.id;
         editor::set_selection(ctx, id, after_char..after_char);
-        self.find.current = None;
+        self.w.find.current = None;
         self.find_step(ctx, Direction::Next);
     }
 
     fn replace_all(&mut self, ctx: &egui::Context) {
-        let tab = self.tabs.active_mut();
+        let tab = self.w.tabs.active_mut();
         let (text, count) = match find::replace_all(
             &tab.doc.text,
-            &self.find.query,
-            &self.find.replacement,
-            self.find.options,
+            &self.w.find.query,
+            &self.w.find.replacement,
+            self.w.find.options,
         ) {
             Ok(result) => result,
             Err(e) => {
-                self.status = Some(format!("Can't replace: {e}"));
+                self.w.status = Some(format!("Can't replace: {e}"));
                 return;
             }
         };
         tab.doc.text = text;
         let id = tab.id;
         editor::set_selection(ctx, id, 0..0);
-        self.find.current = None;
-        self.status = Some(match count {
+        self.w.find.current = None;
+        self.w.status = Some(match count {
             1 => "Replaced 1 occurrence".to_owned(),
             n => format!("Replaced {n} occurrences"),
         });
@@ -1272,32 +1490,32 @@ impl SlothApp {
     fn handle_find_action(&mut self, ctx: &egui::Context, action: FindAction) {
         match action {
             FindAction::Search => {
-                if self.find.query.is_empty() {
-                    self.find.current = None;
+                if self.w.find.query.is_empty() {
+                    self.w.find.current = None;
                 } else {
                     self.find_step(ctx, Direction::FromCursor);
                 }
             }
             FindAction::Next => {
-                self.settings.add_search(&self.find.query);
+                self.settings.add_search(&self.w.find.query);
                 self.find_step(ctx, Direction::Next);
             }
             FindAction::Previous => {
-                self.settings.add_search(&self.find.query);
+                self.settings.add_search(&self.w.find.query);
                 self.find_step(ctx, Direction::Previous);
             }
             FindAction::Replace => {
-                self.settings.add_search(&self.find.query);
+                self.settings.add_search(&self.w.find.query);
                 self.replace_current(ctx);
             }
             FindAction::ReplaceAll => {
-                self.settings.add_search(&self.find.query);
+                self.settings.add_search(&self.w.find.query);
                 self.replace_all(ctx);
             }
-            FindAction::ToggleResults => self.show_results = !self.show_results,
+            FindAction::ToggleResults => self.w.show_results = !self.w.show_results,
             FindAction::Close => {
-                self.find.close();
-                self.show_results = false;
+                self.w.find.close();
+                self.w.show_results = false;
                 self.focus_editor(ctx);
             }
         }
@@ -1395,7 +1613,7 @@ impl SlothApp {
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
-        let doc = &self.tabs.active().doc;
+        let doc = &self.w.tabs.active().doc;
         // Right-hand details first, so the path on the left gets whatever
         // room is left and is cut short (…) rather than overlapping them.
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1409,16 +1627,16 @@ impl SlothApp {
                 ui.separator();
             }
             ui.label(format!("{} lines", doc.line_count()));
-            if let Some(counts) = &self.word_counts {
+            if let Some(counts) = &self.w.word_counts {
                 ui.separator();
                 ui.label(counts);
             }
-            if let Some((line, col)) = self.cursor.line_col {
+            if let Some((line, col)) = self.w.cursor.line_col {
                 ui.separator();
                 ui.label(format!("Ln {line}, Col {col}"));
             }
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                if let Some(msg) = &self.status {
+                if let Some(msg) = &self.w.status {
                     ui.add(egui::Label::new(msg.as_str()).truncate());
                     ui.separator();
                 }
@@ -1434,7 +1652,7 @@ impl SlothApp {
     }
 
     fn about_window(&mut self, ctx: &egui::Context) {
-        if !self.show_about {
+        if !self.w.show_about {
             return;
         }
         let response = egui::Modal::new(egui::Id::unique("about")).show(ctx, |ui| {
@@ -1449,22 +1667,22 @@ impl SlothApp {
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     if ui.button("Release Notes").clicked() {
-                        self.help = Some(HelpPage::ReleaseNotes);
-                        self.show_about = false;
+                        self.w.help = Some(HelpPage::ReleaseNotes);
+                        self.w.show_about = false;
                     }
                     if ui.button("OK").clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
-                        self.show_about = false;
+                        self.w.show_about = false;
                     }
                 });
             });
         });
         if response.should_close() {
-            self.show_about = false;
+            self.w.show_about = false;
         }
     }
 
     fn help_window(&mut self, ctx: &egui::Context) {
-        let Some(mut page) = self.help else {
+        let Some(mut page) = self.w.help else {
             return;
         };
         let mut open = true;
@@ -1483,19 +1701,19 @@ impl SlothApp {
                     HelpPage::ReleaseNotes => help::release_notes_page(ui),
                 });
             });
-        self.help = open.then_some(page);
+        self.w.help = open.then_some(page);
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {
-        let doc = &self.tabs.active().doc;
+        let doc = &self.w.tabs.active().doc;
         let title = format!(
             "{}{} — Sloth",
             if doc.is_dirty() { "• " } else { "" },
             doc.display_name()
         );
-        if title != self.last_title {
+        if title != self.w.last_title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
-            self.last_title = title;
+            self.w.last_title = title;
         }
     }
 }
@@ -1527,168 +1745,66 @@ impl eframe::App for SlothApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.settings.session = self.session();
+        let (main, others) = self.all_sessions();
+        self.settings.session = main;
+        self.settings.other_windows = others;
         self.settings.save(storage);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
-        // Window close button: intercept if there are unsaved changes.
-        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
-            ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-            if self.pending.is_none() {
-                self.request_quit(&ctx);
+        // Files opened from Finder go to the focused window.
+        #[cfg(target_os = "macos")]
+        {
+            let opened = crate::macos_open::take_pending();
+            if !opened.is_empty() {
+                self.select(self.focused);
+                for path in opened {
+                    self.open_path(path);
+                }
             }
         }
 
-        // Files dragged onto the window.
-        let dropped: Vec<PathBuf> = ctx.input(|i| {
-            i.raw
-                .dropped_files
-                .iter()
-                .map(|f| f.path().to_path_buf())
-                .filter(|p| !p.as_os_str().is_empty())
-                .collect()
-        });
-        #[cfg(target_os = "macos")]
-        let dropped = [dropped, crate::macos_open::take_pending()].concat(); // + opened from Finder
-        for path in dropped {
-            self.open_path(path);
-        }
-
-        // Check for outside changes when the window regains focus, and every
-        // couple of seconds while it has focus.
-        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        // Check for outside changes when the app regains focus, and every
+        // couple of seconds while it has focus; write recovery copies every
+        // few seconds and when it loses focus.
+        let focused = std::mem::take(&mut self.any_focused) || self.was_focused_initially();
         let now = ctx.input(|i| i.time);
         if focused
             && (!self.was_focused || now - self.last_disk_check >= DISK_CHECK_INTERVAL.as_secs_f64())
         {
-            self.check_disk();
+            self.for_each_window(|app| app.check_disk());
             self.last_disk_check = now;
         }
-        // Recovery copies: every few seconds, and when the window loses focus.
         if (self.was_focused && !focused) || now - self.last_recovery_save >= RECOVERY_INTERVAL {
             self.save_recovery_copies();
             self.last_recovery_save = now;
         }
         self.was_focused = focused;
-        if focused {
-            ctx.request_repaint_after(DISK_CHECK_INTERVAL);
-        }
+        ctx.request_repaint_after(DISK_CHECK_INTERVAL);
 
-        // On macOS, shortcuts are routed through the native menu bar.
-        #[cfg(target_os = "macos")]
-        let menu_commands = self.native_menu.as_ref().map(|m| m.drain()).unwrap_or_default();
-        #[cfg(target_os = "macos")]
-        for cmd in menu_commands {
-            if !self.modal_open() {
-                self.execute(&ctx, cmd);
-            }
-        }
-        #[cfg(not(target_os = "macos"))]
-        if !self.modal_open() {
-            self.handle_shortcuts(&ctx);
-        }
-
-        if self.find.visible && !self.modal_open() && ctx.input(|i| i.key_pressed(Key::Escape))
-        {
-            self.handle_find_action(&ctx, FindAction::Close);
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
-
-        // Tab bar.
-        let tab_action = egui::Panel::top("tabs")
-            .frame(
-                egui::Frame::NONE
-                    .fill(ui.visuals().panel_fill)
-                    .inner_margin(Margin { left: 6, right: 6, top: 4, bottom: 0 }),
-            )
-            .show(ui, |ui| tabs::tab_bar(ui, &self.tabs))
-            .inner;
-        match tab_action {
-            Some(TabBarAction::Activate(id)) => {
-                self.tabs.activate(id);
-                self.after_tab_switch(&ctx);
-            }
-            Some(TabBarAction::Close(id)) => self.request_close_tab(id),
-            Some(TabBarAction::CloseOthers(id)) => self.close_queue = self.tabs.others(id),
-            Some(TabBarAction::CloseToTheRight(id)) => {
-                self.close_queue = self.tabs.to_the_right_of(id);
-            }
-            Some(TabBarAction::Move { from, to }) => self.tabs.move_tab(from, to),
-            None => {}
-        }
-
-        // Find bar.
-        if self.find.visible {
-            let matches = self.matches();
-            let current_index = self
-                .find
-                .current
-                .as_ref()
-                .and_then(|c| matches.iter().position(|m| m == c));
-            let error = self.find_error();
-            let info = FindBarInfo {
-                match_count: matches.len(),
-                current_index,
-                error: error.as_deref(),
-                history: &self.settings.search_history,
-                results_open: self.show_results,
-            };
-            let action = egui::Panel::top("find")
-                .show(ui, |ui| find::find_bar(ui, &mut self.find, info))
-                .inner;
-            if let Some(action) = action {
-                self.handle_find_action(&ctx, action);
+        // Draw every window: the main one in this frame, the others in their
+        // own viewports (drawn from inside this frame).
+        for id in self.viewports() {
+            self.select(id);
+            if id == ViewportId::ROOT {
+                self.window_ui(ui);
+            } else if !self.w.closed {
+                let builder = self.w.builder.clone();
+                ctx.show_viewport_immediate(id, builder, |ui, _| self.window_ui(ui));
             }
         }
 
-        self.disk_notice_bar(ui);
-        self.word_counts = self.count_words(&ctx);
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        self.results_panel(&ctx, ui);
-
-        // Computed after the find bar, which may have changed the text or query.
-        let matches = self.matches();
-        let highlights = Highlights {
-            all: &matches,
-            current: self.find.current.clone(),
-        };
-        let reveal = self.reveal.take();
-        self.markdown_preview(ui);
-        let colors = self.settings.theme.syntax_colors(ui.visuals().dark_mode);
-        let highlighting = self.settings.editor.syntax_highlighting;
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color))
-            .show(ui, |ui| {
-                let tab = self.tabs.active_mut();
-                let syntax = highlighting
-                    .then(|| syntax::detect(tab.doc.path.as_deref(), &tab.doc.text))
-                    .flatten()
-                    .map(|syntax| SyntaxInput { syntax, colors, cache: &mut tab.highlight_cache });
-                self.cursor = editor::show(
-                    ui,
-                    tab.id,
-                    &mut tab.doc.text,
-                    &self.settings.editor,
-                    highlights,
-                    reveal,
-                    syntax,
-                );
-            });
-
-        self.process_close_queue();
-        self.unsaved_changes_dialog(&ctx);
-        self.reload_dialog(&ctx);
-        self.save_problem_dialog(&ctx);
-        self.recovery_dialog(&ctx);
-        self.go_to_line_dialog(&ctx);
-        self.about_window(&ctx);
-        self.help_window(&ctx);
-        self.update_title(&ctx);
+        // Windows that finished closing are no longer shown, which closes them.
+        self.select(ViewportId::ROOT);
+        self.others.retain(|w| !w.closed);
+        let focus_ok = self.windows().any(|w| w.viewport == self.focused && !w.hidden);
+        if !focus_ok {
+            let first_visible = self.windows().find(|w| !w.hidden).map_or(ViewportId::ROOT, |w| w.viewport);
+            self.focused = first_visible;
+        }
+        self.select(self.focused);
 
         #[cfg(target_os = "macos")]
         if let Some(mut menu) = self.native_menu.take() {
@@ -1702,6 +1818,179 @@ impl eframe::App for SlothApp {
             menu.set_fonts(fonts::families());
             self.native_menu = Some(menu);
         }
+    }
+
+    /// Other windows are drawn during the main window's frame. When the main
+    /// window is minimized or hidden, eframe skips that frame (and only calls
+    /// this), so ask for it anyway or the other windows would freeze.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let main_out_of_sight = ctx.input(|i| {
+            let v = i.viewport();
+            v.minimized == Some(true) || v.visible() == Some(false)
+        });
+        if main_out_of_sight && !self.others.is_empty() {
+            ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::RequestPaintWhileHidden);
+        }
+    }
+}
+
+impl SlothApp {
+    /// Before any window has reported focus (the very first frame), assume
+    /// the app is in front.
+    fn was_focused_initially(&self) -> bool {
+        self.last_disk_check == 0.0
+    }
+
+    /// One window's frame: its menus, tab bar, find bar, editor and dialogs.
+    fn window_ui(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+
+        if ctx.input(|i| i.viewport().focused == Some(true)) {
+            self.focused = self.w.viewport;
+            self.any_focused = true;
+        }
+
+        // Window close button: close this window's tabs (asking about
+        // unsaved ones) first. Closing the last window quits.
+        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
+            ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+            if self.w.pending.is_none() {
+                self.request_close_window(&ctx);
+            }
+        }
+
+        // Files dragged onto this window.
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .filter(|p| !p.as_os_str().is_empty())
+                .collect()
+        });
+        for path in dropped {
+            self.open_path(path);
+        }
+
+        // On macOS, shortcuts are routed through the native menu bar.
+        // Menu commands and shortcuts go to the focused window.
+        if self.w.viewport == self.focused {
+            #[cfg(target_os = "macos")]
+            let menu_commands = self.native_menu.as_ref().map(|m| m.drain()).unwrap_or_default();
+            #[cfg(target_os = "macos")]
+            for cmd in menu_commands {
+                if !self.modal_open() {
+                    self.execute(&ctx, cmd);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            if !self.modal_open() {
+                self.handle_shortcuts(&ctx);
+            }
+        }
+
+        if self.w.find.visible && !self.modal_open() && ctx.input(|i| i.key_pressed(Key::Escape))
+        {
+            self.handle_find_action(&ctx, FindAction::Close);
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        egui::Panel::top(self.panel_id("menu")).show(ui, |ui| self.menu_bar(ui));
+
+        // Tab bar.
+        let tab_action = egui::Panel::top(self.panel_id("tabs"))
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(Margin { left: 6, right: 6, top: 4, bottom: 0 }),
+            )
+            .show(ui, |ui| tabs::tab_bar(ui, &self.w.tabs))
+            .inner;
+        match tab_action {
+            Some(TabBarAction::Activate(id)) => {
+                self.w.tabs.activate(id);
+                self.after_tab_switch(&ctx);
+            }
+            Some(TabBarAction::Close(id)) => self.request_close_tab(id),
+            Some(TabBarAction::CloseOthers(id)) => self.w.close_queue = self.w.tabs.others(id),
+            Some(TabBarAction::CloseToTheRight(id)) => {
+                self.w.close_queue = self.w.tabs.to_the_right_of(id);
+            }
+            Some(TabBarAction::Move { from, to }) => self.w.tabs.move_tab(from, to),
+            None => {}
+        }
+
+        // Find bar.
+        if self.w.find.visible {
+            let matches = self.matches();
+            let current_index = self
+                .w.find
+                .current
+                .as_ref()
+                .and_then(|c| matches.iter().position(|m| m == c));
+            let error = self.find_error();
+            let info = FindBarInfo {
+                match_count: matches.len(),
+                current_index,
+                error: error.as_deref(),
+                history: &self.settings.search_history,
+                results_open: self.w.show_results,
+            };
+            let action = egui::Panel::top(self.panel_id("find"))
+                .show(ui, |ui| find::find_bar(ui, &mut self.w.find, info))
+                .inner;
+            if let Some(action) = action {
+                self.handle_find_action(&ctx, action);
+            }
+        }
+
+        self.disk_notice_bar(ui);
+        self.w.word_counts = self.count_words(&ctx);
+        egui::Panel::bottom(self.panel_id("status")).show(ui, |ui| self.status_bar(ui));
+        self.results_panel(&ctx, ui);
+
+        // Computed after the find bar, which may have changed the text or query.
+        let matches = self.matches();
+        let highlights = Highlights {
+            all: &matches,
+            current: self.w.find.current.clone(),
+        };
+        let reveal = self.w.reveal.take();
+        self.markdown_preview(ui);
+        let colors = self.settings.theme.syntax_colors(ui.visuals().dark_mode);
+        let highlighting = self.settings.editor.syntax_highlighting;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color))
+            .show(ui, |ui| {
+                let tab = self.w.tabs.active_mut();
+                let syntax = highlighting
+                    .then(|| syntax::detect(tab.doc.path.as_deref(), &tab.doc.text))
+                    .flatten()
+                    .map(|syntax| SyntaxInput { syntax, colors, cache: &mut tab.highlight_cache });
+                self.w.cursor = editor::show(
+                    ui,
+                    tab.id,
+                    &mut tab.doc.text,
+                    &self.settings.editor,
+                    highlights,
+                    reveal,
+                    syntax,
+                );
+            });
+
+        self.process_close_queue();
+        self.finish_closing(&ctx);
+        self.unsaved_changes_dialog(&ctx);
+        self.reload_dialog(&ctx);
+        self.save_problem_dialog(&ctx);
+        if self.w.viewport == ViewportId::ROOT {
+            self.recovery_dialog(&ctx);
+        }
+        self.go_to_line_dialog(&ctx);
+        self.about_window(&ctx);
+        self.help_window(&ctx);
+        self.update_title(&ctx);
+
     }
 }
 

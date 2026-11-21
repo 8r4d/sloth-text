@@ -67,6 +67,9 @@ pub enum Command {
     /// An installed font, by position in `fonts::families()`.
     SetFont(u16),
     CloseOtherTabs,
+    NewWindow,
+    CloseWindow,
+    MoveTabToNewWindow,
     CloseTabsToRight,
 }
 
@@ -91,12 +94,14 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
         "File",
         &[
             Item(Command::New),
+            Item(Command::NewWindow),
             Item(Command::Open),
             RecentFiles,
             Separator,
             Item(Command::CloseTab),
             Item(Command::CloseOtherTabs),
             Item(Command::CloseTabsToRight),
+            Item(Command::CloseWindow),
             Item(Command::Save),
             Item(Command::SaveAs),
             Item(Command::RevertToSaved),
@@ -148,7 +153,12 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
     ),
     (
         "Window",
-        &[Item(Command::NextTab), Item(Command::PreviousTab)],
+        &[
+            Item(Command::NextTab),
+            Item(Command::PreviousTab),
+            Separator,
+            Item(Command::MoveTabToNewWindow),
+        ],
     ),
     (
         "Help",
@@ -292,6 +302,9 @@ impl Command {
                 .get(i as usize)
                 .map_or("Font", String::as_str),
             Command::CloseOtherTabs => "Close Other Tabs",
+            Command::NewWindow => "New Window",
+            Command::CloseWindow => "Close Window",
+            Command::MoveTabToNewWindow => "Move Tab to New Window",
             Command::CloseTabsToRight => "Close Tabs to the Right",
         }
     }
@@ -306,6 +319,8 @@ impl Command {
         let sc = |m, k| Some(KeyboardShortcut::new(m, k));
         match self {
             Command::New => sc(cmd, Key::N),
+            Command::NewWindow => sc(cmd_shift, Key::N),
+            Command::CloseWindow => sc(cmd_shift, Key::W),
             Command::Open => sc(cmd, Key::O),
             Command::Save => sc(cmd, Key::S),
             Command::SaveAs => sc(cmd_shift, Key::S),
@@ -354,7 +369,8 @@ impl Command {
             | Command::DefaultFont
             | Command::SetFont(_)
             | Command::CloseOtherTabs
-            | Command::CloseTabsToRight => None,
+            | Command::CloseTabsToRight
+            | Command::MoveTabToNewWindow => None,
         }
     }
 

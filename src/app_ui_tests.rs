@@ -58,7 +58,7 @@ fn execute(harness: &mut Harness<'static, SlothApp>, cmd: Command) {
 }
 
 fn active_text(harness: &Harness<'static, SlothApp>) -> String {
-    harness.state().tabs.active().doc.text.clone()
+    harness.state().w.tabs.active().doc.text.clone()
 }
 
 #[test]
@@ -95,8 +95,8 @@ fn replace_all_replaces_every_match() {
     let mut harness = harness(Settings::default(), vec![file]);
 
     execute(&mut harness, Command::FindAndReplace);
-    harness.state_mut().find.query = "cat".into();
-    harness.state_mut().find.replacement = "bird".into();
+    harness.state_mut().w.find.query = "cat".into();
+    harness.state_mut().w.find.replacement = "bird".into();
     harness.run_steps(3);
     harness.get_by_label("Replace All").click();
     harness.run_steps(3);
@@ -111,14 +111,14 @@ fn closing_an_unsaved_tab_asks_first() {
     let file = dir.file("notes.txt", "hello");
     let mut harness = harness(Settings::default(), vec![file]);
 
-    harness.state_mut().tabs.active_mut().doc.text.push_str(" world");
+    harness.state_mut().w.tabs.active_mut().doc.text.push_str(" world");
     execute(&mut harness, Command::CloseTab);
     harness.get_by_label_contains("Save changes to");
 
     harness.get_by_label("Don't Save").click();
     harness.run_steps(3);
     // The only tab was closed, leaving a fresh untitled one.
-    assert!(harness.state().tabs.active().doc.path.is_none());
+    assert!(harness.state().w.tabs.active().doc.path.is_none());
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn asks_before_overwriting_edits_when_file_changes_on_disk() {
     let file = dir.file("live.txt", "version 1");
     let mut harness = harness(Settings::default(), vec![file.clone()]);
 
-    harness.state_mut().tabs.active_mut().doc.text.push_str(" + my edit");
+    harness.state_mut().w.tabs.active_mut().doc.text.push_str(" + my edit");
     fs::write(&file, "version two").unwrap();
     harness.state_mut().check_disk();
     harness.run_steps(3);
@@ -163,10 +163,10 @@ fn go_to_line_moves_the_cursor() {
     harness.key_press(egui::Key::Enter);
     harness.run_steps(3);
 
-    let tab = harness.state().tabs.active().id;
+    let tab = harness.state().w.tabs.active().id;
     // Line 3, column 2 is just after the "t" of "three".
     assert_eq!(editor::selection(&harness.ctx, tab), Some(9..9));
-    assert!(harness.state().go_to_line.is_none());
+    assert!(harness.state().w.go_to_line.is_none());
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn restores_last_session_and_remembers_recent_files() {
     let harness = harness(settings, vec![]);
 
     // The missing file is skipped, and the previously active tab is active.
-    let paths: Vec<_> = harness.state().tabs.iter().filter_map(|t| t.doc.path.clone()).collect();
+    let paths: Vec<_> = harness.state().w.tabs.iter().filter_map(|t| t.doc.path.clone()).collect();
     assert_eq!(paths, vec![a.clone(), b.clone()]);
     assert_eq!(active_text(&harness), "A");
     assert_eq!(harness.state().session().files, vec![a.clone(), b.clone()]);
@@ -201,7 +201,7 @@ fn keeps_a_windows_file_in_its_encoding_and_line_endings() {
     let mut harness = harness(Settings::default(), vec![path.clone()]);
 
     harness.get_by_label("Windows Latin 1 · CRLF");
-    harness.state_mut().tabs.active_mut().doc.text.push_str("d\u{e9}j\u{e0} vu\n");
+    harness.state_mut().w.tabs.active_mut().doc.text.push_str("d\u{e9}j\u{e0} vu\n");
     execute(&mut harness, Command::Save);
     assert_eq!(
         fs::read(&path).unwrap(),
@@ -216,7 +216,7 @@ fn offers_utf8_when_characters_dont_fit_the_encoding() {
     fs::write(&path, b"caf\xE9 cr\xE8me \xE0 la plage").unwrap();
     let mut harness = harness(Settings::default(), vec![path.clone()]);
 
-    harness.state_mut().tabs.active_mut().doc.text.push_str(" \u{142}");
+    harness.state_mut().w.tabs.active_mut().doc.text.push_str(" \u{142}");
     execute(&mut harness, Command::Save);
     harness.get_by_label_contains("can't be stored in windows-1252");
     harness.get_by_label("Save as UTF-8").click();
@@ -237,7 +237,7 @@ fn reopen_with_encoding_rereads_the_file() {
         Command::ReopenWithEncoding(crate::text_format::TextEncoding::Windows1252),
     );
     assert_eq!(active_text(&harness), "Ã©");
-    assert!(!harness.state().tabs.active().doc.is_dirty());
+    assert!(!harness.state().w.tabs.active().doc.is_dirty());
 }
 
 #[test]
@@ -277,9 +277,9 @@ fn restores_documents_after_a_crash() {
     harness.get_by_label("Restore").click();
     harness.run_steps(3);
 
-    let texts: Vec<_> = harness.state().tabs.iter().map(|t| t.doc.text.clone()).collect();
+    let texts: Vec<_> = harness.state().w.tabs.iter().map(|t| t.doc.text.clone()).collect();
     assert_eq!(texts, vec!["saved text + unsaved edit", "an untitled draft"]);
-    assert!(harness.state().tabs.iter().all(|t| t.doc.is_dirty()));
+    assert!(harness.state().w.tabs.iter().all(|t| t.doc.is_dirty()));
     // The old session's folder is gone; the restored edits are protected
     // again under this session.
     assert!(!crashed.exists());
@@ -296,7 +296,7 @@ fn writes_recovery_copies_only_for_unsaved_documents() {
     let mut harness = harness(Settings::default(), vec![a, b]);
     harness.state_mut().enable_recovery(recovery_dir.clone());
 
-    harness.state_mut().tabs.active_mut().doc.text.push_str(" edited");
+    harness.state_mut().w.tabs.active_mut().doc.text.push_str(" edited");
     harness.state_mut().save_recovery_copies();
     let own = recovery_dir.join(std::process::id().to_string());
     assert_eq!(fs::read_dir(&own).unwrap().count(), 1);
@@ -312,7 +312,7 @@ fn writes_recovery_copies_only_for_unsaved_documents() {
 /// Focus the editor with the cursor at a character index.
 fn put_cursor(harness: &mut Harness<'static, SlothApp>, at: usize) {
     let ctx = harness.ctx.clone();
-    let tab = harness.state().tabs.active().id;
+    let tab = harness.state().w.tabs.active().id;
     harness.state().focus_editor(&ctx);
     editor::set_selection(&ctx, tab, at..at);
     harness.run_steps(2);
@@ -352,7 +352,7 @@ fn indent_and_outdent_commands_shift_lines() {
     let file = dir.file("list.txt", "one\ntwo");
     let mut harness = harness(Settings::default(), vec![file]);
     let ctx = harness.ctx.clone();
-    let tab = harness.state().tabs.active().id;
+    let tab = harness.state().w.tabs.active().id;
     editor::set_selection(&ctx, tab, 0..7);
 
     execute(&mut harness, Command::Indent);
@@ -370,7 +370,7 @@ fn status_bar_counts_words_and_selection() {
 
     put_cursor(&mut harness, 0);
     let ctx = harness.ctx.clone();
-    let tab = harness.state().tabs.active().id;
+    let tab = harness.state().w.tabs.active().id;
     editor::set_selection(&ctx, tab, 4..9);
     harness.run_steps(2);
     harness.get_by_label("1 word, 5 characters selected");
@@ -385,8 +385,8 @@ fn close_other_tabs_asks_about_unsaved_ones() {
     let mut harness = harness(Settings::default(), vec![a, b, c]);
 
     // Edit a.txt, then go back to c.txt and close the others.
-    let first = harness.state().tabs.iter().next().unwrap().id;
-    harness.state_mut().tabs.get_mut(first).unwrap().doc.text.push('!');
+    let first = harness.state().w.tabs.iter().next().unwrap().id;
+    harness.state_mut().w.tabs.get_mut(first).unwrap().doc.text.push('!');
     execute(&mut harness, Command::CloseOtherTabs);
 
     // b.txt is closed straight away; a.txt has edits, so we're asked.
@@ -394,7 +394,7 @@ fn close_other_tabs_asks_about_unsaved_ones() {
     harness.get_by_label("Don't Save").click();
     harness.run_steps(3);
 
-    let names: Vec<_> = harness.state().tabs.iter().map(|t| t.doc.display_name()).collect();
+    let names: Vec<_> = harness.state().w.tabs.iter().map(|t| t.doc.display_name()).collect();
     assert_eq!(names, vec!["c.txt"]);
 }
 
@@ -439,7 +439,7 @@ fn preview_editor() {
     let menlo = crate::fonts::scan_for_tests().iter().position(|f| f == "Menlo").unwrap();
     execute(&mut harness, Command::SetTheme(crate::theme::ThemeChoice::Midnight));
     execute(&mut harness, Command::SetFont(menlo as u16));
-    harness.state_mut().tabs.active_mut().doc.text.push_str("\tafter a tab\n");
+    harness.state_mut().w.tabs.active_mut().doc.text.push_str("\tafter a tab\n");
     harness.run_steps(3);
     let image = harness.render().expect("render");
     image.save(Path::new(&out).join("editor-menlo.png")).unwrap();
@@ -448,8 +448,8 @@ fn preview_editor() {
     execute(&mut harness, Command::SetTheme(crate::theme::ThemeChoice::Light));
     execute(&mut harness, Command::FindAndReplace);
     execute(&mut harness, Command::FindInTabs);
-    harness.state_mut().find.options.regex = true;
-    harness.state_mut().find.query = r"\bl\w+".into();
+    harness.state_mut().w.find.options.regex = true;
+    harness.state_mut().w.find.query = r"\bl\w+".into();
     harness.set_size(egui::vec2(760.0, 420.0));
     harness.run_steps(4);
     let image = harness.render().expect("render");
@@ -495,7 +495,7 @@ fn dragging_a_tab_reorders_tabs() {
     harness.event(press(false));
     harness.run_steps(3);
 
-    let names: Vec<_> = harness.state().tabs.iter().map(|t| t.doc.display_name()).collect();
+    let names: Vec<_> = harness.state().w.tabs.iter().map(|t| t.doc.display_name()).collect();
     assert_eq!(names, vec!["b.txt", "c.txt", "a.txt"]);
 }
 
@@ -508,9 +508,9 @@ fn regex_find_and_replace_with_groups() {
     let mut harness = harness(Settings::default(), vec![file]);
 
     execute(&mut harness, Command::FindAndReplace);
-    harness.state_mut().find.options.regex = true;
-    harness.state_mut().find.query = r"(\d{4})-(\d\d)-(\d\d)".into();
-    harness.state_mut().find.replacement = "$3/$2/$1".into();
+    harness.state_mut().w.find.options.regex = true;
+    harness.state_mut().w.find.query = r"(\d{4})-(\d\d)-(\d\d)".into();
+    harness.state_mut().w.find.replacement = "$3/$2/$1".into();
     harness.run_steps(3);
     harness.get_by_label("2 matches");
 
@@ -532,8 +532,8 @@ fn invalid_regex_is_explained() {
     let mut harness = harness(Settings::default(), vec![file]);
 
     execute(&mut harness, Command::Find);
-    harness.state_mut().find.options.regex = true;
-    harness.state_mut().find.query = "(oops".into();
+    harness.state_mut().w.find.options.regex = true;
+    harness.state_mut().w.find.query = "(oops".into();
     harness.run_steps(3);
     harness.get_by_label_contains("unclosed group");
 }
@@ -551,17 +551,17 @@ fn up_arrow_recalls_recent_searches() {
     execute(&mut harness, Command::Find);
     harness.key_press(egui::Key::ArrowUp);
     harness.run_steps(2);
-    assert_eq!(harness.state().find.query, "beta");
+    assert_eq!(harness.state().w.find.query, "beta");
     harness.key_press(egui::Key::ArrowUp);
     harness.run_steps(2);
-    assert_eq!(harness.state().find.query, "alpha");
+    assert_eq!(harness.state().w.find.query, "alpha");
     harness.key_press(egui::Key::ArrowDown);
     harness.key_press(egui::Key::ArrowDown);
     harness.run_steps(2);
-    assert_eq!(harness.state().find.query, "");
+    assert_eq!(harness.state().w.find.query, "");
 
     // Finding the next match remembers the search.
-    harness.state_mut().find.query = "alp".into();
+    harness.state_mut().w.find.query = "alp".into();
     execute(&mut harness, Command::FindNext);
     assert_eq!(harness.state().settings.search_history[0], "alp");
 }
@@ -575,7 +575,7 @@ fn find_in_all_tabs_lists_and_jumps_to_matches() {
     let mut harness = harness(Settings::default(), vec![a.clone(), b, c]);
 
     execute(&mut harness, Command::FindInTabs);
-    harness.state_mut().find.query = "cat".into();
+    harness.state_mut().w.find.query = "cat".into();
     harness.run_steps(3);
     harness.get_by_label("3 matches in 2 tabs");
     harness.get_by_label("a.txt  (2)");
@@ -583,8 +583,8 @@ fn find_in_all_tabs_lists_and_jumps_to_matches() {
     // Click the second match in a.txt (line 3).
     harness.get_by_label_contains("three cat").click();
     harness.run_steps(3);
-    assert_eq!(harness.state().tabs.active().doc.path.as_deref(), Some(a.as_path()));
-    assert_eq!(harness.state().find.current, Some(18..21));
+    assert_eq!(harness.state().w.tabs.active().doc.path.as_deref(), Some(a.as_path()));
+    assert_eq!(harness.state().w.find.current, Some(18..21));
 }
 
 #[test]
@@ -593,14 +593,14 @@ fn search_results_are_reused_until_something_changes() {
     let file = dir.file("a.txt", "cat cat");
     let mut harness = harness(Settings::default(), vec![file]);
     execute(&mut harness, Command::Find);
-    harness.state_mut().find.query = "cat".into();
+    harness.state_mut().w.find.query = "cat".into();
     harness.run_steps(2);
 
     let first = harness.state().matches();
     harness.run_steps(2);
     assert!(Arc::ptr_eq(&first, &harness.state().matches()), "searched again for no reason");
 
-    harness.state_mut().tabs.active_mut().doc.text.push_str(" cat");
+    harness.state_mut().w.tabs.active_mut().doc.text.push_str(" cat");
     assert_eq!(harness.state().matches().len(), 3);
 }
 
@@ -630,4 +630,84 @@ fn status_bar_names_the_language_unless_highlighting_is_off() {
 
     execute(&mut harness, Command::ToggleSyntaxHighlighting);
     assert!(harness.query_by_label("Python").is_none());
+}
+
+// ----- 0.8: windows ----------------------------------------------------------
+
+fn window_files(app: &SlothApp) -> Vec<Vec<String>> {
+    let mut windows: Vec<_> = app.windows().filter(|w| !w.closed).collect();
+    windows.sort_by_key(|w| w.viewport != egui::ViewportId::ROOT);
+    windows
+        .iter()
+        .map(|w| w.tabs.iter().map(|t| t.doc.display_name()).collect())
+        .collect()
+}
+
+#[test]
+fn move_tab_to_new_window() {
+    let dir = TempDir::new("movetab");
+    let a = dir.file("a.txt", "A");
+    let b = dir.file("b.txt", "B");
+    let mut harness = harness(Settings::default(), vec![a, b]);
+
+    execute(&mut harness, Command::MoveTabToNewWindow);
+    assert_eq!(window_files(harness.state()), vec![vec!["a.txt"], vec!["b.txt"]]);
+    // The new window is the one commands now apply to.
+    assert_eq!(harness.state().w.tabs.active().doc.display_name(), "b.txt");
+}
+
+#[test]
+fn closing_a_window_closes_its_tabs_and_the_window() {
+    let dir = TempDir::new("closewin");
+    let a = dir.file("a.txt", "A");
+    let b = dir.file("b.txt", "B");
+    let mut harness = harness(Settings::default(), vec![a, b]);
+    execute(&mut harness, Command::MoveTabToNewWindow);
+
+    execute(&mut harness, Command::CloseWindow);
+    harness.run_steps(3);
+    assert_eq!(window_files(harness.state()), vec![vec!["a.txt"]]);
+}
+
+#[test]
+fn quitting_asks_about_unsaved_tabs_in_other_windows() {
+    let dir = TempDir::new("quitwin");
+    let a = dir.file("a.txt", "A");
+    let b = dir.file("b.txt", "B");
+    let mut harness = harness(Settings::default(), vec![a, b]);
+    execute(&mut harness, Command::MoveTabToNewWindow);
+    harness.state_mut().w.tabs.active_mut().doc.text.push('!'); // b.txt, new window
+
+    // Quit from the main window: it has nothing unsaved, so the other
+    // window is asked.
+    harness.state_mut().select(egui::ViewportId::ROOT);
+    execute(&mut harness, Command::Quit);
+    let asking: Vec<_> = harness
+        .state()
+        .windows()
+        .filter(|w| w.pending.is_some())
+        .map(|w| w.tabs.active().doc.display_name())
+        .collect();
+    assert_eq!(asking, vec!["b.txt"]);
+    assert!(!harness.state().allow_close);
+}
+
+#[test]
+fn windows_are_restored_at_launch() {
+    let dir = TempDir::new("restorewin");
+    let a = dir.file("a.txt", "A");
+    let b = dir.file("b.txt", "B");
+    let c = dir.file("c.txt", "C");
+    let settings = Settings {
+        session: crate::settings::Session { files: vec![a.clone()], active: 0 },
+        other_windows: vec![crate::settings::Session { files: vec![b.clone(), c.clone()], active: 1 }],
+        ..Settings::default()
+    };
+    let harness = harness(settings, vec![]);
+    assert_eq!(window_files(harness.state()), vec![vec!["a.txt"], vec!["b.txt", "c.txt"]]);
+
+    let (main, others) = harness.state().all_sessions();
+    assert_eq!(main.files, vec![a]);
+    assert_eq!(others[0].files, vec![b, c]);
+    assert_eq!(others[0].active, 1);
 }

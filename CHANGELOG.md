@@ -2,6 +2,12 @@
 
 Sloth uses semantic versioning (major.minor.patch).
 
+## 0.8.0
+
+- Print (⌘P) through the standard macOS print dialog, which also offers Save as PDF. Pages have the file name, date and page numbers.
+- Multiple windows: File → New Window (⇧⌘N), Close Window (⇧⌘W), and Window → Move Tab to New Window. Each window has its own tabs and find bar.
+- Quitting asks about unsaved changes in every window, and the windows and their tabs are reopened at the next launch.
+
 ## 0.7.0
 
 - Syntax highlighting for code, Markdown and config files (about 75 languages, detected from the file name or a `#!` line). Colours follow the chosen theme. Turn it off in View → Syntax Highlighting. Plain text and files over 2 MB aren't highlighted.

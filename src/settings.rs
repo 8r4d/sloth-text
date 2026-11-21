@@ -23,8 +23,10 @@ pub struct Settings {
     pub editor: EditorSettings,
     /// Most recent first.
     pub recent_files: Vec<PathBuf>,
-    /// Tabs open when Sloth last quit, reopened at launch.
+    /// Tabs open in the main window when Sloth last quit, reopened at launch.
     pub session: Session,
+    /// The same for any other windows.
+    pub other_windows: Vec<Session>,
     /// Recent searches, newest first.
     pub search_history: Vec<String>,
 }

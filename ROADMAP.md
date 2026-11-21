@@ -86,12 +86,12 @@ Goal: Sloth never damages a file or loses work.
 | Syntax highlighting | L | `syntect`, chosen by file extension and driven through the existing layouter. Cache per line so typing only re-highlights what changed. Colours come from the theme palette. Off by default for `.txt`. |
 | Markdown preview | M | Side panel rendered with `egui_commonmark`. View → Markdown Preview. *Not done yet: scrolling the preview along with the editor, and showing images.* |
 
-## 0.8.0: Printing and windows
+## 0.8.0: Printing and windows ✅
 
 | Item | Size | Approach |
 |---|---|---|
-| Print (⌘P) | M | Put the text into an off-screen `NSTextView` and run `NSPrintOperation`. That gives the standard macOS print dialog and Save as PDF. |
-| Multiple windows | L | Use egui's multi-viewport support. Each window gets its own tabs and find bar; menus act on the focused window. Requires splitting window state out of `SlothApp`. |
+| Print (⌘P) | M | Put the text into an off-screen `NSTextView` and run `NSPrintOperation`. That gives the standard macOS print dialog and Save as PDF. *Prints plain text for now: no syntax colours or line numbers.* |
+| Multiple windows | L | Use egui's multi-viewport support. Each window gets its own tabs and find bar; menus act on the focused window. Requires splitting window state out of `SlothApp`. *Extra windows are drawn from the main window's frame; when the main window is closed it's hidden rather than closed.* |
 
 ## 1.0: Polish and decision
 
