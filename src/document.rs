@@ -1,17 +1,28 @@
-//! A single open text document: its contents, where it lives on disk,
-//! and whether it has unsaved changes.
+//! A single open text document: its contents, where it lives on disk, how
+//! the file is stored (encoding, line endings), and whether it has unsaved
+//! changes.
 
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+use encoding_rs::Encoding;
+
+use crate::text_format::{self, FileFormat, LineEnding};
 
 #[derive(Default)]
 pub struct Document {
     pub text: String,
     pub path: Option<PathBuf>,
-    /// The text as it was last loaded/saved, used to compute the dirty flag.
+    /// How the file is (or will be) stored on disk.
+    pub format: FileFormat,
+    /// Some bytes couldn't be read in `format.encoding` and show as `�`.
+    /// Saving over the original would lose them, so we ask first.
+    pub read_with_errors: bool,
+    /// The text and format as last loaded/saved, for the dirty flag.
     saved_text: String,
+    saved_format: FileFormat,
     /// The file's modification time and size when we last read or wrote it,
     /// used to notice changes made by other programs.
     disk_stamp: Option<DiskStamp>,
@@ -43,28 +54,65 @@ pub enum DiskState {
     Missing,
 }
 
+#[derive(Debug)]
+pub enum SaveError {
+    Io(io::Error),
+    NoPath,
+    /// Some characters can't be written in the document's encoding.
+    Unmappable(&'static Encoding),
+    /// The file was read with errors; saving over it needs confirmation
+    /// (see [`Document::read_with_errors`]).
+    ReadWithErrors,
+}
+
+impl std::fmt::Display for SaveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SaveError::Io(e) => write!(f, "{e}"),
+            SaveError::NoPath => write!(f, "the document has no file yet"),
+            SaveError::Unmappable(enc) => {
+                write!(f, "some characters can't be saved as {}", enc.name())
+            }
+            SaveError::ReadWithErrors => write!(f, "the file wasn't read cleanly"),
+        }
+    }
+}
+
+impl From<io::Error> for SaveError {
+    fn from(e: io::Error) -> Self {
+        SaveError::Io(e)
+    }
+}
+
 impl Document {
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn open(path: &Path) -> io::Result<Self> {
+        Self::open_with_encoding(path, None)
+    }
+
+    /// Open with a specific encoding instead of detecting one.
+    pub fn open_with_encoding(path: &Path, encoding: Option<&'static Encoding>) -> io::Result<Self> {
         let bytes = fs::read(path)?;
-        // Plain-text editor: decode lossily so binary-ish files still open
-        // rather than failing outright.
-        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let decoded = text_format::decode(&bytes, encoding);
         Ok(Self {
-            saved_text: text.clone(),
-            text,
+            saved_text: decoded.text.clone(),
+            text: decoded.text,
             path: Some(path.to_path_buf()),
+            format: decoded.format,
+            saved_format: decoded.format,
+            read_with_errors: decoded.had_errors,
             disk_stamp: DiskStamp::read(path),
         })
     }
 
     /// Replace the contents with what's on disk now, discarding edits.
-    pub fn reload(&mut self) -> io::Result<()> {
+    /// `None` detects the encoding again; otherwise it's read as `encoding`.
+    pub fn reload_with_encoding(&mut self, encoding: Option<&'static Encoding>) -> io::Result<()> {
         let path = self.path.clone().ok_or_else(no_path)?;
-        *self = Self::open(&path)?;
+        *self = Self::open_with_encoding(&path, encoding)?;
         Ok(())
     }
 
@@ -87,22 +135,56 @@ impl Document {
         self.disk_stamp = self.path.as_deref().and_then(DiskStamp::read);
     }
 
-    /// Save to the document's current path. Errors if it has no path yet.
-    pub fn save(&mut self) -> io::Result<()> {
-        let path = self.path.clone().ok_or_else(no_path)?;
-        self.save_as(&path)
+    /// Save to the document's current path.
+    pub fn save(&mut self) -> Result<(), SaveError> {
+        let path = self.path.clone().ok_or(SaveError::NoPath)?;
+        if self.read_with_errors {
+            return Err(SaveError::ReadWithErrors);
+        }
+        self.write_to(&path)
     }
 
-    pub fn save_as(&mut self, path: &Path) -> io::Result<()> {
-        fs::write(path, self.text.as_bytes())?;
+    /// Save to a (possibly new) path. Saving a copy elsewhere doesn't touch
+    /// the original, so it doesn't need the read-with-errors confirmation.
+    pub fn save_as(&mut self, path: &Path) -> Result<(), SaveError> {
+        if self.read_with_errors && self.path.as_deref() == Some(path) {
+            return Err(SaveError::ReadWithErrors);
+        }
+        self.write_to(path)?;
+        self.read_with_errors = false;
+        Ok(())
+    }
+
+    /// The user confirmed saving even though the file wasn't read cleanly.
+    pub fn accept_read_errors(&mut self) {
+        self.read_with_errors = false;
+    }
+
+    fn write_to(&mut self, path: &Path) -> Result<(), SaveError> {
+        let bytes =
+            text_format::encode(&self.text, &self.format).map_err(|u| SaveError::Unmappable(u.encoding))?;
+        write_atomically(path, &bytes)?;
         self.path = Some(path.to_path_buf());
         self.saved_text = self.text.clone();
+        self.saved_format = self.format;
         self.disk_stamp = DiskStamp::read(path);
         Ok(())
     }
 
+    /// Change the encoding used for the next save.
+    pub fn convert_encoding(&mut self, encoding: &'static Encoding) {
+        self.format.encoding = encoding;
+        // UTF-16 files need a byte-order mark to be recognised; others
+        // conventionally go without.
+        self.format.bom = encoding == encoding_rs::UTF_16LE || encoding == encoding_rs::UTF_16BE;
+    }
+
+    pub fn set_line_ending(&mut self, line_ending: LineEnding) {
+        self.format.line_ending = line_ending;
+    }
+
     pub fn is_dirty(&self) -> bool {
-        self.text != self.saved_text
+        self.format != self.saved_format || self.text != self.saved_text
     }
 
     pub fn display_name(&self) -> String {
@@ -118,6 +200,40 @@ impl Document {
     }
 }
 
+/// Write a file so that a crash or full disk can never leave it half
+/// written: write a temporary file next to it, then swap it into place.
+fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    // Write through symlinks to the real file, rather than replacing the link.
+    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+    let temp = dir.join(format!(".{name}.sloth-{}.tmp", std::process::id()));
+
+    let result = (|| {
+        let mut file = File::create(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        // Keep the original's permissions (e.g. an executable script).
+        if let Ok(meta) = fs::metadata(&target) {
+            fs::set_permissions(&temp, meta.permissions())?;
+        }
+        fs::rename(&temp, &target)
+    })();
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = fs::remove_file(&temp);
+            if e.kind() == io::ErrorKind::PermissionDenied && target.exists() {
+                // The folder isn't writable but the file may be: write in place.
+                fs::write(&target, bytes)
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
 fn no_path() -> io::Error {
     io::Error::new(io::ErrorKind::NotFound, "document has no path")
 }
@@ -126,17 +242,23 @@ fn no_path() -> io::Error {
 mod tests {
     use super::*;
 
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sloth-doc-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
     #[test]
     fn dirty_tracking_and_round_trip() {
-        let dir = std::env::temp_dir().join(format!("sloth-test-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("roundtrip");
         let path = dir.join("a.txt");
 
         let mut doc = Document::new();
         assert!(!doc.is_dirty());
         doc.text.push_str("hello\nworld");
         assert!(doc.is_dirty());
-        assert!(doc.save().is_err(), "untitled doc has no path");
+        assert!(matches!(doc.save(), Err(SaveError::NoPath)));
         doc.save_as(&path).unwrap();
         assert!(!doc.is_dirty());
         assert_eq!(doc.display_name(), "a.txt");
@@ -149,8 +271,7 @@ mod tests {
 
     #[test]
     fn notices_outside_changes_and_deletion() {
-        let dir = std::env::temp_dir().join(format!("sloth-disk-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("disk");
         let path = dir.join("b.txt");
         fs::write(&path, "one").unwrap();
 
@@ -164,7 +285,7 @@ mod tests {
         doc.acknowledge_disk_state();
         assert_eq!(doc.disk_state(), DiskState::Unchanged);
 
-        doc.reload().unwrap();
+        doc.reload_with_encoding(None).unwrap();
         assert_eq!(doc.text, "one two");
         assert!(!doc.is_dirty());
 
@@ -175,6 +296,94 @@ mod tests {
 
         fs::remove_file(&path).unwrap();
         assert_eq!(doc.disk_state(), DiskState::Missing);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn keeps_encoding_and_line_endings_when_saving() {
+        let dir = temp_dir("format");
+        let path = dir.join("win.txt");
+        fs::write(&path, b"caf\xE9 cr\xE8me \xE0 la plage\r\nd\xE9j\xE0 vu\r\n").unwrap();
+
+        let mut doc = Document::open(&path).unwrap();
+        assert_eq!(doc.text, "café crème à la plage\ndéjà vu\n");
+        doc.text.push_str("été\n");
+        doc.save().unwrap();
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            b"caf\xE9 cr\xE8me \xE0 la plage\r\nd\xE9j\xE0 vu\r\n\xE9t\xE9\r\n"
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn converting_format_marks_dirty_and_saves_new_format() {
+        let dir = temp_dir("convert");
+        let path = dir.join("c.txt");
+        fs::write(&path, "a\nb").unwrap();
+
+        let mut doc = Document::open(&path).unwrap();
+        doc.set_line_ending(LineEnding::CrLf);
+        assert!(doc.is_dirty());
+        doc.save().unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"a\r\nb");
+
+        doc.convert_encoding(encoding_rs::UTF_16LE);
+        doc.save().unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"\xFF\xFEa\0\r\0\n\0b\0");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn refuses_unmappable_characters() {
+        let dir = temp_dir("unmappable");
+        let path = dir.join("d.txt");
+        fs::write(&path, b"caf\xE9 cr\xE8me \xE0 la plage").unwrap();
+
+        let mut doc = Document::open(&path).unwrap();
+        doc.text.push_str(" ☃");
+        assert!(matches!(doc.save(), Err(SaveError::Unmappable(_))));
+        // Nothing was written.
+        assert_eq!(fs::read(&path).unwrap(), b"caf\xE9 cr\xE8me \xE0 la plage");
+        doc.convert_encoding(encoding_rs::UTF_8);
+        doc.save().unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "café crème à la plage ☃");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn asks_before_overwriting_a_file_read_with_errors() {
+        let dir = temp_dir("damaged");
+        let path = dir.join("e.txt");
+        fs::write(&path, b"ok \xFF").unwrap();
+
+        let mut doc = Document::open_with_encoding(&path, Some(encoding_rs::UTF_8)).unwrap();
+        assert!(doc.read_with_errors);
+        assert!(matches!(doc.save(), Err(SaveError::ReadWithErrors)));
+        // A copy elsewhere is fine.
+        doc.save_as(&dir.join("copy.txt")).unwrap();
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn atomic_save_keeps_permissions_and_symlinks() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = temp_dir("atomic");
+        let real = dir.join("script.sh");
+        fs::write(&real, "echo hi\n").unwrap();
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).unwrap();
+        let link = dir.join("link.sh");
+        symlink(&real, &link).unwrap();
+
+        let mut doc = Document::open(&link).unwrap();
+        doc.text.push_str("echo bye\n");
+        doc.save().unwrap();
+
+        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_to_string(&real).unwrap(), "echo hi\necho bye\n");
+        assert_eq!(fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o755);
+        // No temporary files left behind.
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
         fs::remove_dir_all(&dir).ok();
     }
 }

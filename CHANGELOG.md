@@ -2,6 +2,16 @@
 
 Sloth uses semantic versioning (major.minor.patch).
 
+## 0.4.0
+
+- Files keep their text encoding when saved. Non-UTF-8 files (e.g. Windows Latin 1, Shift JIS) are detected on open instead of being damaged.
+- File → Reopen with Encoding and File → Convert to Encoding, with 17 common encodings.
+- Line endings (LF or CRLF) are kept when saving, and can be changed in File → Line Endings.
+- The status bar shows the encoding and line endings, e.g. "UTF-8 · LF".
+- If characters can't be stored in a file's encoding, Sloth offers to save as UTF-8. If a file wasn't read cleanly, Sloth asks before saving over it.
+- Saves are atomic: a temporary file is written and then swapped into place, so a crash or full disk can't leave a half-written file. Permissions and symlinks are kept.
+- Crash recovery: copies of unsaved documents are written every few seconds, and Sloth offers to restore them after a crash.
+
 ## 0.3.0
 
 - Open files from Finder: double-click (once Sloth is the default app for a type), Open With, or drop them on the Dock icon.

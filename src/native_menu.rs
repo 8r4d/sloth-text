@@ -190,6 +190,10 @@ fn fill(submenu: &Submenu, entries: &[MenuEntry], items: &mut Items) {
                 fill(&child, children, items);
                 submenu.append(&child).ok();
             }
+            MenuEntry::Generated(list) => {
+                let generated: Vec<MenuEntry> = list().into_iter().map(MenuEntry::Item).collect();
+                fill(submenu, &generated, items);
+            }
             MenuEntry::RecentFiles => {
                 // Filled in by `set_recent_files`.
                 let child = Submenu::new("Open Recent", true);

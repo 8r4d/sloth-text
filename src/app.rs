@@ -9,17 +9,44 @@ use eframe::egui::{
 };
 
 use crate::commands::{self, Command, MenuEntry};
-use crate::document::{DiskState, Document};
+use crate::document::{DiskState, Document, SaveError};
 use crate::editor::{self, CursorInfo, EditorSettings, Highlights};
 use crate::file_types;
 use crate::find::{self, FindAction, FindState};
 use crate::help;
+use crate::recovery::{Leftovers, Recovery};
 use crate::settings::{self, Settings};
 use crate::tabs::{self, DiskNotice, TabBarAction, TabId, Tabs};
+use crate::text_format::TextEncoding;
 use crate::version;
 
 /// How often to check open files for changes made by other programs.
 const DISK_CHECK_INTERVAL: Duration = Duration::from_secs(2);
+/// How often to write crash-recovery copies of unsaved documents.
+const RECOVERY_INTERVAL: f64 = 5.0;
+
+/// Replacing a document's text with the file on disk (asks first if there
+/// are unsaved changes).
+#[derive(Clone, Copy, Debug)]
+enum ReloadKind {
+    Revert,
+    WithEncoding(TextEncoding),
+}
+
+/// A save that needs the user's decision before it can go ahead.
+struct SaveProblem {
+    tab: TabId,
+    /// For Save As: where it was going.
+    path: Option<PathBuf>,
+    kind: SaveProblemKind,
+}
+
+enum SaveProblemKind {
+    /// Characters that the file's encoding can't store.
+    Unmappable(&'static encoding_rs::Encoding),
+    /// The file was read with errors; saving would write the `�`s.
+    ReadWithErrors,
+}
 
 /// Something waiting on the "unsaved changes" prompt.
 #[derive(Clone, Copy, Debug)]
@@ -52,7 +79,13 @@ pub struct SlothApp {
     help: Option<HelpPage>,
     /// Text typed into the Go to Line prompt, while it's open.
     go_to_line: Option<String>,
-    confirm_revert: bool,
+    confirm_reload: Option<ReloadKind>,
+    save_problem: Option<SaveProblem>,
+    /// `None` in tests unless a test turns it on.
+    recovery: Option<Recovery>,
+    /// Documents found from a session that crashed, waiting for the user.
+    recovery_prompt: Option<Leftovers>,
+    last_recovery_save: f64,
     /// For noticing files changed by other programs.
     last_disk_check: f64,
     was_focused: bool,
@@ -71,7 +104,18 @@ impl SlothApp {
             app.native_menu = Some(crate::native_menu::NativeMenu::install(&cc.egui_ctx));
             crate::macos_open::set_context(&cc.egui_ctx);
         }
+        if let Some(dir) = eframe::storage_dir("Sloth") {
+            app.enable_recovery(dir.join("recovery"));
+        }
         app
+    }
+
+    /// Start writing crash-recovery copies into `dir`, and look for any left
+    /// there by a session that didn't quit cleanly.
+    pub fn enable_recovery(&mut self, dir: PathBuf) {
+        let recovery = Recovery::new(dir);
+        self.recovery_prompt = recovery.leftovers();
+        self.recovery = Some(recovery);
     }
 
     /// Build the app without touching the real menu bar or settings file
@@ -97,7 +141,11 @@ impl SlothApp {
             show_about: false,
             help: None,
             go_to_line: None,
-            confirm_revert: false,
+            confirm_reload: None,
+            save_problem: None,
+            recovery: None,
+            recovery_prompt: None,
+            last_recovery_save: 0.0,
             last_disk_check: 0.0,
             was_focused: true,
             #[cfg(target_os = "macos")]
@@ -210,8 +258,23 @@ impl SlothApp {
             Command::GoToLine => self.go_to_line = Some(String::new()),
             Command::RevertToSaved => {
                 if self.can_revert() {
-                    self.confirm_revert = true;
+                    self.confirm_reload = Some(ReloadKind::Revert);
                 }
+            }
+            Command::ReopenWithEncoding(encoding) => {
+                if self.tabs.active().doc.path.is_some() {
+                    if self.tabs.active().doc.is_dirty() {
+                        self.confirm_reload = Some(ReloadKind::WithEncoding(encoding));
+                    } else {
+                        self.reload_active(ReloadKind::WithEncoding(encoding));
+                    }
+                }
+            }
+            Command::ConvertEncoding(encoding) => {
+                self.tabs.active_mut().doc.convert_encoding(encoding.encoding());
+            }
+            Command::SetLineEnding(line_ending) => {
+                self.tabs.active_mut().doc.set_line_ending(line_ending);
             }
 
             Command::About => self.show_about = true,
@@ -225,6 +288,10 @@ impl SlothApp {
             Command::ToggleLineNumbers => Some(self.settings.editor.show_line_numbers),
             Command::ToggleWordWrap => Some(self.settings.editor.word_wrap),
             Command::SetTheme(theme) => Some(self.settings.theme == theme),
+            Command::ConvertEncoding(e) => {
+                Some(e.encoding() == self.tabs.active().doc.format.encoding)
+            }
+            Command::SetLineEnding(l) => Some(self.tabs.active().doc.format.line_ending == l),
             _ => None,
         }
     }
@@ -233,6 +300,7 @@ impl SlothApp {
     fn is_enabled(&self, cmd: Command) -> bool {
         match cmd {
             Command::RevertToSaved => self.can_revert(),
+            Command::ReopenWithEncoding(_) => self.tabs.active().doc.path.is_some(),
             Command::ClearRecent => !self.settings.recent_files.is_empty(),
             _ => true,
         }
@@ -245,7 +313,12 @@ impl SlothApp {
 
     /// A dialog is up, so menu commands and shortcuts should wait.
     fn modal_open(&self) -> bool {
-        self.pending.is_some() || self.show_about || self.confirm_revert || self.go_to_line.is_some()
+        self.pending.is_some()
+            || self.show_about
+            || self.confirm_reload.is_some()
+            || self.go_to_line.is_some()
+            || self.save_problem.is_some()
+            || self.recovery_prompt.is_some()
     }
 
     fn focus_editor(&self, ctx: &egui::Context) {
@@ -299,6 +372,10 @@ impl SlothApp {
             self.tabs.activate(id);
             self.pending = Some(PendingAction::Quit);
         } else {
+            // A clean quit: crash-recovery copies are no longer needed.
+            if let Some(recovery) = &mut self.recovery {
+                recovery.clear();
+            }
             self.allow_close = true;
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
@@ -387,10 +464,16 @@ impl SlothApp {
         }
         match Document::open(&path) {
             Ok(doc) => {
+                self.status = doc.read_with_errors.then(|| {
+                    format!(
+                        "Some of {} isn't valid {}; try File \u{2192} Reopen with Encoding",
+                        doc.display_name(),
+                        doc.format.encoding.name()
+                    )
+                });
                 self.tabs.open(doc);
                 self.settings.add_recent(&path);
                 self.find.current = None;
-                self.status = None;
             }
             Err(e) => {
                 if !path.exists() {
@@ -413,7 +496,7 @@ impl SlothApp {
         if result.is_ok() {
             tab.disk_notice = None;
         }
-        self.report_save(result)
+        self.report_save(id, None, result)
     }
 
     fn save_as(&mut self, id: TabId) -> bool {
@@ -443,20 +526,168 @@ impl SlothApp {
             tab.disk_notice = None;
             self.settings.add_recent(&path);
         }
-        self.report_save(result)
+        self.report_save(id, Some(path), result)
     }
 
-    fn report_save(&mut self, result: std::io::Result<()>) -> bool {
-        match result {
+    /// Show the outcome of a save. Problems that need a decision open a
+    /// dialog. Returns true if the document was saved.
+    fn report_save(&mut self, tab: TabId, path: Option<PathBuf>, result: Result<(), SaveError>) -> bool {
+        let kind = match result {
             Ok(()) => {
                 self.status = Some("Saved".into());
-                true
+                return true;
             }
+            Err(SaveError::Unmappable(encoding)) => SaveProblemKind::Unmappable(encoding),
+            Err(SaveError::ReadWithErrors) => SaveProblemKind::ReadWithErrors,
             Err(e) => {
                 self.status = Some(format!("Save failed: {e}"));
-                false
+                return false;
+            }
+        };
+        self.tabs.activate(tab);
+        self.save_problem = Some(SaveProblem { tab, path, kind });
+        false
+    }
+
+    fn save_problem_dialog(&mut self, ctx: &egui::Context) {
+        let Some(problem) = &self.save_problem else {
+            return;
+        };
+        let Some(tab) = self.tabs.get(problem.tab) else {
+            self.save_problem = None;
+            return;
+        };
+        let name = tab.doc.display_name();
+        let encoding = tab.doc.format.encoding.name();
+        let mut proceed = None;
+        egui::Modal::new(egui::Id::unique("save-problem")).show(ctx, |ui| {
+            ui.set_width(380.0);
+            match problem.kind {
+                SaveProblemKind::Unmappable(enc) => {
+                    ui.heading(format!("Save \u{201c}{name}\u{201d} as UTF-8?"));
+                    ui.label(format!(
+                        "Some characters can't be stored in {}. Saving as UTF-8 keeps them all.",
+                        enc.name()
+                    ));
+                }
+                SaveProblemKind::ReadWithErrors => {
+                    ui.heading(format!("Save \u{201c}{name}\u{201d} anyway?"));
+                    ui.label(format!(
+                        "Parts of this file couldn't be read as {encoding} and show as \u{fffd}. \
+                         Saving will write them that way. To read it differently, cancel and \
+                         use File \u{2192} Reopen with Encoding."
+                    ));
+                }
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let label = match problem.kind {
+                    SaveProblemKind::Unmappable(_) => "Save as UTF-8",
+                    SaveProblemKind::ReadWithErrors => "Save Anyway",
+                };
+                if ui.button(label).clicked() {
+                    proceed = Some(true);
+                }
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    proceed = Some(false);
+                }
+            });
+        });
+
+        let Some(proceed) = proceed else {
+            return;
+        };
+        let problem = self.save_problem.take().expect("checked above");
+        if !proceed {
+            return;
+        }
+        let Some(tab) = self.tabs.get_mut(problem.tab) else {
+            return;
+        };
+        match problem.kind {
+            SaveProblemKind::Unmappable(_) => tab.doc.convert_encoding(encoding_rs::UTF_8),
+            SaveProblemKind::ReadWithErrors => tab.doc.accept_read_errors(),
+        }
+        let result = match &problem.path {
+            Some(path) => tab.doc.save_as(path),
+            None => tab.doc.save(),
+        };
+        if result.is_ok() {
+            tab.disk_notice = None;
+        }
+        self.report_save(problem.tab, problem.path, result);
+    }
+
+    // ----- crash recovery ---------------------------------------------------
+
+    /// Write recovery copies of unsaved documents; drop the rest.
+    fn save_recovery_copies(&mut self) {
+        let Some(recovery) = &mut self.recovery else {
+            return;
+        };
+        for tab in self.tabs.iter() {
+            if tab.doc.is_dirty() {
+                if let Err(e) = recovery.save(tab.id, &tab.doc) {
+                    self.status = Some(format!("Couldn't write recovery copy: {e}"));
+                }
+            } else {
+                recovery.remove(tab.id);
             }
         }
+        let tabs = &self.tabs;
+        recovery.retain(|id| tabs.get(id).is_some());
+    }
+
+    fn recovery_dialog(&mut self, ctx: &egui::Context) {
+        let Some(leftovers) = &self.recovery_prompt else {
+            return;
+        };
+        let names: Vec<String> = leftovers.records.iter().map(|r| r.display_name()).collect();
+        let mut restore = None;
+        egui::Modal::new(egui::Id::unique("recover")).show(ctx, |ui| {
+            ui.set_width(380.0);
+            ui.heading("Restore unsaved documents?");
+            ui.label("Sloth didn't quit properly last time. These documents had unsaved changes:");
+            ui.add_space(4.0);
+            for name in &names {
+                ui.label(format!("\u{2022}  {name}"));
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Restore").clicked() {
+                    restore = Some(true);
+                }
+                if ui.button("Discard").clicked() {
+                    restore = Some(false);
+                }
+            });
+        });
+
+        let Some(restore) = restore else {
+            return;
+        };
+        let leftovers = self.recovery_prompt.take().expect("checked above");
+        if restore {
+            for record in leftovers.records.clone() {
+                // If that file is already open, put the recovered text there.
+                let existing = record.path.as_deref().and_then(|p| self.tabs.find_by_path(p));
+                match existing {
+                    Some(id) => {
+                        if let Some(tab) = self.tabs.get_mut(id) {
+                            tab.doc.text = record.text;
+                        }
+                        self.tabs.activate(id);
+                    }
+                    None => {
+                        self.tabs.open(record.into_document());
+                    }
+                }
+            }
+            self.status = Some("Restored unsaved documents".into());
+            // Write them into this session's folder before deleting the old one.
+            self.save_recovery_copies();
+        }
+        leftovers.remove();
     }
 
     fn current_dir(&self) -> Option<PathBuf> {
@@ -494,7 +725,8 @@ impl SlothApp {
                 DiskState::Unchanged => {}
                 DiskState::Changed if !tab.doc.is_dirty() => {
                     // Nothing to lose: just pick up the new version.
-                    if tab.doc.reload().is_ok() {
+                    let encoding = Some(tab.doc.format.encoding);
+                    if tab.doc.reload_with_encoding(encoding).is_ok() {
                         tab.disk_notice = None;
                         reloaded.push(tab.doc.display_name());
                     }
@@ -509,13 +741,25 @@ impl SlothApp {
         }
     }
 
-    fn reload_active(&mut self) {
+    fn reload_active(&mut self, kind: ReloadKind) {
         let tab = self.tabs.active_mut();
-        match tab.doc.reload() {
+        let encoding = match kind {
+            // Keep reading it the way it's being read now.
+            ReloadKind::Revert => tab.doc.format.encoding,
+            ReloadKind::WithEncoding(e) => e.encoding(),
+        };
+        match tab.doc.reload_with_encoding(Some(encoding)) {
             Ok(()) => {
                 tab.disk_notice = None;
                 self.find.current = None;
-                self.status = Some(format!("Reverted {}", tab.doc.display_name()));
+                let name = tab.doc.display_name();
+                self.status = Some(match kind {
+                    ReloadKind::Revert => format!("Reverted {name}"),
+                    ReloadKind::WithEncoding(e) if tab.doc.read_with_errors => {
+                        format!("{name} isn't valid {} either", e.short_name())
+                    }
+                    ReloadKind::WithEncoding(e) => format!("Reopened {name} as {}", e.short_name()),
+                });
             }
             Err(e) => self.status = Some(format!("Could not reload: {e}")),
         }
@@ -554,7 +798,7 @@ impl SlothApp {
                 });
             });
         if reload {
-            self.reload_active();
+            self.reload_active(ReloadKind::Revert);
         } else if dismiss {
             let tab = self.tabs.active_mut();
             tab.doc.acknowledge_disk_state();
@@ -562,19 +806,27 @@ impl SlothApp {
         }
     }
 
-    fn revert_dialog(&mut self, ctx: &egui::Context) {
-        if !self.confirm_revert {
+    /// Confirm discarding unsaved changes before Revert or Reopen with Encoding.
+    fn reload_dialog(&mut self, ctx: &egui::Context) {
+        let Some(kind) = self.confirm_reload else {
             return;
-        }
+        };
         let name = self.tabs.active().doc.display_name();
+        let (heading, button) = match kind {
+            ReloadKind::Revert => (format!("Revert \u{201c}{name}\u{201d}?"), "Revert".to_owned()),
+            ReloadKind::WithEncoding(e) => (
+                format!("Reopen \u{201c}{name}\u{201d} as {}?", e.short_name()),
+                "Reopen".to_owned(),
+            ),
+        };
         let mut choice = None;
-        egui::Modal::new(egui::Id::unique("revert")).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::unique("reload")).show(ctx, |ui| {
             ui.set_width(340.0);
-            ui.heading(format!("Revert \u{201c}{name}\u{201d}?"));
+            ui.heading(heading);
             ui.label("Your unsaved changes will be lost.");
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Revert").clicked() {
+                if ui.button(button).clicked() {
                     choice = Some(true);
                 }
                 if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
@@ -582,10 +834,10 @@ impl SlothApp {
                 }
             });
         });
-        if let Some(revert) = choice {
-            self.confirm_revert = false;
-            if revert {
-                self.reload_active();
+        if let Some(go) = choice {
+            self.confirm_reload = None;
+            if go {
+                self.reload_active(kind);
             }
         }
     }
@@ -796,6 +1048,10 @@ impl SlothApp {
                 MenuEntry::Submenu(title, children) => {
                     ui.menu_button(*title, |ui| self.menu_entries(ui, ctx, children));
                 }
+                MenuEntry::Generated(list) => {
+                    let generated: Vec<MenuEntry> = list().into_iter().map(MenuEntry::Item).collect();
+                    self.menu_entries(ui, ctx, &generated);
+                }
                 MenuEntry::RecentFiles => {
                     ui.menu_button("Open Recent", |ui| {
                         let labels = settings::recent_labels(&self.settings.recent_files);
@@ -846,6 +1102,9 @@ impl SlothApp {
                 ui.label(msg);
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(doc.format.summary())
+                    .on_hover_text("Encoding and line endings: change them in the File menu");
+                ui.separator();
                 ui.label(format!("{} lines", doc.line_count()));
                 if let Some((line, col)) = self.cursor.line_col {
                     ui.separator();
@@ -989,6 +1248,11 @@ impl eframe::App for SlothApp {
             self.check_disk();
             self.last_disk_check = now;
         }
+        // Recovery copies: every few seconds, and when the window loses focus.
+        if (self.was_focused && !focused) || now - self.last_recovery_save >= RECOVERY_INTERVAL {
+            self.save_recovery_copies();
+            self.last_recovery_save = now;
+        }
         self.was_focused = focused;
         if focused {
             ctx.request_repaint_after(DISK_CHECK_INTERVAL);
@@ -1069,7 +1333,9 @@ impl eframe::App for SlothApp {
             });
 
         self.unsaved_changes_dialog(&ctx);
-        self.revert_dialog(&ctx);
+        self.reload_dialog(&ctx);
+        self.save_problem_dialog(&ctx);
+        self.recovery_dialog(&ctx);
         self.go_to_line_dialog(&ctx);
         self.about_window(&ctx);
         self.help_window(&ctx);

@@ -10,6 +10,7 @@
 use eframe::egui::{Key, KeyboardShortcut, Modifiers};
 
 use crate::settings::MAX_RECENT;
+use crate::text_format::{ENCODINGS, LineEnding, TextEncoding};
 use crate::theme::ThemeChoice;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -47,6 +48,9 @@ pub enum Command {
     ClearRecent,
     GoToLine,
     RevertToSaved,
+    ReopenWithEncoding(TextEncoding),
+    ConvertEncoding(TextEncoding),
+    SetLineEnding(LineEnding),
 }
 
 pub enum MenuEntry {
@@ -55,9 +59,11 @@ pub enum MenuEntry {
     Submenu(&'static str, &'static [MenuEntry]),
     /// File → Open Recent, whose items change at runtime.
     RecentFiles,
+    /// Items listed by a function (for long, regular lists like encodings).
+    Generated(fn() -> Vec<Command>),
 }
 
-use MenuEntry::{Item, RecentFiles, Separator, Submenu};
+use MenuEntry::{Generated, Item, RecentFiles, Separator, Submenu};
 
 /// The menu bar. On macOS, `About` and `Quit` are moved into the application
 /// menu automatically, and the Window and Help menus gain the standard items.
@@ -73,6 +79,10 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Item(Command::Save),
             Item(Command::SaveAs),
             Item(Command::RevertToSaved),
+            Separator,
+            Submenu("Reopen with Encoding", &[Generated(reopen_with_encoding_items)]),
+            Submenu("Convert to Encoding", &[Generated(convert_encoding_items)]),
+            Submenu("Line Endings", LINE_ENDING_MENU),
             Separator,
             Item(Command::Quit),
         ],
@@ -120,6 +130,19 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
     ),
 ];
 
+const LINE_ENDING_MENU: &[MenuEntry] = &[
+    Item(Command::SetLineEnding(LineEnding::Lf)),
+    Item(Command::SetLineEnding(LineEnding::CrLf)),
+];
+
+fn reopen_with_encoding_items() -> Vec<Command> {
+    ENCODINGS.iter().map(|&e| Command::ReopenWithEncoding(e)).collect()
+}
+
+fn convert_encoding_items() -> Vec<Command> {
+    ENCODINGS.iter().map(|&e| Command::ConvertEncoding(e)).collect()
+}
+
 const FIND_MENU: &[MenuEntry] = &[
     Item(Command::Find),
     Item(Command::FindAndReplace),
@@ -152,6 +175,7 @@ pub fn all() -> Vec<Command> {
                     out.extend((0..MAX_RECENT as u8).map(Command::OpenRecent));
                     out.push(Command::ClearRecent);
                 }
+                Generated(items) => out.extend(items()),
             }
         }
     }
@@ -198,6 +222,8 @@ impl Command {
             Command::ClearRecent => "Clear Menu",
             Command::GoToLine => "Go to Line…",
             Command::RevertToSaved => "Revert to Saved",
+            Command::ReopenWithEncoding(e) | Command::ConvertEncoding(e) => e.label(),
+            Command::SetLineEnding(l) => l.label(),
         }
     }
 
@@ -241,7 +267,10 @@ impl Command {
             | Command::ReleaseNotes
             | Command::OpenRecent(_)
             | Command::ClearRecent
-            | Command::RevertToSaved => None,
+            | Command::RevertToSaved
+            | Command::ReopenWithEncoding(_)
+            | Command::ConvertEncoding(_)
+            | Command::SetLineEnding(_) => None,
         }
     }
 
@@ -249,7 +278,11 @@ impl Command {
     pub fn is_checkable(self) -> bool {
         matches!(
             self,
-            Command::ToggleLineNumbers | Command::ToggleWordWrap | Command::SetTheme(_)
+            Command::ToggleLineNumbers
+                | Command::ToggleWordWrap
+                | Command::SetTheme(_)
+                | Command::ConvertEncoding(_)
+                | Command::SetLineEnding(_)
         )
     }
 

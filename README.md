@@ -58,6 +58,10 @@ pick Sloth under **Open with**, and click **Change All**.
 - File → Open Recent, and the tabs you had open are reopened at launch
 - Files changed by another program reload automatically, or Sloth asks if you
   have unsaved edits
+- Keeps each file's encoding (17 common ones, detected automatically) and line
+  endings; File menu options to reopen, convert or change them
+- Safe saves (temporary file, then swapped into place) and crash recovery for
+  unsaved documents
 - Asks before discarding unsaved changes (closing a tab, quitting, closing the window)
 - A `•` in the title bar marks unsaved changes
 
@@ -76,6 +80,8 @@ pick Sloth under **Open with**, and click **Change All**.
 | `src/settings.rs` | Everything saved between launches (theme, view options, recent files, open tabs) |
 | `src/macos_open.rs` | Receives files opened from Finder |
 | `src/help.rs`     | The Help window's pages |
+| `src/text_format.rs` | Encodings, byte-order marks and line endings (reading and writing) |
+| `src/recovery.rs` | Crash-recovery copies of unsaved documents |
 | `src/app_ui_tests.rs` | UI tests that run the app in memory (`cargo test`) |
 | `macos/document-types.plist` | File types declared in Sloth.app, so Finder offers it |
 | `src/editor.rs`   | The text area and line-number gutter |
@@ -96,7 +102,8 @@ shortcut uses a key that isn't mapped yet, add it to `to_accelerator` in `native
 To add a theme, add a variant to `ThemeChoice` in `theme.rs` with a label and
 palette, add it to `ALL` there, and add it to `THEME_MENU` in `commands.rs`.
 
-Settings are saved to `~/Library/Application Support/Sloth/app.ron`.
+Settings are saved to `~/Library/Application Support/Sloth/app.ron`, and
+crash-recovery copies to the `recovery` folder next to it.
 
 `cargo test` runs the unit tests and the UI tests. The UI tests use
 `egui_kittest` to drive the app in memory, so they don't open a window.

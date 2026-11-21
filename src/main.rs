@@ -9,8 +9,10 @@ mod help;
 mod macos_open;
 #[cfg(target_os = "macos")]
 mod native_menu;
+mod recovery;
 mod settings;
 mod tabs;
+mod text_format;
 mod theme;
 mod version;
 

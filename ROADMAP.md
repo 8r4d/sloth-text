@@ -45,7 +45,7 @@ Goal: Sloth can be your everyday plain-text app.
 | Go to Line (⌘L) | S | A small prompt for `line` or `line:col` that moves the cursor and scrolls there (reuses `set_selection` and `reveal`). |
 | Revert to Saved | S | File menu command, with a confirmation prompt. |
 
-## 0.4.0: Safe with files
+## 0.4.0: Safe with files ✅
 
 Goal: Sloth never damages a file or loses work.
 
@@ -53,7 +53,7 @@ Goal: Sloth never damages a file or loses work.
 |---|---|---|
 | Text encodings | M | Detect the encoding with `chardetng` and decode with `encoding_rs`; remember the encoding and any BOM on `Document`, and save back in the same encoding. Show the encoding in the status bar, and add File → Reopen with Encoding. If a file can't be decoded cleanly, warn before saving. |
 | Line endings | S | Detect LF or CRLF on load, edit with LF internally, and write back the original style. Show it in the status bar, with an option to convert. |
-| Autosave and crash recovery | M | Every 30 s, copy tabs with unsaved changes (and untitled tabs) to `~/Library/Application Support/Sloth/recovery/`, and delete the copy when the tab is saved or closed. At launch, offer to restore any copies left behind. This also lets untitled tabs survive a restart. |
+| Autosave and crash recovery | M | Every 30 s, copy tabs with unsaved changes (and untitled tabs) to `~/Library/Application Support/Sloth/recovery/`, and delete the copy when the tab is saved or closed. At launch, offer to restore any copies left behind. *Not done yet: keeping untitled tabs across a normal quit (for now Sloth still asks to save them).* |
 | Atomic saves | S | Write to a temporary file and rename it over the original, so a crash mid-save can't leave a half-written file. |
 
 ## 0.5.0: Comfortable editing
