@@ -17,11 +17,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# macOS bindings (already used by muda): window tabbing setting and Finder file-open events.
+# macOS bindings (already used by muda): window tabbing, Finder file-open events, printing.
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSFont", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSText", "NSTextView", "NSView", "NSWindow"] }
 # Apple Events, used to receive files opened from Finder.
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSNotification", "NSString", "NSURL", "objc2-core-services"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDictionary", "NSGeometry", "NSNotification", "NSString", "NSURL", "NSValue", "objc2-core-services"] }
 muda = "0.21.2"
 # Same major version eframe uses; needed only to tweak the macOS menu.
 winit = "0.30"

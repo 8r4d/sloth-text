@@ -10,6 +10,8 @@ mod help;
 #[cfg(target_os = "macos")]
 mod macos_open;
 #[cfg(target_os = "macos")]
+mod macos_print;
+#[cfg(target_os = "macos")]
 mod native_menu;
 mod recovery;
 mod search_results;

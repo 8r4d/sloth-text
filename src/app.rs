@@ -357,6 +357,7 @@ impl SlothApp {
                 let e = &mut self.settings.editor;
                 e.syntax_highlighting = !e.syntax_highlighting;
             }
+            Command::Print => self.print(),
             Command::ToggleMarkdownPreview => {
                 let e = &mut self.settings.editor;
                 e.markdown_preview = !e.markdown_preview;
@@ -445,6 +446,17 @@ impl SlothApp {
             }
             None => plural(editing::counts(&tab.doc.text).0, "word"),
         })
+    }
+
+    fn print(&mut self) {
+        let doc = &self.tabs.active().doc;
+        #[cfg(target_os = "macos")]
+        crate::macos_print::print(&doc.display_name(), &doc.text, self.settings.editor.font.as_deref());
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = doc;
+            self.status = Some("Printing is only available on macOS".into());
+        }
     }
 
     /// Rendered Markdown beside the editor, for Markdown documents.

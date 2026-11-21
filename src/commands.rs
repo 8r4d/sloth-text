@@ -60,6 +60,7 @@ pub enum Command {
     ToggleAutoIndent,
     ToggleHighlightLine,
     ToggleSyntaxHighlighting,
+    Print,
     ToggleMarkdownPreview,
     /// The built-in editor font.
     DefaultFont,
@@ -99,6 +100,8 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Item(Command::Save),
             Item(Command::SaveAs),
             Item(Command::RevertToSaved),
+            Separator,
+            Item(Command::Print),
             Separator,
             Submenu("Reopen with Encoding", &[Generated(reopen_with_encoding_items)]),
             Submenu("Convert to Encoding", &[Generated(convert_encoding_items)]),
@@ -282,6 +285,7 @@ impl Command {
             Command::ToggleAutoIndent => "Auto-Indent",
             Command::ToggleHighlightLine => "Highlight Current Line",
             Command::ToggleSyntaxHighlighting => "Syntax Highlighting",
+            Command::Print => "Print\u{2026}",
             Command::ToggleMarkdownPreview => "Markdown Preview",
             Command::DefaultFont => "Built-in (Hack)",
             Command::SetFont(i) => crate::fonts::families()
@@ -331,6 +335,7 @@ impl Command {
             Command::Indent => sc(cmd, Key::CloseBracket),
             Command::Outdent => sc(cmd, Key::OpenBracket),
             Command::ToggleMarkdownPreview => sc(cmd_alt, Key::P),
+            Command::Print => sc(cmd, Key::P),
             Command::SetTheme(_)
             | Command::About
             | Command::ReleaseNotes
