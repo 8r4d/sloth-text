@@ -1,0 +1,23 @@
+[package]
+name = "sloth"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.37.0"
+rfd = "0.18.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Same major version eframe uses; needed only to tweak the macOS menu.
+winit = "0.30"
+
+[profile.release]
+lto = true
+strip = true
+
+# `cargo install cargo-bundle && cargo bundle --release` builds Sloth.app
+[package.metadata.bundle]
+name = "Sloth"
+identifier = "com.bradsalomons.sloth"
+category = "public.app-category.developer-tools"
+short_description = "A simple plain-text editor"
