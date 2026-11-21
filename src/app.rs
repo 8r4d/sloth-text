@@ -29,6 +29,11 @@ use crate::version;
 
 /// How often to check open files for changes made by other programs.
 const DISK_CHECK_INTERVAL: Duration = Duration::from_secs(2);
+/// Word counts are skipped above this size, and refreshed about once a
+/// second (rather than every frame) above the smaller one.
+const WORD_COUNT_MAX_BYTES: usize = 20_000_000;
+const WORD_COUNT_EVERY_FRAME_BYTES: usize = 200_000;
+
 /// How often to write crash-recovery copies of unsaved documents.
 const RECOVERY_INTERVAL: f64 = 5.0;
 
@@ -111,6 +116,9 @@ struct WindowState {
     close_queue: Vec<TabId>,
     /// "123 words" (or a count for the selection), for the status bar.
     word_counts: Option<String>,
+    /// What the word count was for (tab and selection), and when.
+    word_counts_key: Option<(TabId, Option<Range<usize>>)>,
+    word_counts_at: f64,
     match_cache: RefCell<MatchCache>,
     /// The all-tabs search results panel is open.
     show_results: bool,
@@ -141,6 +149,8 @@ impl WindowState {
             save_problem: None,
             close_queue: Vec::new(),
             word_counts: None,
+            word_counts_key: None,
+            word_counts_at: 0.0,
             match_cache: RefCell::default(),
             show_results: false,
             closing: false,
@@ -616,12 +626,26 @@ impl SlothApp {
 
     /// Word count for the status bar: the selection's, or the whole
     /// document's. Skipped for very large files to keep typing fast.
-    fn count_words(&self, ctx: &egui::Context) -> Option<String> {
+    fn count_words(&mut self, ctx: &egui::Context) -> Option<String> {
         let tab = self.w.tabs.active();
-        if tab.doc.text.len() > 5_000_000 {
+        let len = tab.doc.text.len();
+        if len > WORD_COUNT_MAX_BYTES {
             return None;
         }
         let selection = editor::selection(ctx, tab.id).filter(|s| !s.is_empty());
+        // Counting a big document takes a few milliseconds, so for those
+        // only refresh the count about once a second.
+        let key = (tab.id, selection.clone());
+        let now = ctx.input(|i| i.time);
+        if len > WORD_COUNT_EVERY_FRAME_BYTES
+            && self.w.word_counts_key.as_ref() == Some(&key)
+            && now - self.w.word_counts_at < 1.0
+        {
+            return self.w.word_counts.clone();
+        }
+        self.w.word_counts_key = Some(key);
+        self.w.word_counts_at = now;
+        let tab = self.w.tabs.active();
         let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
         Some(match selection {
             Some(sel) => {

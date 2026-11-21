@@ -711,3 +711,101 @@ fn windows_are_restored_at_launch() {
     assert_eq!(others[0].files, vec![b, c]);
     assert_eq!(others[0].active, 1);
 }
+
+/// Not a check: times frames with big files, to find what's slow.
+/// Run with `cargo test --release perf_large_files -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn perf_large_files() {
+    use std::time::Instant;
+    let dir = TempDir::new("perf");
+    let line = "The quick brown fox jumps over the lazy dog, again and again and again.\n";
+    for mb in [1usize, 5, 10] {
+        let text = line.repeat(mb * 1_000_000 / line.len());
+        let file = dir.file(&format!("big{mb}.txt"), &text);
+        let start = Instant::now();
+        let mut harness = harness(Settings::default(), vec![file]);
+        let open = start.elapsed();
+
+        let time = |harness: &mut Harness<'static, SlothApp>, frames: u32| {
+            let t = Instant::now();
+            harness.run_steps(frames as usize);
+            t.elapsed() / frames
+        };
+        let idle = time(&mut harness, 5);
+
+        put_cursor(&mut harness, 10);
+        let t = Instant::now();
+        for _ in 0..5 {
+            harness.event(egui::Event::Text("x".into()));
+            harness.run_steps(1);
+        }
+        let typing = t.elapsed() / 5;
+
+        execute(&mut harness, Command::Find);
+        harness.state_mut().w.find.query = "lazy".into();
+        let t = Instant::now();
+        harness.run_steps(1);
+        let first_search = t.elapsed();
+        let search_idle = time(&mut harness, 5);
+        eprintln!(
+            "PERF {mb:>2} MB: open {open:>8.1?}  idle frame {idle:>8.1?}  typing frame {typing:>8.1?}  \
+             first search {first_search:>8.1?}  idle while searching {search_idle:>8.1?}"
+        );
+    }
+}
+
+/// Not a check: redraws a 10 MB file for a while, to profile with `sample`.
+#[test]
+#[ignore]
+fn perf_profile_idle() {
+    let dir = TempDir::new("profile");
+    let line = "The quick brown fox jumps over the lazy dog, again and again and again.\n";
+    let file = dir.file("big.txt", &line.repeat(10_000_000 / line.len()));
+    let mut harness = harness(Settings::default(), vec![file]);
+    put_cursor(&mut harness, 10);
+    for _ in 0..60 {
+        harness.run_steps(1);
+    }
+}
+
+/// Not a check: like `perf_large_files`, but without the test harness, so
+/// accessibility support is off as it normally is in the app (it switches on
+/// only for VoiceOver and other assistive tools). Includes tessellation.
+/// Run with `cargo test --release perf_plain -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn perf_plain_context() {
+    use std::time::{Duration, Instant};
+    let dir = TempDir::new("perfplain");
+    let line = "The quick brown fox jumps over the lazy dog, again and again and again.\n";
+    for mb in [1usize, 5, 10, 50] {
+        let file = dir.file(&format!("big{mb}.txt"), &line.repeat(mb * 1_000_000 / line.len()));
+        let ctx = egui::Context::default();
+        let t = Instant::now();
+        let mut app = SlothApp::with_settings(&ctx, Settings::default(), vec![file]);
+        let open = t.elapsed();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0));
+        let frame = |app: &mut SlothApp, events: Vec<egui::Event>| -> Duration {
+            let input = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let t = Instant::now();
+            let out = ctx.run_ui(input, |ui| app.window_ui(ui));
+            let _ = ctx.tessellate(out.shapes, out.pixels_per_point);
+            t.elapsed()
+        };
+        let first = frame(&mut app, vec![]);
+        let idle: Duration = (0..5).map(|_| frame(&mut app, vec![])).sum::<Duration>() / 5;
+        let tab = app.w.tabs.active().id;
+        ctx.memory_mut(|m| m.request_focus(editor::editor_id(tab)));
+        editor::set_selection(&ctx, tab, 10..10);
+        frame(&mut app, vec![]);
+        let typing: Duration =
+            (0..5).map(|_| frame(&mut app, vec![egui::Event::Text("x".into())])).sum::<Duration>() / 5;
+        assert!(app.w.tabs.active().doc.text.starts_with("The quick xxxxx"), "typing didn't land");
+        let idle_focused: Duration = (0..5).map(|_| frame(&mut app, vec![])).sum::<Duration>() / 5;
+        eprintln!(
+            "PLAIN {mb:>2} MB: open {open:>8.1?}  first frame {first:>8.1?}  idle {idle:>8.1?}  \
+             idle (editing) {idle_focused:>8.1?}  typing {typing:>8.1?}"
+        );
+    }
+}
