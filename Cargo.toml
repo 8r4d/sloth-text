@@ -1,6 +1,6 @@
 [package]
 name = "sloth"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -8,6 +8,9 @@ eframe = { version = "0.37.0", features = ["persistence"] }
 rfd = "0.18.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# macOS bindings (already used by muda); used to turn off automatic window tabbing.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSWindow"] }
 muda = "0.21.2"
 # Same major version eframe uses; needed only to tweak the macOS menu.
 winit = "0.30"

@@ -10,7 +10,7 @@ use std::sync::mpsc::{Receiver, channel};
 use eframe::egui::{self, Key, KeyboardShortcut};
 use muda::accelerator::{Accelerator, Code, Modifiers};
 use muda::{
-    AboutMetadata, CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
+    CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
 
 use crate::commands::{self, Command, MenuEntry};
@@ -32,14 +32,7 @@ impl NativeMenu {
         append(
             &app_menu,
             &[
-                &PredefinedMenuItem::about(
-                    Some("About Sloth"),
-                    Some(AboutMetadata {
-                        name: Some("Sloth".into()),
-                        version: Some(env!("CARGO_PKG_VERSION").into()),
-                        ..Default::default()
-                    }),
-                ),
+                &command_item(Command::About),
                 &PredefinedMenuItem::separator(),
                 &PredefinedMenuItem::services(None),
                 &PredefinedMenuItem::separator(),
@@ -52,27 +45,49 @@ impl NativeMenu {
         );
         menu.append(&app_menu).ok();
 
+        let mut window_menu = None;
+        let mut help_menu = None;
         for (title, entries) in commands::MENUS {
             let submenu = Submenu::new(*title, true);
-            fill(&submenu, entries, &mut checkable);
+            match *title {
+                "Window" => {
+                    // Standard window items first, then ours, as in other Mac apps.
+                    append(
+                        &submenu,
+                        &[
+                            &PredefinedMenuItem::minimize(None),
+                            &PredefinedMenuItem::maximize(None),
+                            &PredefinedMenuItem::fullscreen(None),
+                            &PredefinedMenuItem::separator(),
+                        ],
+                    );
+                    fill(&submenu, entries, &mut checkable);
+                    append(
+                        &submenu,
+                        &[
+                            &PredefinedMenuItem::separator(),
+                            &PredefinedMenuItem::bring_all_to_front(None),
+                        ],
+                    );
+                    window_menu = Some(submenu.clone());
+                }
+                "Help" => {
+                    fill(&submenu, entries, &mut checkable);
+                    help_menu = Some(submenu.clone());
+                }
+                _ => fill(&submenu, entries, &mut checkable),
+            }
             menu.append(&submenu).ok();
         }
 
-        let window_menu = Submenu::new("Window", true);
-        append(
-            &window_menu,
-            &[
-                &PredefinedMenuItem::minimize(None),
-                &PredefinedMenuItem::maximize(None),
-                &PredefinedMenuItem::fullscreen(None),
-                &PredefinedMenuItem::separator(),
-                &PredefinedMenuItem::bring_all_to_front(None),
-            ],
-        );
-        menu.append(&window_menu).ok();
-
         menu.init_for_nsapp();
-        window_menu.set_as_windows_menu_for_nsapp();
+        if let Some(m) = window_menu {
+            m.set_as_windows_menu_for_nsapp();
+        }
+        if let Some(m) = help_menu {
+            // Gives the Help menu its macOS search field.
+            m.set_as_help_menu_for_nsapp();
+        }
 
         let (tx, rx) = channel();
         let ctx = ctx.clone();
@@ -112,11 +127,11 @@ fn fill(
     entries: &[MenuEntry],
     checkable: &mut HashMap<Command, CheckMenuItem>,
 ) {
-    // Quit lives in the app menu on macOS; drop it (and any separator left
-    // dangling at the end) from the other menus.
+    // About and Quit live in the app menu on macOS; drop them (and any
+    // separator left dangling at the end) from the other menus.
     let mut entries: Vec<_> = entries
         .iter()
-        .filter(|e| !matches!(e, MenuEntry::Item(Command::Quit)))
+        .filter(|e| !matches!(e, MenuEntry::Item(cmd) if cmd.in_app_menu_on_macos()))
         .collect();
     while matches!(entries.last(), Some(MenuEntry::Separator)) {
         entries.pop();
@@ -194,6 +209,11 @@ fn to_accelerator(sc: KeyboardShortcut) -> Option<Accelerator> {
         Key::Equals => Code::Equal,
         Key::Minus => Code::Minus,
         Key::Num0 => Code::Digit0,
+        Key::E => Code::KeyE,
+        Key::F => Code::KeyF,
+        Key::G => Code::KeyG,
+        Key::Tab => Code::Tab,
+        Key::Slash => Code::Slash,
         _ => return None, // add more keys here as new shortcuts need them
     };
     Some(Accelerator::new(mods, code))

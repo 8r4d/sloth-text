@@ -1,8 +1,14 @@
 //! The main editing surface: a monospace text area with a line-number gutter.
 
+use std::ops::Range;
+
 use eframe::egui::{
-    self, Align2, FontId, Id, Rect, ScrollArea, Sense, TextEdit, Vec2, text::CCursor,
+    self, Align, Align2, Color32, FontId, Id, Rect, ScrollArea, Sense, TextEdit, Vec2,
+    text::{CCursor, CCursorRange, LayoutJob, TextFormat},
+    text_edit::TextEditState,
 };
+
+use crate::tabs::TabId;
 
 pub struct EditorSettings {
     pub show_line_numbers: bool,
@@ -24,6 +30,13 @@ impl Default for EditorSettings {
     }
 }
 
+/// Search matches to highlight (byte ranges into the text).
+#[derive(Default)]
+pub struct Highlights<'a> {
+    pub all: &'a [Range<usize>],
+    pub current: Option<Range<usize>>,
+}
+
 /// Information the editor reports back to the app each frame.
 #[derive(Default, Clone, Copy)]
 pub struct CursorInfo {
@@ -31,11 +44,41 @@ pub struct CursorInfo {
     pub line_col: Option<(usize, usize)>,
 }
 
-pub fn editor_id() -> Id {
-    Id::unique("sloth-editor")
+/// Each tab has its own text widget, so cursor, undo history and scroll
+/// position are kept per tab.
+pub fn editor_id(tab: TabId) -> Id {
+    // Include the process id so state saved by older versions (which did
+    // persist widget state) can never be picked up by a tab in this session.
+    Id::unique(("sloth-editor", std::process::id(), tab))
 }
 
-pub fn show(ui: &mut egui::Ui, text: &mut String, settings: &EditorSettings) -> CursorInfo {
+/// The selected character range in a tab's editor (sorted), if any.
+pub fn selection(ctx: &egui::Context, tab: TabId) -> Option<Range<usize>> {
+    let range = TextEditState::load(ctx, editor_id(tab))?.cursor.char_range()?;
+    let (a, b) = (range.primary.index.0, range.secondary.index.0);
+    Some(a.min(b)..a.max(b))
+}
+
+/// Select a character range in a tab's editor.
+pub fn set_selection(ctx: &egui::Context, tab: TabId, chars: Range<usize>) {
+    let id = editor_id(tab);
+    let mut state = TextEditState::load(ctx, id).unwrap_or_default();
+    state.cursor.set_char_range(Some(CCursorRange::two(
+        CCursor::new(chars.start),
+        CCursor::new(chars.end),
+    )));
+    state.store(ctx, id);
+}
+
+/// Draw the editor. `reveal` scrolls the given character index into view.
+pub fn show(
+    ui: &mut egui::Ui,
+    tab: TabId,
+    text: &mut String,
+    settings: &EditorSettings,
+    highlights: Highlights<'_>,
+    reveal: Option<usize>,
+) -> CursorInfo {
     let font = FontId::monospace(settings.font_size);
     let line_count = text.split('\n').count();
     let digits = line_count.to_string().len().max(2);
@@ -55,62 +98,124 @@ pub fn show(ui: &mut egui::Ui, text: &mut String, settings: &EditorSettings) -> 
 
     let mut info = CursorInfo::default();
 
-    scroll.auto_shrink([false, false]).show(ui, |ui| {
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
+    scroll
+        .id_salt(("editor-scroll", tab))
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
 
-            // Reserve the gutter column; numbers are painted after layout,
-            // once we know where each text row landed.
-            let gutter_rect = if settings.show_line_numbers {
-                let (rect, _) = ui.allocate_exact_size(Vec2::new(gutter_width, 0.0), Sense::hover());
-                Some(rect)
-            } else {
-                None
-            };
-            ui.add_space(6.0); // breathing room between gutter and text
-
-            let edit = TextEdit::multiline(text)
-                .id(editor_id())
-                .font(font.clone())
-                .code_editor()
-                .frame(egui::Frame::NONE)
-                .lock_focus(true) // keep Tab inside the editor
-                .desired_rows(1)
-                .desired_width(if settings.word_wrap {
-                    ui.available_width()
+                // Reserve the gutter column; numbers are painted after layout,
+                // once we know where each text row landed.
+                let gutter_rect = if settings.show_line_numbers {
+                    let (rect, _) =
+                        ui.allocate_exact_size(Vec2::new(gutter_width, 0.0), Sense::hover());
+                    Some(rect)
                 } else {
-                    f32::INFINITY
-                });
+                    None
+                };
+                ui.add_space(6.0); // breathing room between gutter and text
 
-            // Custom layouter so we control wrapping: infinite width = no wrap.
-            let wrap = settings.word_wrap;
-            let layout_font = font.clone();
-            let mut layouter = move |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
-                let job = egui::text::LayoutJob::simple(
-                    buf.as_str().to_owned(),
-                    layout_font.clone(),
-                    ui.visuals().text_color(),
-                    if wrap { wrap_width } else { f32::INFINITY },
-                );
-                ui.fonts_mut(|f| f.layout_job(job))
-            };
-            let edit = edit.layouter(&mut layouter);
+                let edit = TextEdit::multiline(text)
+                    .id(editor_id(tab))
+                    .font(font.clone())
+                    .code_editor()
+                    .frame(egui::Frame::NONE)
+                    .lock_focus(true) // keep Tab inside the editor
+                    .desired_rows(1)
+                    .desired_width(if settings.word_wrap {
+                        ui.available_width()
+                    } else {
+                        f32::INFINITY
+                    });
 
-            // Fill the rest of the viewport so clicking below the text focuses it.
-            let min_height = ui.available_height();
-            let output = edit.min_size(Vec2::new(0.0, min_height)).show(ui);
+                // Custom layouter: controls wrapping (infinite width = no wrap)
+                // and paints search-match backgrounds.
+                let wrap = settings.word_wrap;
+                let layout_font = font.clone();
+                let mut layouter =
+                    move |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
+                        let mut job = layout_with_highlights(
+                            buf.as_str(),
+                            &layout_font,
+                            ui.visuals().text_color(),
+                            &highlights,
+                        );
+                        job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
+                        ui.fonts_mut(|f| f.layout_job(job))
+                    };
+                let edit = edit.layouter(&mut layouter);
 
-            if let Some(cursor) = output.cursor_range {
-                info.line_col = Some(line_col(text, cursor.primary));
-            }
+                // Fill the rest of the viewport so clicking below the text focuses it.
+                let min_height = ui.available_height();
+                let output = edit.min_size(Vec2::new(0.0, min_height)).show(ui);
 
-            if let Some(gutter) = gutter_rect {
-                paint_line_numbers(ui, gutter, &output, &font);
-            }
+                if let Some(cursor) = output.cursor_range {
+                    info.line_col = Some(line_col(text, cursor.primary));
+                }
+
+                if let Some(index) = reveal {
+                    let rect = output
+                        .galley
+                        .pos_from_cursor(CCursor::new(index))
+                        .translate(output.galley_pos.to_vec2());
+                    ui.scroll_to_rect(rect.expand(8.0), Some(Align::Center));
+                }
+
+                if let Some(gutter) = gutter_rect {
+                    paint_line_numbers(ui, gutter, &output, &font);
+                }
+            });
         });
-    });
 
     info
+}
+
+/// Build the text layout, giving search matches a highlighted background.
+fn layout_with_highlights(
+    text: &str,
+    font: &FontId,
+    color: Color32,
+    highlights: &Highlights<'_>,
+) -> LayoutJob {
+    let plain = TextFormat::simple(font.clone(), color);
+    if highlights.all.is_empty() {
+        return LayoutJob::single_section(text.to_owned(), plain);
+    }
+
+    let match_bg = Color32::from_rgba_unmultiplied(255, 200, 0, 60);
+    let current_bg = Color32::from_rgba_unmultiplied(255, 160, 0, 170);
+
+    let mut job = LayoutJob::default();
+    let mut pos = 0;
+    for m in highlights.all {
+        // Matches were computed before this frame's edits; skip any that no
+        // longer line up with the text.
+        if m.start < pos
+            || m.end > text.len()
+            || !text.is_char_boundary(m.start)
+            || !text.is_char_boundary(m.end)
+        {
+            continue;
+        }
+        job.append(&text[pos..m.start], 0.0, plain.clone());
+        let background = if highlights.current.as_ref() == Some(m) {
+            current_bg
+        } else {
+            match_bg
+        };
+        job.append(
+            &text[m.clone()],
+            0.0,
+            TextFormat {
+                background,
+                ..plain.clone()
+            },
+        );
+        pos = m.end;
+    }
+    job.append(&text[pos..], 0.0, plain);
+    job
 }
 
 fn paint_line_numbers(

@@ -30,6 +30,17 @@ pub enum Command {
     ZoomOut,
     ZoomReset,
     SetTheme(ThemeChoice),
+    CloseTab,
+    NextTab,
+    PreviousTab,
+    Find,
+    FindAndReplace,
+    FindNext,
+    FindPrevious,
+    UseSelectionForFind,
+    About,
+    Help,
+    ReleaseNotes,
 }
 
 pub enum MenuEntry {
@@ -40,7 +51,8 @@ pub enum MenuEntry {
 
 use MenuEntry::{Item, Separator, Submenu};
 
-/// The menu bar. On macOS, `Quit` is moved into the application menu automatically.
+/// The menu bar. On macOS, `About` and `Quit` are moved into the application
+/// menu automatically, and the Window and Help menus gain the standard items.
 pub const MENUS: &[(&str, &[MenuEntry])] = &[
     (
         "File",
@@ -48,6 +60,7 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Item(Command::New),
             Item(Command::Open),
             Separator,
+            Item(Command::CloseTab),
             Item(Command::Save),
             Item(Command::SaveAs),
             Separator,
@@ -64,6 +77,8 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Item(Command::Copy),
             Item(Command::Paste),
             Item(Command::SelectAll),
+            Separator,
+            Submenu("Find", FIND_MENU),
         ],
     ),
     (
@@ -79,6 +94,27 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Item(Command::ZoomReset),
         ],
     ),
+    (
+        "Window",
+        &[Item(Command::NextTab), Item(Command::PreviousTab)],
+    ),
+    (
+        "Help",
+        &[
+            Item(Command::Help),
+            Item(Command::ReleaseNotes),
+            Separator,
+            Item(Command::About),
+        ],
+    ),
+];
+
+const FIND_MENU: &[MenuEntry] = &[
+    Item(Command::Find),
+    Item(Command::FindAndReplace),
+    Item(Command::FindNext),
+    Item(Command::FindPrevious),
+    Item(Command::UseSelectionForFind),
 ];
 
 const THEME_MENU: &[MenuEntry] = &[
@@ -131,6 +167,17 @@ impl Command {
             Command::ZoomOut => "Zoom Out",
             Command::ZoomReset => "Actual Size",
             Command::SetTheme(theme) => theme.label(),
+            Command::CloseTab => "Close Tab",
+            Command::NextTab => "Show Next Tab",
+            Command::PreviousTab => "Show Previous Tab",
+            Command::Find => "Find…",
+            Command::FindAndReplace => "Find and Replace…",
+            Command::FindNext => "Find Next",
+            Command::FindPrevious => "Find Previous",
+            Command::UseSelectionForFind => "Use Selection for Find",
+            Command::About => "About Sloth",
+            Command::Help => "Sloth Help",
+            Command::ReleaseNotes => "Release Notes",
         }
     }
 
@@ -139,6 +186,8 @@ impl Command {
         let cmd = Modifiers::COMMAND;
         let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
         let cmd_alt = Modifiers::COMMAND | Modifiers::ALT;
+        let ctrl = Modifiers::CTRL;
+        let ctrl_shift = Modifiers::CTRL | Modifiers::SHIFT;
         let sc = |m, k| Some(KeyboardShortcut::new(m, k));
         match self {
             Command::New => sc(cmd, Key::N),
@@ -157,7 +206,16 @@ impl Command {
             Command::ZoomIn => sc(cmd, Key::Equals),
             Command::ZoomOut => sc(cmd, Key::Minus),
             Command::ZoomReset => sc(cmd, Key::Num0),
-            Command::SetTheme(_) => None,
+            Command::CloseTab => sc(cmd, Key::W),
+            Command::NextTab => sc(ctrl, Key::Tab),
+            Command::PreviousTab => sc(ctrl_shift, Key::Tab),
+            Command::Find => sc(cmd, Key::F),
+            Command::FindAndReplace => sc(cmd_alt, Key::F),
+            Command::FindNext => sc(cmd, Key::G),
+            Command::FindPrevious => sc(cmd_shift, Key::G),
+            Command::UseSelectionForFind => sc(cmd, Key::E),
+            Command::Help => sc(cmd_shift, Key::Slash), // ⌘?
+            Command::SetTheme(_) | Command::About | Command::ReleaseNotes => None,
         }
     }
 
@@ -182,6 +240,11 @@ impl Command {
                 | Command::Paste
                 | Command::SelectAll
         )
+    }
+
+    /// On macOS these live in the application menu rather than where `MENUS` puts them.
+    pub fn in_app_menu_on_macos(self) -> bool {
+        matches!(self, Command::About | Command::Quit)
     }
 
     /// Stable string id, used for native menu items.

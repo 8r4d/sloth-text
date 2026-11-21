@@ -2,15 +2,19 @@ mod app;
 mod commands;
 mod document;
 mod editor;
-mod theme;
+mod file_types;
+mod find;
 #[cfg(target_os = "macos")]
 mod native_menu;
+mod tabs;
+mod theme;
+mod version;
 
 use std::path::PathBuf;
 
 fn main() -> eframe::Result {
-    // `sloth path/to/file.txt` opens that file.
-    let initial_file = std::env::args_os().nth(1).map(PathBuf::from);
+    // `sloth a.txt b.md` opens each file in its own tab.
+    let files: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
 
     let mut options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
@@ -30,11 +34,17 @@ fn main() -> eframe::Result {
         options.event_loop_builder = Some(Box::new(|builder| {
             builder.with_default_menu(false);
         }));
+
+        // Sloth has its own tab bar; stop macOS adding window-tab items
+        // ("Show Tab Bar", "Show All Tabs", …) to the menus.
+        if let Some(mtm) = objc2::MainThreadMarker::new() {
+            objc2_app_kit::NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
+        }
     }
 
     eframe::run_native(
         "Sloth",
         options,
-        Box::new(|cc| Ok(Box::new(app::SlothApp::new(cc, initial_file)))),
+        Box::new(|cc| Ok(Box::new(app::SlothApp::new(cc, files)))),
     )
 }
