@@ -454,6 +454,18 @@ fn preview_editor() {
     harness.run_steps(4);
     let image = harness.render().expect("render");
     image.save(Path::new(&out).join("find.png")).unwrap();
+
+    // A Markdown document with its preview.
+    let md = dir.file(
+        "README.md",
+        "# Sloth\n\nA *simple* text editor.\n\n## Features\n\n- Tabs\n- Find and **replace**\n\n```rust\nfn main() {}\n```\n\n> Slow and steady.\n",
+    );
+    let mut harness = self::harness(Settings::default(), vec![md]);
+    harness.set_size(egui::vec2(820.0, 420.0));
+    execute(&mut harness, Command::ToggleMarkdownPreview);
+    harness.run_steps(4);
+    let image = harness.render().expect("render");
+    image.save(Path::new(&out).join("markdown.png")).unwrap();
 }
 
 #[test]
@@ -590,4 +602,32 @@ fn search_results_are_reused_until_something_changes() {
 
     harness.state_mut().tabs.active_mut().doc.text.push_str(" cat");
     assert_eq!(harness.state().matches().len(), 3);
+}
+
+// ----- 0.7: code and Markdown -----------------------------------------------
+
+#[test]
+fn markdown_preview_shows_only_for_markdown_files() {
+    let dir = TempDir::new("markdown");
+    let md = dir.file("notes.md", "# Big Title\n\nSome *text*.");
+    let txt = dir.file("plain.txt", "# Not a heading");
+    let mut harness = harness(Settings::default(), vec![txt, md]);
+
+    execute(&mut harness, Command::ToggleMarkdownPreview);
+    harness.get_by_label("Big Title");
+
+    // Switching to the plain-text tab hides the preview.
+    execute(&mut harness, Command::PreviousTab);
+    assert!(harness.query_by_label("Not a heading").is_none());
+}
+
+#[test]
+fn status_bar_names_the_language_unless_highlighting_is_off() {
+    let dir = TempDir::new("lang");
+    let file = dir.file("script.py", "print('hi')\n");
+    let mut harness = harness(Settings::default(), vec![file]);
+    harness.get_by_label("Python");
+
+    execute(&mut harness, Command::ToggleSyntaxHighlighting);
+    assert!(harness.query_by_label("Python").is_none());
 }

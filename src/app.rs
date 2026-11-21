@@ -15,7 +15,8 @@ use crate::commands::{self, Command, MenuEntry};
 use crate::document::{DiskState, Document, SaveError};
 use crate::editing;
 use crate::fonts;
-use crate::editor::{self, CursorInfo, EditorSettings, Highlights};
+use crate::editor::{self, CursorInfo, EditorSettings, Highlights, SyntaxInput};
+use crate::syntax;
 use crate::file_types;
 use crate::find::{self, FindAction, FindBarInfo, FindOptions, FindState};
 use crate::search_results::{self, ResultRow, ResultsAction, TabResults};
@@ -117,6 +118,7 @@ pub struct SlothApp {
     match_cache: RefCell<MatchCache>,
     /// The all-tabs search results panel is open.
     show_results: bool,
+    markdown_cache: egui_commonmark::CommonMarkCache,
     /// For noticing files changed by other programs.
     last_disk_check: f64,
     was_focused: bool,
@@ -182,6 +184,7 @@ impl SlothApp {
             word_counts: None,
             match_cache: RefCell::default(),
             show_results: false,
+            markdown_cache: Default::default(),
             last_disk_check: 0.0,
             was_focused: true,
             #[cfg(target_os = "macos")]
@@ -350,6 +353,14 @@ impl SlothApp {
                 let e = &mut self.settings.editor;
                 e.highlight_current_line = !e.highlight_current_line;
             }
+            Command::ToggleSyntaxHighlighting => {
+                let e = &mut self.settings.editor;
+                e.syntax_highlighting = !e.syntax_highlighting;
+            }
+            Command::ToggleMarkdownPreview => {
+                let e = &mut self.settings.editor;
+                e.markdown_preview = !e.markdown_preview;
+            }
             Command::DefaultFont => {
                 self.settings.editor.font = None;
                 self.apply_fonts(ctx);
@@ -387,6 +398,8 @@ impl SlothApp {
             Command::SetTabWidth(w) => Some(self.settings.editor.tab_width == w as usize),
             Command::ToggleAutoIndent => Some(self.settings.editor.auto_indent),
             Command::ToggleHighlightLine => Some(self.settings.editor.highlight_current_line),
+            Command::ToggleSyntaxHighlighting => Some(self.settings.editor.syntax_highlighting),
+            Command::ToggleMarkdownPreview => Some(self.settings.editor.markdown_preview),
             Command::DefaultFont => Some(self.settings.editor.font.is_none()),
             Command::SetFont(i) => Some(
                 fonts::families().get(i as usize) == self.settings.editor.font.as_ref(),
@@ -432,6 +445,30 @@ impl SlothApp {
             }
             None => plural(editing::counts(&tab.doc.text).0, "word"),
         })
+    }
+
+    /// Rendered Markdown beside the editor, for Markdown documents.
+    fn markdown_preview(&mut self, ui: &mut egui::Ui) {
+        let doc = &self.tabs.active().doc;
+        if !self.settings.editor.markdown_preview || !syntax::is_markdown(doc.path.as_deref()) {
+            return;
+        }
+        let width = ui.available_width();
+        let fill = ui.visuals().extreme_bg_color;
+        let cache = &mut self.markdown_cache;
+        egui::Panel::right("markdown-preview")
+            .resizable(true)
+            .default_size(width / 2.0)
+            .size_range(200.0..=width * 0.8)
+            .frame(egui::Frame::NONE.fill(fill).inner_margin(Margin::symmetric(16, 10)))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("markdown-preview-scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        egui_commonmark::CommonMarkViewer::new().show(ui, cache, &doc.text);
+                    });
+            });
     }
 
     fn apply_fonts(&self, ctx: &egui::Context) {
@@ -1353,6 +1390,12 @@ impl SlothApp {
             ui.label(doc.format.summary())
                 .on_hover_text("Encoding and line endings: change them in the File menu");
             ui.separator();
+            if self.settings.editor.syntax_highlighting
+                && let Some(syntax) = syntax::detect(doc.path.as_deref(), &doc.text)
+            {
+                ui.label(&syntax.name);
+                ui.separator();
+            }
             ui.label(format!("{} lines", doc.line_count()));
             if let Some(counts) = &self.word_counts {
                 ui.separator();
@@ -1603,12 +1646,26 @@ impl eframe::App for SlothApp {
             current: self.find.current.clone(),
         };
         let reveal = self.reveal.take();
+        self.markdown_preview(ui);
+        let colors = self.settings.theme.syntax_colors(ui.visuals().dark_mode);
+        let highlighting = self.settings.editor.syntax_highlighting;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color))
             .show(ui, |ui| {
                 let tab = self.tabs.active_mut();
-                self.cursor =
-                    editor::show(ui, tab.id, &mut tab.doc.text, &self.settings.editor, highlights, reveal);
+                let syntax = highlighting
+                    .then(|| syntax::detect(tab.doc.path.as_deref(), &tab.doc.text))
+                    .flatten()
+                    .map(|syntax| SyntaxInput { syntax, colors, cache: &mut tab.highlight_cache });
+                self.cursor = editor::show(
+                    ui,
+                    tab.id,
+                    &mut tab.doc.text,
+                    &self.settings.editor,
+                    highlights,
+                    reveal,
+                    syntax,
+                );
             });
 
         self.process_close_queue();

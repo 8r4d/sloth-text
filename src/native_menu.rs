@@ -300,6 +300,7 @@ fn to_accelerator(sc: KeyboardShortcut) -> Option<Accelerator> {
         Key::Tab => Code::Tab,
         Key::Slash => Code::Slash,
         Key::OpenBracket => Code::BracketLeft,
+        Key::P => Code::KeyP,
         Key::CloseBracket => Code::BracketRight,
         _ => return None, // add more keys here as new shortcuts need them
     };

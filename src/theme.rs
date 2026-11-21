@@ -6,6 +6,8 @@
 
 use eframe::egui::{self, Color32, SystemTheme, Theme, ThemePreference, ViewportCommand, Visuals};
 
+use crate::syntax::SyntaxColors;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ThemeChoice {
     /// Light or Dark, following the macOS appearance setting.
@@ -66,6 +68,14 @@ impl ThemeChoice {
                 border: hex(0xd9d2bd),
                 accent: hex(0x268bd2),
                 selection: hex(0xe4dcc3),
+                syntax: SyntaxColors {
+                    comment: hex(0x93a1a1),
+                    keyword: hex(0x859900),
+                    string: hex(0x2aa198),
+                    number: hex(0xd33682),
+                    function: hex(0x268bd2),
+                    type_: hex(0xb58900),
+                },
             },
             ThemeChoice::SolarizedDark => Palette {
                 dark: true,
@@ -76,6 +86,14 @@ impl ThemeChoice {
                 border: hex(0x0e4654),
                 accent: hex(0x268bd2),
                 selection: hex(0x114b5c),
+                syntax: SyntaxColors {
+                    comment: hex(0x586e75),
+                    keyword: hex(0x859900),
+                    string: hex(0x2aa198),
+                    number: hex(0xd33682),
+                    function: hex(0x268bd2),
+                    type_: hex(0xb58900),
+                },
             },
             ThemeChoice::Sepia => Palette {
                 dark: false,
@@ -86,6 +104,14 @@ impl ThemeChoice {
                 border: hex(0xd6c8a8),
                 accent: hex(0xb5651d),
                 selection: hex(0xe2cfa5),
+                syntax: SyntaxColors {
+                    comment: hex(0xa08f74),
+                    keyword: hex(0xa0522d),
+                    string: hex(0x4d7a3b),
+                    number: hex(0x8b3a8b),
+                    function: hex(0x2f5f8a),
+                    type_: hex(0x8a6d1f),
+                },
             },
             ThemeChoice::Midnight => Palette {
                 dark: true,
@@ -96,8 +122,26 @@ impl ThemeChoice {
                 border: hex(0x232c3f),
                 accent: hex(0x82aaff),
                 selection: hex(0x2a3a5e),
+                syntax: SyntaxColors {
+                    comment: hex(0x636da6),
+                    keyword: hex(0xc099ff),
+                    string: hex(0xc3e88d),
+                    number: hex(0xff966c),
+                    function: hex(0x82aaff),
+                    type_: hex(0xffc777),
+                },
             },
         })
+    }
+
+    /// Code highlighting colours. "Match System" depends on whether macOS
+    /// is currently in dark mode.
+    pub fn syntax_colors(self, dark_mode: bool) -> SyntaxColors {
+        match self.palette() {
+            Some(p) => p.syntax,
+            None if dark_mode => DARK.syntax,
+            None => LIGHT.syntax,
+        }
     }
 
     /// Apply this theme to the whole app, including the window title bar.
@@ -140,6 +184,7 @@ struct Palette {
     /// Text cursor and links.
     accent: Color32,
     selection: Color32,
+    syntax: SyntaxColors,
 }
 
 const LIGHT: Palette = Palette {
@@ -151,6 +196,14 @@ const LIGHT: Palette = Palette {
     border: hex(0xdadada),
     accent: hex(0x2f6feb),
     selection: hex(0xcfe0ff),
+    syntax: SyntaxColors {
+        comment: hex(0x6a737d),
+        keyword: hex(0xd73a49),
+        string: hex(0x032f62),
+        number: hex(0x005cc5),
+        function: hex(0x6f42c1),
+        type_: hex(0x22863a),
+    },
 };
 
 const DARK: Palette = Palette {
@@ -162,6 +215,14 @@ const DARK: Palette = Palette {
     border: hex(0x3a3a3a),
     accent: hex(0x569cd6),
     selection: hex(0x264f78),
+    syntax: SyntaxColors {
+        comment: hex(0x6a9955),
+        keyword: hex(0x569cd6),
+        string: hex(0xce9178),
+        number: hex(0xb5cea8),
+        function: hex(0xdcdcaa),
+        type_: hex(0x4ec9b0),
+    },
 };
 
 impl Palette {

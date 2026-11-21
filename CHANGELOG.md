@@ -2,6 +2,12 @@
 
 Sloth uses semantic versioning (major.minor.patch).
 
+## 0.7.0
+
+- Syntax highlighting for code, Markdown and config files (about 75 languages, detected from the file name or a `#!` line). Colours follow the chosen theme. Turn it off in View → Syntax Highlighting. Plain text and files over 2 MB aren't highlighted.
+- The status bar shows the language.
+- Markdown preview (⌥⌘P, View → Markdown Preview): a rendered view beside Markdown documents. Images aren't shown yet.
+
 ## 0.6.0
 
 - Regular-expression search: turn on ".*" in the find bar. Replacements can use $1, $2 or ${name} to insert parts of the match. An invalid pattern shows a short explanation.

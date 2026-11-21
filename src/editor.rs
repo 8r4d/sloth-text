@@ -10,6 +10,7 @@ use eframe::egui::{
 };
 
 use crate::editing::{self, Edit, Indent};
+use crate::syntax::{HighlightCache, Span, SyntaxColors};
 use crate::tabs::TabId;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -27,6 +28,9 @@ pub struct EditorSettings {
     /// New lines start with the previous line's indentation.
     pub auto_indent: bool,
     pub highlight_current_line: bool,
+    pub syntax_highlighting: bool,
+    /// Show a rendered preview beside Markdown documents.
+    pub markdown_preview: bool,
 }
 
 impl EditorSettings {
@@ -51,6 +55,8 @@ impl Default for EditorSettings {
             tab_width: 4,
             auto_indent: true,
             highlight_current_line: true,
+            syntax_highlighting: true,
+            markdown_preview: false,
         }
     }
 }
@@ -60,6 +66,13 @@ impl Default for EditorSettings {
 pub struct Highlights<'a> {
     pub all: &'a [Range<usize>],
     pub current: Option<Range<usize>>,
+}
+
+/// What's needed to colour code in the editor.
+pub struct SyntaxInput<'a> {
+    pub syntax: &'static syntect::parsing::SyntaxReference,
+    pub colors: SyntaxColors,
+    pub cache: &'a mut HighlightCache,
 }
 
 /// Information the editor reports back to the app each frame.
@@ -149,6 +162,7 @@ pub fn show(
     settings: &EditorSettings,
     highlights: Highlights<'_>,
     reveal: Option<usize>,
+    mut syntax: Option<SyntaxInput<'_>>,
 ) -> CursorInfo {
     let font = FontId::monospace(settings.font_size);
     let line_count = text.split('\n').count();
@@ -211,10 +225,16 @@ pub fn show(
                 let layout_font = font.clone();
                 let mut layouter =
                     move |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
-                        let mut job = layout_with_highlights(
-                            buf.as_str(),
+                        let text = buf.as_str();
+                        let spans = match &mut syntax {
+                            Some(s) => s.cache.highlight(text, s.syntax, s.colors),
+                            None => Vec::new(),
+                        };
+                        let mut job = build_layout(
+                            text,
                             &layout_font,
                             ui.visuals().text_color(),
+                            &spans,
                             &highlights,
                         );
                         job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
@@ -294,50 +314,71 @@ fn cursor_highlights(
     shapes
 }
 
-/// Build the text layout, giving search matches a highlighted background.
-fn layout_with_highlights(
+/// Build the text layout: syntax colours for the text, and highlighted
+/// backgrounds for search matches.
+fn build_layout(
     text: &str,
     font: &FontId,
     color: Color32,
+    spans: &[Span],
     highlights: &Highlights<'_>,
 ) -> LayoutJob {
     let plain = TextFormat::simple(font.clone(), color);
-    if highlights.all.is_empty() {
+    if spans.is_empty() && highlights.all.is_empty() {
         return LayoutJob::single_section(text.to_owned(), plain);
     }
 
     let match_bg = Color32::from_rgba_unmultiplied(255, 200, 0, 60);
     let current_bg = Color32::from_rgba_unmultiplied(255, 160, 0, 170);
+    // Search matches were computed before this frame's edits; drop any that
+    // no longer line up with the text.
+    let valid = |r: &Range<usize>| {
+        r.start < r.end && r.end <= text.len() && text.is_char_boundary(r.start) && text.is_char_boundary(r.end)
+    };
+    let backgrounds: Vec<(Range<usize>, Color32)> = highlights
+        .all
+        .iter()
+        .filter(|r| valid(r))
+        .map(|r| {
+            let bg = if highlights.current.as_ref() == Some(r) { current_bg } else { match_bg };
+            (r.clone(), bg)
+        })
+        .collect();
+
+    // Cut the text wherever a colour or background starts or ends.
+    let mut cuts: Vec<usize> = Vec::with_capacity(2 * (spans.len() + backgrounds.len()) + 2);
+    cuts.push(0);
+    cuts.push(text.len());
+    for s in spans {
+        cuts.extend([s.range.start, s.range.end]);
+    }
+    for (r, _) in &backgrounds {
+        cuts.extend([r.start, r.end]);
+    }
+    cuts.retain(|&c| c <= text.len() && text.is_char_boundary(c));
+    cuts.sort_unstable();
+    cuts.dedup();
 
     let mut job = LayoutJob::default();
-    let mut pos = 0;
-    for m in highlights.all {
-        // Matches were computed before this frame's edits; skip any that no
-        // longer line up with the text.
-        if m.start < pos
-            || m.end > text.len()
-            || !text.is_char_boundary(m.start)
-            || !text.is_char_boundary(m.end)
-        {
-            continue;
+    let (mut si, mut bi) = (0, 0);
+    for pair in cuts.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        while si < spans.len() && spans[si].range.end <= a {
+            si += 1;
         }
-        job.append(&text[pos..m.start], 0.0, plain.clone());
-        let background = if highlights.current.as_ref() == Some(m) {
-            current_bg
-        } else {
-            match_bg
-        };
-        job.append(
-            &text[m.clone()],
-            0.0,
-            TextFormat {
-                background,
-                ..plain.clone()
-            },
-        );
-        pos = m.end;
+        while bi < backgrounds.len() && backgrounds[bi].0.end <= a {
+            bi += 1;
+        }
+        let mut format = plain.clone();
+        if let Some(span) = spans.get(si).filter(|s| s.range.start <= a) {
+            format.color = span.color;
+            format.italics = span.italic;
+        }
+        if let Some((_, bg)) = backgrounds.get(bi).filter(|(r, _)| r.start <= a) {
+            format.background = *bg;
+        }
+        job.append(&text[a..b], 0.0, format);
     }
-    job.append(&text[pos..], 0.0, plain);
     job
 }
 
@@ -427,6 +468,35 @@ fn line_col(text: &str, cursor: CCursor) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn layout_combines_code_colours_and_search_highlights() {
+        let font = FontId::monospace(14.0);
+        let text = "let x = 10;";
+        let red = Color32::RED;
+        let spans = [Span { range: 0..3, color: red, italic: false }]; // "let"
+        let found: Vec<Range<usize>> = std::iter::once(2..5).collect(); // "t x": overlaps the end of "let"
+        let highlights = Highlights { all: &found, current: None };
+        let job = build_layout(text, &font, Color32::WHITE, &spans, &highlights);
+
+        let pieces: Vec<(&str, Color32, bool)> = job
+            .sections
+            .iter()
+            .map(|s| {
+                let range = s.byte_range.start.0..s.byte_range.end.0;
+                (&text[range], s.format.color, s.format.background != Color32::TRANSPARENT)
+            })
+            .collect();
+        assert_eq!(
+            pieces,
+            vec![
+                ("le", red, false),
+                ("t", red, true),
+                (" x", Color32::WHITE, true),
+                (" = 10;", Color32::WHITE, false),
+            ]
+        );
+    }
 
     #[test]
     fn parses_line_and_column() {

@@ -59,6 +59,8 @@ pub enum Command {
     SetTabWidth(u8),
     ToggleAutoIndent,
     ToggleHighlightLine,
+    ToggleSyntaxHighlighting,
+    ToggleMarkdownPreview,
     /// The built-in editor font.
     DefaultFont,
     /// An installed font, by position in `fonts::families()`.
@@ -129,6 +131,8 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Item(Command::ToggleLineNumbers),
             Item(Command::ToggleWordWrap),
             Item(Command::ToggleHighlightLine),
+            Item(Command::ToggleSyntaxHighlighting),
+            Item(Command::ToggleMarkdownPreview),
             Separator,
             Submenu("Theme", THEME_MENU),
             Submenu("Font", &[Fonts]),
@@ -277,6 +281,8 @@ impl Command {
             Command::SetTabWidth(_) => "Tab Width",
             Command::ToggleAutoIndent => "Auto-Indent",
             Command::ToggleHighlightLine => "Highlight Current Line",
+            Command::ToggleSyntaxHighlighting => "Syntax Highlighting",
+            Command::ToggleMarkdownPreview => "Markdown Preview",
             Command::DefaultFont => "Built-in (Hack)",
             Command::SetFont(i) => crate::fonts::families()
                 .get(i as usize)
@@ -324,6 +330,7 @@ impl Command {
             Command::GoToLine => sc(cmd, Key::L),
             Command::Indent => sc(cmd, Key::CloseBracket),
             Command::Outdent => sc(cmd, Key::OpenBracket),
+            Command::ToggleMarkdownPreview => sc(cmd_alt, Key::P),
             Command::SetTheme(_)
             | Command::About
             | Command::ReleaseNotes
@@ -338,6 +345,7 @@ impl Command {
             | Command::SetTabWidth(_)
             | Command::ToggleAutoIndent
             | Command::ToggleHighlightLine
+            | Command::ToggleSyntaxHighlighting
             | Command::DefaultFont
             | Command::SetFont(_)
             | Command::CloseOtherTabs
@@ -359,6 +367,8 @@ impl Command {
                 | Command::SetTabWidth(_)
                 | Command::ToggleAutoIndent
                 | Command::ToggleHighlightLine
+                | Command::ToggleSyntaxHighlighting
+                | Command::ToggleMarkdownPreview
                 | Command::DefaultFont
                 | Command::SetFont(_)
         )

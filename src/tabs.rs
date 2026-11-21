@@ -5,6 +5,7 @@ use std::path::Path;
 use eframe::egui::{self, Color32, CornerRadius, Frame, Id, Margin, RichText, Sense};
 
 use crate::document::Document;
+use crate::syntax::HighlightCache;
 
 /// Stable identity for a tab (indices shift as tabs close; ids don't).
 pub type TabId = u64;
@@ -16,6 +17,7 @@ pub struct Tab {
     pub discard_on_quit: bool,
     /// Shown above the editor when another program changed or removed the file.
     pub disk_notice: Option<DiskNotice>,
+    pub highlight_cache: HighlightCache,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,6 +79,7 @@ impl Tabs {
             doc,
             discard_on_quit: false,
             disk_notice: None,
+            highlight_cache: HighlightCache::default(),
         };
         let index = if self.tabs.is_empty() { 0 } else { self.active + 1 };
         self.tabs.insert(index, tab);

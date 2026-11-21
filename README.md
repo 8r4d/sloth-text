@@ -42,6 +42,7 @@ pick Sloth under **Open with**, and click **Change All**.
 | Find next / previous | ⌘G / ⇧⌘G |
 | Use selection for Find | ⌘E |
 | Find in all tabs   | ⇧⌘F      |
+| Markdown preview   | ⌥⌘P      |
 | Help (shortcut list) | ⇧⌘/ |
 
 - Tabs: open several files at once; each keeps its own cursor, undo history and scroll position
@@ -68,6 +69,7 @@ pick Sloth under **Open with**, and click **Change All**.
 - Auto-indent, indent/outdent, tabs or spaces, current-line highlight, matching
   brackets, word count, and any installed fixed-width font
 - Drag tabs to reorder them; right-click a tab for more close options
+- Syntax highlighting in theme colours, and a Markdown preview
 - Asks before discarding unsaved changes (closing a tab, quitting, closing the window)
 - A `•` in the title bar marks unsaved changes
 
@@ -82,6 +84,7 @@ pick Sloth under **Open with**, and click **Change All**.
 | `src/tabs.rs`     | The list of open documents and the tab bar |
 | `src/find.rs`     | Search/replace logic (unit-tested) and the find bar |
 | `src/search_results.rs` | The Find in All Tabs results panel |
+| `src/syntax.rs`   | Syntax highlighting (syntect), cached line by line |
 | `src/file_types.rs` | Save dialog formats and the default extension |
 | `src/version.rs`, `build.rs` | Version, git commit and build date shown in About |
 | `src/settings.rs` | Everything saved between launches (theme, view options, recent files, open tabs) |

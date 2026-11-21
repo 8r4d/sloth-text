@@ -79,12 +79,12 @@ Goal: Sloth never damages a file or loses work.
 | Search history | S | Up and Down arrows in the find field step through recent searches (saved in Settings). |
 | Faster matching | S | Cache matches until the text or the search changes, instead of searching again every frame. |
 
-## 0.7.0: Code and Markdown
+## 0.7.0: Code and Markdown ✅
 
 | Item | Size | Approach |
 |---|---|---|
 | Syntax highlighting | L | `syntect`, chosen by file extension and driven through the existing layouter. Cache per line so typing only re-highlights what changed. Colours come from the theme palette. Off by default for `.txt`. |
-| Markdown preview | M | Side panel rendered with `egui_commonmark` and kept in step with the editor. View → Show Preview. |
+| Markdown preview | M | Side panel rendered with `egui_commonmark`. View → Markdown Preview. *Not done yet: scrolling the preview along with the editor, and showing images.* |
 
 ## 0.8.0: Printing and windows
 
