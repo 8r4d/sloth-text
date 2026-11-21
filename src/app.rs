@@ -1,7 +1,10 @@
 //! Top-level application state and UI wiring.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use eframe::egui::{
@@ -14,11 +17,12 @@ use crate::editing;
 use crate::fonts;
 use crate::editor::{self, CursorInfo, EditorSettings, Highlights};
 use crate::file_types;
-use crate::find::{self, FindAction, FindState};
+use crate::find::{self, FindAction, FindBarInfo, FindOptions, FindState};
+use crate::search_results::{self, ResultRow, ResultsAction, TabResults};
 use crate::help;
 use crate::recovery::{Leftovers, Recovery};
 use crate::settings::{self, Settings};
-use crate::tabs::{self, DiskNotice, TabBarAction, TabId, Tabs};
+use crate::tabs::{self, DiskNotice, Tab, TabBarAction, TabId, Tabs};
 use crate::text_format::TextEncoding;
 use crate::version;
 
@@ -33,6 +37,23 @@ const RECOVERY_INTERVAL: f64 = 5.0;
 enum ReloadKind {
     Revert,
     WithEncoding(TextEncoding),
+}
+
+/// Search results, kept until the text or the search changes, so we don't
+/// search again on every frame.
+#[derive(Default)]
+struct MatchCache {
+    query: String,
+    options: FindOptions,
+    tabs: HashMap<TabId, CachedSearch>,
+}
+
+struct CachedSearch {
+    /// The text that was searched (compared to notice edits).
+    text: String,
+    matches: Result<Arc<Vec<Range<usize>>>, String>,
+    /// Built when the all-tabs results panel needs them.
+    rows: Option<Arc<Vec<ResultRow>>>,
 }
 
 /// A save that needs the user's decision before it can go ahead.
@@ -93,6 +114,9 @@ pub struct SlothApp {
     close_queue: Vec<TabId>,
     /// "123 words" (or a count for the selection), for the status bar.
     word_counts: Option<String>,
+    match_cache: RefCell<MatchCache>,
+    /// The all-tabs search results panel is open.
+    show_results: bool,
     /// For noticing files changed by other programs.
     last_disk_check: f64,
     was_focused: bool,
@@ -156,6 +180,8 @@ impl SlothApp {
             last_recovery_save: 0.0,
             close_queue: Vec::new(),
             word_counts: None,
+            match_cache: RefCell::default(),
+            show_results: false,
             last_disk_check: 0.0,
             was_focused: true,
             #[cfg(target_os = "macos")]
@@ -228,8 +254,18 @@ impl SlothApp {
 
             Command::Find => self.find.open(false, self.selected_text(ctx)),
             Command::FindAndReplace => self.find.open(true, self.selected_text(ctx)),
-            Command::FindNext => self.find_step(ctx, Direction::Next),
-            Command::FindPrevious => self.find_step(ctx, Direction::Previous),
+            Command::FindNext => {
+                self.settings.add_search(&self.find.query);
+                self.find_step(ctx, Direction::Next);
+            }
+            Command::FindPrevious => {
+                self.settings.add_search(&self.find.query);
+                self.find_step(ctx, Direction::Previous);
+            }
+            Command::FindInTabs => {
+                self.find.open(false, self.selected_text(ctx));
+                self.show_results = true;
+            }
             Command::UseSelectionForFind => {
                 if let Some(text) = self.selected_text(ctx) {
                     self.find.query = text;
@@ -987,11 +1023,90 @@ impl SlothApp {
 
     // ----- find & replace ---------------------------------------------------
 
-    fn matches(&self) -> Vec<Range<usize>> {
+    /// Matches in the active tab (empty when not searching or the pattern
+    /// is invalid).
+    fn matches(&self) -> Arc<Vec<Range<usize>>> {
         if !self.find.is_searching() {
-            return Vec::new();
+            return Arc::default();
         }
-        find::find_all(&self.tabs.active().doc.text, &self.find.query, self.find.options)
+        self.search_tab(self.tabs.active()).unwrap_or_default()
+    }
+
+    /// Why the current search can't run, if it can't (an invalid regex).
+    fn find_error(&self) -> Option<String> {
+        if !self.find.is_searching() {
+            return None;
+        }
+        self.search_tab(self.tabs.active()).err()
+    }
+
+    /// Search one tab, reusing the last result if nothing has changed.
+    fn search_tab(&self, tab: &Tab) -> Result<Arc<Vec<Range<usize>>>, String> {
+        let mut cache = self.match_cache.borrow_mut();
+        if cache.query != self.find.query || cache.options != self.find.options {
+            *cache = MatchCache {
+                query: self.find.query.clone(),
+                options: self.find.options,
+                tabs: HashMap::new(),
+            };
+        }
+        if let Some(hit) = cache.tabs.get(&tab.id)
+            && hit.text == tab.doc.text
+        {
+            return hit.matches.clone();
+        }
+        let matches = find::find_all(&tab.doc.text, &self.find.query, self.find.options).map(Arc::new);
+        cache.tabs.insert(
+            tab.id,
+            CachedSearch { text: tab.doc.text.clone(), matches: matches.clone(), rows: None },
+        );
+        matches
+    }
+
+    /// Result rows for the all-tabs panel.
+    fn result_rows(&self, tab: &Tab) -> Arc<Vec<ResultRow>> {
+        let Ok(matches) = self.search_tab(tab) else {
+            return Arc::default();
+        };
+        let mut cache = self.match_cache.borrow_mut();
+        let entry = cache.tabs.get_mut(&tab.id).expect("just searched");
+        entry
+            .rows
+            .get_or_insert_with(|| Arc::new(search_results::build_rows(&tab.doc.text, &matches)))
+            .clone()
+    }
+
+    fn results_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        if !self.show_results || !self.find.is_searching() {
+            return;
+        }
+        let rows: Vec<(TabId, String, Arc<Vec<ResultRow>>)> = self
+            .tabs
+            .iter()
+            .map(|t| (t.id, t.doc.display_name(), self.result_rows(t)))
+            .collect();
+        let results: Vec<TabResults<'_>> = rows
+            .iter()
+            .map(|(id, name, rows)| TabResults { tab: *id, name: name.clone(), rows })
+            .collect();
+        let error = self.find_error();
+        let action = egui::Panel::bottom("search-results")
+            .resizable(true)
+            .default_size(200.0)
+            .show(ui, |ui| search_results::results_panel(ui, &results, error.as_deref()))
+            .inner;
+        match action {
+            Some(ResultsAction::Jump(tab, range)) => {
+                self.tabs.activate(tab);
+                self.select_match(ctx, range);
+                self.focus_editor(ctx);
+            }
+            Some(ResultsAction::Close) => self.show_results = false,
+            None => {}
+        }
+        // Forget closed tabs.
+        let tabs = &self.tabs;
+        self.match_cache.borrow_mut().tabs.retain(|id, _| tabs.get(*id).is_some());
     }
 
     /// The editor's selection as a byte range.
@@ -1058,9 +1173,22 @@ impl SlothApp {
             self.find_step(ctx, Direction::Next);
             return;
         };
+        let replacement = match find::replacement_for(
+            &self.tabs.active().doc.text,
+            current.clone(),
+            &self.find.query,
+            &self.find.replacement,
+            self.find.options,
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                self.status = Some(format!("Can't replace: {e}"));
+                return;
+            }
+        };
         let tab = self.tabs.active_mut();
-        tab.doc.text.replace_range(current.clone(), &self.find.replacement);
-        let after = current.start + self.find.replacement.len();
+        tab.doc.text.replace_range(current.clone(), &replacement);
+        let after = current.start + replacement.len();
         let after_char = find::byte_to_char(&tab.doc.text, after);
         let id = tab.id;
         editor::set_selection(ctx, id, after_char..after_char);
@@ -1070,12 +1198,18 @@ impl SlothApp {
 
     fn replace_all(&mut self, ctx: &egui::Context) {
         let tab = self.tabs.active_mut();
-        let (text, count) = find::replace_all(
+        let (text, count) = match find::replace_all(
             &tab.doc.text,
             &self.find.query,
             &self.find.replacement,
             self.find.options,
-        );
+        ) {
+            Ok(result) => result,
+            Err(e) => {
+                self.status = Some(format!("Can't replace: {e}"));
+                return;
+            }
+        };
         tab.doc.text = text;
         let id = tab.id;
         editor::set_selection(ctx, id, 0..0);
@@ -1095,12 +1229,26 @@ impl SlothApp {
                     self.find_step(ctx, Direction::FromCursor);
                 }
             }
-            FindAction::Next => self.find_step(ctx, Direction::Next),
-            FindAction::Previous => self.find_step(ctx, Direction::Previous),
-            FindAction::Replace => self.replace_current(ctx),
-            FindAction::ReplaceAll => self.replace_all(ctx),
+            FindAction::Next => {
+                self.settings.add_search(&self.find.query);
+                self.find_step(ctx, Direction::Next);
+            }
+            FindAction::Previous => {
+                self.settings.add_search(&self.find.query);
+                self.find_step(ctx, Direction::Previous);
+            }
+            FindAction::Replace => {
+                self.settings.add_search(&self.find.query);
+                self.replace_current(ctx);
+            }
+            FindAction::ReplaceAll => {
+                self.settings.add_search(&self.find.query);
+                self.replace_all(ctx);
+            }
+            FindAction::ToggleResults => self.show_results = !self.show_results,
             FindAction::Close => {
                 self.find.close();
+                self.show_results = false;
                 self.focus_editor(ctx);
             }
         }
@@ -1427,8 +1575,16 @@ impl eframe::App for SlothApp {
                 .current
                 .as_ref()
                 .and_then(|c| matches.iter().position(|m| m == c));
+            let error = self.find_error();
+            let info = FindBarInfo {
+                match_count: matches.len(),
+                current_index,
+                error: error.as_deref(),
+                history: &self.settings.search_history,
+                results_open: self.show_results,
+            };
             let action = egui::Panel::top("find")
-                .show(ui, |ui| find::find_bar(ui, &mut self.find, matches.len(), current_index))
+                .show(ui, |ui| find::find_bar(ui, &mut self.find, info))
                 .inner;
             if let Some(action) = action {
                 self.handle_find_action(&ctx, action);
@@ -1438,6 +1594,7 @@ impl eframe::App for SlothApp {
         self.disk_notice_bar(ui);
         self.word_counts = self.count_words(&ctx);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        self.results_panel(&ctx, ui);
 
         // Computed after the find bar, which may have changed the text or query.
         let matches = self.matches();

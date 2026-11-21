@@ -40,6 +40,7 @@ pub enum Command {
     FindNext,
     FindPrevious,
     UseSelectionForFind,
+    FindInTabs,
     About,
     Help,
     ReleaseNotes,
@@ -183,6 +184,8 @@ const FIND_MENU: &[MenuEntry] = &[
     Item(Command::FindNext),
     Item(Command::FindPrevious),
     Item(Command::UseSelectionForFind),
+    Separator,
+    Item(Command::FindInTabs),
 ];
 
 const THEME_MENU: &[MenuEntry] = &[
@@ -253,6 +256,7 @@ impl Command {
             Command::FindNext => "Find Next",
             Command::FindPrevious => "Find Previous",
             Command::UseSelectionForFind => "Use Selection for Find",
+            Command::FindInTabs => "Find in All Tabs\u{2026}",
             Command::About => "About Sloth",
             Command::Help => "Sloth Help",
             Command::ReleaseNotes => "Release Notes",
@@ -315,6 +319,7 @@ impl Command {
             Command::FindNext => sc(cmd, Key::G),
             Command::FindPrevious => sc(cmd_shift, Key::G),
             Command::UseSelectionForFind => sc(cmd, Key::E),
+            Command::FindInTabs => sc(cmd_shift, Key::F),
             Command::Help => sc(cmd_shift, Key::Slash), // ⌘?
             Command::GoToLine => sc(cmd, Key::L),
             Command::Indent => sc(cmd, Key::CloseBracket),

@@ -41,10 +41,12 @@ pick Sloth under **Open with**, and click **Change All**.
 | Find / Find and Replace | ⌘F / ⌥⌘F |
 | Find next / previous | ⌘G / ⇧⌘G |
 | Use selection for Find | ⌘E |
+| Find in all tabs   | ⇧⌘F      |
 | Help (shortcut list) | ⇧⌘/ |
 
 - Tabs: open several files at once; each keeps its own cursor, undo history and scroll position
-- Find and replace with match highlighting, match case and whole-word options
+- Find and replace with match highlighting, match case, whole-word and regex
+  options (`$1` in replacements), recent searches (↑/↓), and Find in All Tabs
 - Save dialog offers Plain Text (.txt), Markdown (.md) or Any Format, and adds the
   extension if you type a name without one
 - Native macOS menu bar (Sloth, File, Edit, View, Window, Help menus)
@@ -79,6 +81,7 @@ pick Sloth under **Open with**, and click **Change All**.
 | `src/document.rs` | Loading, saving and unsaved-change tracking for one file |
 | `src/tabs.rs`     | The list of open documents and the tab bar |
 | `src/find.rs`     | Search/replace logic (unit-tested) and the find bar |
+| `src/search_results.rs` | The Find in All Tabs results panel |
 | `src/file_types.rs` | Save dialog formats and the default extension |
 | `src/version.rs`, `build.rs` | Version, git commit and build date shown in About |
 | `src/settings.rs` | Everything saved between launches (theme, view options, recent files, open tabs) |

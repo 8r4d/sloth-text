@@ -12,6 +12,7 @@ mod macos_open;
 #[cfg(target_os = "macos")]
 mod native_menu;
 mod recovery;
+mod search_results;
 mod settings;
 mod tabs;
 mod text_format;

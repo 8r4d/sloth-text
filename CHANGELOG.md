@@ -2,6 +2,13 @@
 
 Sloth uses semantic versioning (major.minor.patch).
 
+## 0.6.0
+
+- Regular-expression search: turn on ".*" in the find bar. Replacements can use $1, $2 or ${name} to insert parts of the match. An invalid pattern shows a short explanation.
+- Find in All Tabs (⇧⌘F, or "All Tabs" in the find bar): a panel listing every match in every open tab, with line numbers. Click a result to jump to it.
+- Recent searches: ↑ and ↓ in the find field step through them. They're remembered between launches.
+- Faster searching: all searches use the regex engine, and results are reused until the text or the search changes.
+
 ## 0.5.0
 
 - Auto-indent: a new line starts with the previous line's indentation (View → Indentation → Auto-Indent).

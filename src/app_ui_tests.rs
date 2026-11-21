@@ -3,6 +3,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use eframe::egui;
 use egui_kittest::Harness;
@@ -442,6 +443,17 @@ fn preview_editor() {
     harness.run_steps(3);
     let image = harness.render().expect("render");
     image.save(Path::new(&out).join("editor-menlo.png")).unwrap();
+
+    // Find bar (regex) and the all-tabs results panel.
+    execute(&mut harness, Command::SetTheme(crate::theme::ThemeChoice::Light));
+    execute(&mut harness, Command::FindAndReplace);
+    execute(&mut harness, Command::FindInTabs);
+    harness.state_mut().find.options.regex = true;
+    harness.state_mut().find.query = r"\bl\w+".into();
+    harness.set_size(egui::vec2(760.0, 420.0));
+    harness.run_steps(4);
+    let image = harness.render().expect("render");
+    image.save(Path::new(&out).join("find.png")).unwrap();
 }
 
 #[test]
@@ -473,4 +485,109 @@ fn dragging_a_tab_reorders_tabs() {
 
     let names: Vec<_> = harness.state().tabs.iter().map(|t| t.doc.display_name()).collect();
     assert_eq!(names, vec!["b.txt", "c.txt", "a.txt"]);
+}
+
+// ----- 0.6: better search ----------------------------------------------------
+
+#[test]
+fn regex_find_and_replace_with_groups() {
+    let dir = TempDir::new("regex");
+    let file = dir.file("dates.txt", "2024-01-15 and 1999-12-31");
+    let mut harness = harness(Settings::default(), vec![file]);
+
+    execute(&mut harness, Command::FindAndReplace);
+    harness.state_mut().find.options.regex = true;
+    harness.state_mut().find.query = r"(\d{4})-(\d\d)-(\d\d)".into();
+    harness.state_mut().find.replacement = "$3/$2/$1".into();
+    harness.run_steps(3);
+    harness.get_by_label("2 matches");
+
+    // Replace the first one, then the rest.
+    harness.get_by_label("Replace").click();
+    harness.run_steps(2);
+    harness.get_by_label("Replace").click();
+    harness.run_steps(3);
+    assert_eq!(active_text(&harness), "15/01/2024 and 1999-12-31");
+    harness.get_by_label("Replace All").click();
+    harness.run_steps(3);
+    assert_eq!(active_text(&harness), "15/01/2024 and 31/12/1999");
+}
+
+#[test]
+fn invalid_regex_is_explained() {
+    let dir = TempDir::new("badregex");
+    let file = dir.file("a.txt", "text");
+    let mut harness = harness(Settings::default(), vec![file]);
+
+    execute(&mut harness, Command::Find);
+    harness.state_mut().find.options.regex = true;
+    harness.state_mut().find.query = "(oops".into();
+    harness.run_steps(3);
+    harness.get_by_label_contains("unclosed group");
+}
+
+#[test]
+fn up_arrow_recalls_recent_searches() {
+    let dir = TempDir::new("history");
+    let file = dir.file("a.txt", "alpha beta");
+    let settings = Settings {
+        search_history: vec!["beta".into(), "alpha".into()],
+        ..Settings::default()
+    };
+    let mut harness = harness(settings, vec![file]);
+
+    execute(&mut harness, Command::Find);
+    harness.key_press(egui::Key::ArrowUp);
+    harness.run_steps(2);
+    assert_eq!(harness.state().find.query, "beta");
+    harness.key_press(egui::Key::ArrowUp);
+    harness.run_steps(2);
+    assert_eq!(harness.state().find.query, "alpha");
+    harness.key_press(egui::Key::ArrowDown);
+    harness.key_press(egui::Key::ArrowDown);
+    harness.run_steps(2);
+    assert_eq!(harness.state().find.query, "");
+
+    // Finding the next match remembers the search.
+    harness.state_mut().find.query = "alp".into();
+    execute(&mut harness, Command::FindNext);
+    assert_eq!(harness.state().settings.search_history[0], "alp");
+}
+
+#[test]
+fn find_in_all_tabs_lists_and_jumps_to_matches() {
+    let dir = TempDir::new("alltabs");
+    let a = dir.file("a.txt", "one cat\ntwo\nthree cat");
+    let b = dir.file("b.txt", "no match here");
+    let c = dir.file("c.txt", "cat");
+    let mut harness = harness(Settings::default(), vec![a.clone(), b, c]);
+
+    execute(&mut harness, Command::FindInTabs);
+    harness.state_mut().find.query = "cat".into();
+    harness.run_steps(3);
+    harness.get_by_label("3 matches in 2 tabs");
+    harness.get_by_label("a.txt  (2)");
+
+    // Click the second match in a.txt (line 3).
+    harness.get_by_label_contains("three cat").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().tabs.active().doc.path.as_deref(), Some(a.as_path()));
+    assert_eq!(harness.state().find.current, Some(18..21));
+}
+
+#[test]
+fn search_results_are_reused_until_something_changes() {
+    let dir = TempDir::new("cache");
+    let file = dir.file("a.txt", "cat cat");
+    let mut harness = harness(Settings::default(), vec![file]);
+    execute(&mut harness, Command::Find);
+    harness.state_mut().find.query = "cat".into();
+    harness.run_steps(2);
+
+    let first = harness.state().matches();
+    harness.run_steps(2);
+    assert!(Arc::ptr_eq(&first, &harness.state().matches()), "searched again for no reason");
+
+    harness.state_mut().tabs.active_mut().doc.text.push_str(" cat");
+    assert_eq!(harness.state().matches().len(), 3);
 }

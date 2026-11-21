@@ -11,6 +11,9 @@ use crate::theme::ThemeChoice;
 /// How many files File → Open Recent remembers.
 pub const MAX_RECENT: usize = 15;
 
+/// How many recent searches the find field remembers.
+pub const MAX_SEARCH_HISTORY: usize = 20;
+
 const STORAGE_KEY: &str = "settings";
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -22,6 +25,8 @@ pub struct Settings {
     pub recent_files: Vec<PathBuf>,
     /// Tabs open when Sloth last quit, reopened at launch.
     pub session: Session,
+    /// Recent searches, newest first.
+    pub search_history: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -72,6 +77,16 @@ impl Settings {
 
     pub fn remove_recent(&mut self, path: &Path) {
         self.recent_files.retain(|p| p != path);
+    }
+
+    /// Remember a search (newest first, no duplicates).
+    pub fn add_search(&mut self, query: &str) {
+        if query.is_empty() {
+            return;
+        }
+        self.search_history.retain(|q| q != query);
+        self.search_history.insert(0, query.to_owned());
+        self.search_history.truncate(MAX_SEARCH_HISTORY);
     }
 }
 

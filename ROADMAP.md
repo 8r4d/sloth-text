@@ -70,7 +70,7 @@ Goal: Sloth never damages a file or loses work.
 | Drag to reorder tabs | S | Drag and drop in the tab bar. |
 | Close Other Tabs, Close Tabs to the Right | S | Right-click menu on a tab. |
 
-## 0.6.0: Better search
+## 0.6.0: Better search ✅
 
 | Item | Size | Approach |
 |---|---|---|
