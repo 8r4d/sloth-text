@@ -10,6 +10,8 @@ use eframe::egui::{
 
 use crate::commands::{self, Command, MenuEntry};
 use crate::document::{DiskState, Document, SaveError};
+use crate::editing;
+use crate::fonts;
 use crate::editor::{self, CursorInfo, EditorSettings, Highlights};
 use crate::file_types;
 use crate::find::{self, FindAction, FindState};
@@ -86,6 +88,11 @@ pub struct SlothApp {
     /// Documents found from a session that crashed, waiting for the user.
     recovery_prompt: Option<Leftovers>,
     last_recovery_save: f64,
+    /// Tabs waiting to be closed (Close Other Tabs etc.), one at a time so
+    /// each can ask about unsaved changes.
+    close_queue: Vec<TabId>,
+    /// "123 words" (or a count for the selection), for the status bar.
+    word_counts: Option<String>,
     /// For noticing files changed by other programs.
     last_disk_check: f64,
     was_focused: bool,
@@ -104,6 +111,7 @@ impl SlothApp {
             app.native_menu = Some(crate::native_menu::NativeMenu::install(&cc.egui_ctx));
             crate::macos_open::set_context(&cc.egui_ctx);
         }
+        fonts::start_scan(&cc.egui_ctx);
         if let Some(dir) = eframe::storage_dir("Sloth") {
             app.enable_recovery(dir.join("recovery"));
         }
@@ -146,12 +154,15 @@ impl SlothApp {
             recovery: None,
             recovery_prompt: None,
             last_recovery_save: 0.0,
+            close_queue: Vec::new(),
+            word_counts: None,
             last_disk_check: 0.0,
             was_focused: true,
             #[cfg(target_os = "macos")]
             native_menu: None,
         };
         app.settings.theme.apply(ctx);
+        app.apply_fonts(ctx);
 
         // Reopen the tabs from last time, then any files we were asked to open.
         let session = std::mem::take(&mut app.settings.session);
@@ -277,6 +288,49 @@ impl SlothApp {
                 self.tabs.active_mut().doc.set_line_ending(line_ending);
             }
 
+            Command::Indent | Command::Outdent => {
+                let indent = self.settings.editor.indent();
+                let tab = self.tabs.active_mut();
+                editor::apply_edit(ctx, tab.id, &mut tab.doc.text, |t, s| {
+                    if cmd == Command::Indent {
+                        editing::indent_lines(t, s, indent)
+                    } else {
+                        editing::outdent_lines(t, s, indent)
+                    }
+                });
+                self.focus_editor(ctx);
+            }
+            Command::IndentWithTabs => self.settings.editor.indent_with_spaces = false,
+            Command::IndentWithSpaces => self.settings.editor.indent_with_spaces = true,
+            Command::SetTabWidth(width) => {
+                self.settings.editor.tab_width = width as usize;
+                self.apply_fonts(ctx);
+            }
+            Command::ToggleAutoIndent => {
+                let e = &mut self.settings.editor;
+                e.auto_indent = !e.auto_indent;
+            }
+            Command::ToggleHighlightLine => {
+                let e = &mut self.settings.editor;
+                e.highlight_current_line = !e.highlight_current_line;
+            }
+            Command::DefaultFont => {
+                self.settings.editor.font = None;
+                self.apply_fonts(ctx);
+            }
+            Command::SetFont(i) => {
+                if let Some(family) = fonts::families().get(i as usize) {
+                    self.settings.editor.font = Some(family.clone());
+                    self.apply_fonts(ctx);
+                }
+            }
+            Command::CloseOtherTabs => {
+                self.close_queue = self.tabs.others(self.tabs.active().id);
+            }
+            Command::CloseTabsToRight => {
+                self.close_queue = self.tabs.to_the_right_of(self.tabs.active().id);
+            }
+
             Command::About => self.show_about = true,
             Command::Help => self.help = Some(HelpPage::Shortcuts),
             Command::ReleaseNotes => self.help = Some(HelpPage::ReleaseNotes),
@@ -292,6 +346,15 @@ impl SlothApp {
                 Some(e.encoding() == self.tabs.active().doc.format.encoding)
             }
             Command::SetLineEnding(l) => Some(self.tabs.active().doc.format.line_ending == l),
+            Command::IndentWithTabs => Some(!self.settings.editor.indent_with_spaces),
+            Command::IndentWithSpaces => Some(self.settings.editor.indent_with_spaces),
+            Command::SetTabWidth(w) => Some(self.settings.editor.tab_width == w as usize),
+            Command::ToggleAutoIndent => Some(self.settings.editor.auto_indent),
+            Command::ToggleHighlightLine => Some(self.settings.editor.highlight_current_line),
+            Command::DefaultFont => Some(self.settings.editor.font.is_none()),
+            Command::SetFont(i) => Some(
+                fonts::families().get(i as usize) == self.settings.editor.font.as_ref(),
+            ),
             _ => None,
         }
     }
@@ -301,6 +364,10 @@ impl SlothApp {
         match cmd {
             Command::RevertToSaved => self.can_revert(),
             Command::ReopenWithEncoding(_) => self.tabs.active().doc.path.is_some(),
+            Command::CloseOtherTabs => self.tabs.iter().count() > 1,
+            Command::CloseTabsToRight => {
+                !self.tabs.to_the_right_of(self.tabs.active().id).is_empty()
+            }
             Command::ClearRecent => !self.settings.recent_files.is_empty(),
             _ => true,
         }
@@ -309,6 +376,39 @@ impl SlothApp {
     fn can_revert(&self) -> bool {
         let doc = &self.tabs.active().doc;
         doc.path.is_some() && doc.is_dirty()
+    }
+
+    /// Word count for the status bar: the selection's, or the whole
+    /// document's. Skipped for very large files to keep typing fast.
+    fn count_words(&self, ctx: &egui::Context) -> Option<String> {
+        let tab = self.tabs.active();
+        if tab.doc.text.len() > 5_000_000 {
+            return None;
+        }
+        let selection = editor::selection(ctx, tab.id).filter(|s| !s.is_empty());
+        let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
+        Some(match selection {
+            Some(sel) => {
+                let text = &tab.doc.text;
+                let range = find::char_to_byte(text, sel.start)..find::char_to_byte(text, sel.end);
+                let (words, chars) = editing::counts(&text[range]);
+                format!("{}, {} selected", plural(words, "word"), plural(chars, "character"))
+            }
+            None => plural(editing::counts(&tab.doc.text).0, "word"),
+        })
+    }
+
+    fn apply_fonts(&self, ctx: &egui::Context) {
+        let e = &self.settings.editor;
+        fonts::apply(ctx, e.font.as_deref(), e.tab_width);
+    }
+
+    /// Close queued tabs, stopping to ask about any with unsaved changes.
+    fn process_close_queue(&mut self) {
+        while self.pending.is_none() && !self.close_queue.is_empty() {
+            let id = self.close_queue.remove(0);
+            self.request_close_tab(id);
+        }
     }
 
     /// A dialog is up, so menu commands and shortcuts should wait.
@@ -423,6 +523,7 @@ impl SlothApp {
                 for tab in self.tabs.iter_mut() {
                     tab.discard_on_quit = false;
                 }
+                self.close_queue.clear();
             }
             (DialogChoice::Save, PendingAction::CloseTab(id)) => {
                 if self.save(id) {
@@ -1052,6 +1153,14 @@ impl SlothApp {
                     let generated: Vec<MenuEntry> = list().into_iter().map(MenuEntry::Item).collect();
                     self.menu_entries(ui, ctx, &generated);
                 }
+                MenuEntry::Fonts => {
+                    let count = fonts::families().len() as u16;
+                    let fonts: Vec<MenuEntry> = std::iter::once(Command::DefaultFont)
+                        .chain((0..count).map(Command::SetFont))
+                        .map(MenuEntry::Item)
+                        .collect();
+                    self.menu_entries(ui, ctx, &fonts);
+                }
                 MenuEntry::RecentFiles => {
                     ui.menu_button("Open Recent", |ui| {
                         let labels = settings::recent_labels(&self.settings.recent_files);
@@ -1090,26 +1199,33 @@ impl SlothApp {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let doc = &self.tabs.active().doc;
-        ui.horizontal(|ui| {
-            let path = doc
-                .path
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "Untitled".into());
-            ui.label(RichText::new(path).weak());
-            if let Some(msg) = &self.status {
+        // Right-hand details first, so the path on the left gets whatever
+        // room is left and is cut short (…) rather than overlapping them.
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(doc.format.summary())
+                .on_hover_text("Encoding and line endings: change them in the File menu");
+            ui.separator();
+            ui.label(format!("{} lines", doc.line_count()));
+            if let Some(counts) = &self.word_counts {
                 ui.separator();
-                ui.label(msg);
+                ui.label(counts);
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(doc.format.summary())
-                    .on_hover_text("Encoding and line endings: change them in the File menu");
+            if let Some((line, col)) = self.cursor.line_col {
                 ui.separator();
-                ui.label(format!("{} lines", doc.line_count()));
-                if let Some((line, col)) = self.cursor.line_col {
+                ui.label(format!("Ln {line}, Col {col}"));
+            }
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                if let Some(msg) = &self.status {
+                    ui.add(egui::Label::new(msg.as_str()).truncate());
                     ui.separator();
-                    ui.label(format!("Ln {line}, Col {col}"));
                 }
+                let path = doc
+                    .path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "Untitled".into());
+                ui.add(egui::Label::new(RichText::new(path.clone()).weak()).truncate())
+                    .on_hover_text(path);
             });
         });
     }
@@ -1295,6 +1411,11 @@ impl eframe::App for SlothApp {
                 self.after_tab_switch(&ctx);
             }
             Some(TabBarAction::Close(id)) => self.request_close_tab(id),
+            Some(TabBarAction::CloseOthers(id)) => self.close_queue = self.tabs.others(id),
+            Some(TabBarAction::CloseToTheRight(id)) => {
+                self.close_queue = self.tabs.to_the_right_of(id);
+            }
+            Some(TabBarAction::Move { from, to }) => self.tabs.move_tab(from, to),
             None => {}
         }
 
@@ -1315,6 +1436,7 @@ impl eframe::App for SlothApp {
         }
 
         self.disk_notice_bar(ui);
+        self.word_counts = self.count_words(&ctx);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
 
         // Computed after the find bar, which may have changed the text or query.
@@ -1332,6 +1454,7 @@ impl eframe::App for SlothApp {
                     editor::show(ui, tab.id, &mut tab.doc.text, &self.settings.editor, highlights, reveal);
             });
 
+        self.process_close_queue();
         self.unsaved_changes_dialog(&ctx);
         self.reload_dialog(&ctx);
         self.save_problem_dialog(&ctx);
@@ -1350,6 +1473,7 @@ impl eframe::App for SlothApp {
                 menu.set_enabled(cmd, self.is_enabled(cmd));
             }
             menu.set_recent_files(&self.settings.recent_files);
+            menu.set_fonts(fonts::families());
             self.native_menu = Some(menu);
         }
     }

@@ -30,6 +30,7 @@ pick Sloth under **Open with**, and click **Change All**.
 | Save As…           | ⇧⌘S      |
 | Close tab          | ⌘W       |
 | Go to line         | ⌘L       |
+| Indent / outdent lines | ⌘] / ⌘[ |
 | Next / previous tab | ⌃⇥ / ⌃⇧⇥ |
 | Quit               | ⌘Q       |
 | Undo / Redo        | ⌘Z / ⇧⌘Z |
@@ -62,6 +63,9 @@ pick Sloth under **Open with**, and click **Change All**.
   endings; File menu options to reopen, convert or change them
 - Safe saves (temporary file, then swapped into place) and crash recovery for
   unsaved documents
+- Auto-indent, indent/outdent, tabs or spaces, current-line highlight, matching
+  brackets, word count, and any installed fixed-width font
+- Drag tabs to reorder them; right-click a tab for more close options
 - Asks before discarding unsaved changes (closing a tab, quitting, closing the window)
 - A `•` in the title bar marks unsaved changes
 
@@ -82,6 +86,8 @@ pick Sloth under **Open with**, and click **Change All**.
 | `src/help.rs`     | The Help window's pages |
 | `src/text_format.rs` | Encodings, byte-order marks and line endings (reading and writing) |
 | `src/recovery.rs` | Crash-recovery copies of unsaved documents |
+| `src/editing.rs`  | Auto-indent, indent/outdent and bracket matching (pure, unit-tested) |
+| `src/fonts.rs`    | Lists installed fixed-width fonts and installs the chosen one |
 | `src/app_ui_tests.rs` | UI tests that run the app in memory (`cargo test`) |
 | `macos/document-types.plist` | File types declared in Sloth.app, so Finder offers it |
 | `src/editor.rs`   | The text area and line-number gutter |
@@ -107,6 +113,12 @@ crash-recovery copies to the `recovery` folder next to it.
 
 `cargo test` runs the unit tests and the UI tests. The UI tests use
 `egui_kittest` to drive the app in memory, so they don't open a window.
+
+To see what the editor looks like without opening it, render it to images:
+
+```sh
+SLOTH_PREVIEW_DIR=/tmp cargo test preview -- --ignored   # writes /tmp/editor*.png
+```
 
 ## Versioning
 

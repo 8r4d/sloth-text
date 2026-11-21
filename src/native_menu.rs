@@ -24,6 +24,8 @@ pub struct NativeMenu {
     items: Items,
     /// The recent files currently shown in File → Open Recent.
     shown_recent: Option<Vec<PathBuf>>,
+    /// How many installed fonts View → Font lists (filled in once scanned).
+    shown_fonts: Option<usize>,
 }
 
 /// Handles to menu items we update while the app runs.
@@ -32,6 +34,7 @@ struct Items {
     checkable: HashMap<Command, CheckMenuItem>,
     plain: HashMap<Command, MenuItem>,
     recent: Option<Submenu>,
+    fonts: Option<Submenu>,
 }
 
 impl NativeMenu {
@@ -116,6 +119,7 @@ impl NativeMenu {
             events: rx,
             items,
             shown_recent: None,
+            shown_fonts: None,
         }
     }
 
@@ -140,6 +144,28 @@ impl NativeMenu {
         {
             item.set_enabled(enabled);
         }
+    }
+
+    /// Fill in View → Font once the installed fonts are known.
+    pub fn set_fonts(&mut self, families: &[String]) {
+        if self.shown_fonts == Some(families.len()) {
+            return;
+        }
+        let Some(submenu) = self.items.fonts.clone() else {
+            return;
+        };
+        while submenu.remove_at(0).is_some() {}
+        self.items.checkable.retain(|cmd, _| {
+            !matches!(cmd, Command::DefaultFont | Command::SetFont(_))
+        });
+
+        let mut entries = vec![MenuEntry::Item(Command::DefaultFont)];
+        if !families.is_empty() {
+            entries.push(MenuEntry::Separator);
+            entries.extend((0..families.len() as u16).map(|i| MenuEntry::Item(Command::SetFont(i))));
+        }
+        fill(&submenu, &entries, &mut self.items);
+        self.shown_fonts = Some(families.len());
     }
 
     /// Rebuild File → Open Recent if the list has changed.
@@ -193,6 +219,10 @@ fn fill(submenu: &Submenu, entries: &[MenuEntry], items: &mut Items) {
             MenuEntry::Generated(list) => {
                 let generated: Vec<MenuEntry> = list().into_iter().map(MenuEntry::Item).collect();
                 fill(submenu, &generated, items);
+            }
+            MenuEntry::Fonts => {
+                // `submenu` is View → Font itself; filled in by `set_fonts`.
+                items.fonts = Some(submenu.clone());
             }
             MenuEntry::RecentFiles => {
                 // Filled in by `set_recent_files`.
@@ -269,6 +299,8 @@ fn to_accelerator(sc: KeyboardShortcut) -> Option<Accelerator> {
         Key::G => Code::KeyG,
         Key::Tab => Code::Tab,
         Key::Slash => Code::Slash,
+        Key::OpenBracket => Code::BracketLeft,
+        Key::CloseBracket => Code::BracketRight,
         _ => return None, // add more keys here as new shortcuts need them
     };
     Some(Accelerator::new(mods, code))

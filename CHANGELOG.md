@@ -2,6 +2,17 @@
 
 Sloth uses semantic versioning (major.minor.patch).
 
+## 0.5.0
+
+- Auto-indent: a new line starts with the previous line's indentation (View → Indentation → Auto-Indent).
+- Indent and Outdent selected lines (⌘] and ⌘[); Tab and Shift-Tab do the same for multi-line selections.
+- Indent with tabs or spaces, and a tab width of 2, 4 or 8 (View → Indentation).
+- The current line is highlighted (View → Highlight Current Line), and matching brackets are outlined.
+- Word count in the status bar, or words and characters for the selection.
+- View → Font: choose any installed fixed-width font, such as Menlo or SF Mono.
+- Drag tabs to reorder them. Right-click a tab for Close Other Tabs and Close Tabs to the Right (also in the File menu).
+- The status bar shortens long file paths instead of overlapping the details on the right.
+
 ## 0.4.0
 
 - Files keep their text encoding when saved. Non-UTF-8 files (e.g. Windows Latin 1, Shift JIS) are detected on open instead of being damaged.

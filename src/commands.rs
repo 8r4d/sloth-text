@@ -51,6 +51,19 @@ pub enum Command {
     ReopenWithEncoding(TextEncoding),
     ConvertEncoding(TextEncoding),
     SetLineEnding(LineEnding),
+    Indent,
+    Outdent,
+    IndentWithTabs,
+    IndentWithSpaces,
+    SetTabWidth(u8),
+    ToggleAutoIndent,
+    ToggleHighlightLine,
+    /// The built-in editor font.
+    DefaultFont,
+    /// An installed font, by position in `fonts::families()`.
+    SetFont(u16),
+    CloseOtherTabs,
+    CloseTabsToRight,
 }
 
 pub enum MenuEntry {
@@ -61,9 +74,11 @@ pub enum MenuEntry {
     RecentFiles,
     /// Items listed by a function (for long, regular lists like encodings).
     Generated(fn() -> Vec<Command>),
+    /// View → Font, filled in once installed fonts have been scanned.
+    Fonts,
 }
 
-use MenuEntry::{Generated, Item, RecentFiles, Separator, Submenu};
+use MenuEntry::{Fonts, Generated, Item, RecentFiles, Separator, Submenu};
 
 /// The menu bar. On macOS, `About` and `Quit` are moved into the application
 /// menu automatically, and the Window and Help menus gain the standard items.
@@ -76,6 +91,8 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             RecentFiles,
             Separator,
             Item(Command::CloseTab),
+            Item(Command::CloseOtherTabs),
+            Item(Command::CloseTabsToRight),
             Item(Command::Save),
             Item(Command::SaveAs),
             Item(Command::RevertToSaved),
@@ -100,6 +117,9 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Separator,
             Submenu("Find", FIND_MENU),
             Item(Command::GoToLine),
+            Separator,
+            Item(Command::Indent),
+            Item(Command::Outdent),
         ],
     ),
     (
@@ -107,8 +127,11 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
         &[
             Item(Command::ToggleLineNumbers),
             Item(Command::ToggleWordWrap),
+            Item(Command::ToggleHighlightLine),
             Separator,
             Submenu("Theme", THEME_MENU),
+            Submenu("Font", &[Fonts]),
+            Submenu("Indentation", INDENT_MENU),
             Separator,
             Item(Command::ZoomIn),
             Item(Command::ZoomOut),
@@ -128,6 +151,17 @@ pub const MENUS: &[(&str, &[MenuEntry])] = &[
             Item(Command::About),
         ],
     ),
+];
+
+const INDENT_MENU: &[MenuEntry] = &[
+    Item(Command::IndentWithTabs),
+    Item(Command::IndentWithSpaces),
+    Separator,
+    Item(Command::SetTabWidth(2)),
+    Item(Command::SetTabWidth(4)),
+    Item(Command::SetTabWidth(8)),
+    Separator,
+    Item(Command::ToggleAutoIndent),
 ];
 
 const LINE_ENDING_MENU: &[MenuEntry] = &[
@@ -176,6 +210,11 @@ pub fn all() -> Vec<Command> {
                     out.push(Command::ClearRecent);
                 }
                 Generated(items) => out.extend(items()),
+                Fonts => {
+                    out.push(Command::DefaultFont);
+                    let count = crate::fonts::families().len() as u16;
+                    out.extend((0..count).map(Command::SetFont));
+                }
             }
         }
     }
@@ -224,6 +263,22 @@ impl Command {
             Command::RevertToSaved => "Revert to Saved",
             Command::ReopenWithEncoding(e) | Command::ConvertEncoding(e) => e.label(),
             Command::SetLineEnding(l) => l.label(),
+            Command::Indent => "Indent",
+            Command::Outdent => "Outdent",
+            Command::IndentWithTabs => "Indent with Tabs",
+            Command::IndentWithSpaces => "Indent with Spaces",
+            Command::SetTabWidth(2) => "Tab Width: 2",
+            Command::SetTabWidth(4) => "Tab Width: 4",
+            Command::SetTabWidth(8) => "Tab Width: 8",
+            Command::SetTabWidth(_) => "Tab Width",
+            Command::ToggleAutoIndent => "Auto-Indent",
+            Command::ToggleHighlightLine => "Highlight Current Line",
+            Command::DefaultFont => "Built-in (Hack)",
+            Command::SetFont(i) => crate::fonts::families()
+                .get(i as usize)
+                .map_or("Font", String::as_str),
+            Command::CloseOtherTabs => "Close Other Tabs",
+            Command::CloseTabsToRight => "Close Tabs to the Right",
         }
     }
 
@@ -262,6 +317,8 @@ impl Command {
             Command::UseSelectionForFind => sc(cmd, Key::E),
             Command::Help => sc(cmd_shift, Key::Slash), // ⌘?
             Command::GoToLine => sc(cmd, Key::L),
+            Command::Indent => sc(cmd, Key::CloseBracket),
+            Command::Outdent => sc(cmd, Key::OpenBracket),
             Command::SetTheme(_)
             | Command::About
             | Command::ReleaseNotes
@@ -270,7 +327,16 @@ impl Command {
             | Command::RevertToSaved
             | Command::ReopenWithEncoding(_)
             | Command::ConvertEncoding(_)
-            | Command::SetLineEnding(_) => None,
+            | Command::SetLineEnding(_)
+            | Command::IndentWithTabs
+            | Command::IndentWithSpaces
+            | Command::SetTabWidth(_)
+            | Command::ToggleAutoIndent
+            | Command::ToggleHighlightLine
+            | Command::DefaultFont
+            | Command::SetFont(_)
+            | Command::CloseOtherTabs
+            | Command::CloseTabsToRight => None,
         }
     }
 
@@ -283,6 +349,13 @@ impl Command {
                 | Command::SetTheme(_)
                 | Command::ConvertEncoding(_)
                 | Command::SetLineEnding(_)
+                | Command::IndentWithTabs
+                | Command::IndentWithSpaces
+                | Command::SetTabWidth(_)
+                | Command::ToggleAutoIndent
+                | Command::ToggleHighlightLine
+                | Command::DefaultFont
+                | Command::SetFont(_)
         )
     }
 

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use eframe::egui::{self, Color32, CornerRadius, Frame, Margin, RichText, Sense};
+use eframe::egui::{self, Color32, CornerRadius, Frame, Id, Margin, RichText, Sense};
 
 use crate::document::Document;
 
@@ -132,6 +132,32 @@ impl Tabs {
         self.active = (self.active + self.tabs.len() - 1) % self.tabs.len();
     }
 
+    /// Move the tab at `from` to position `to`, keeping the same tab active.
+    pub fn move_tab(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
+            return;
+        }
+        let active_id = self.active().id;
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        self.activate(active_id);
+    }
+
+    pub fn index_of(&self, id: TabId) -> Option<usize> {
+        self.tabs.iter().position(|t| t.id == id)
+    }
+
+    /// Every tab except `id`.
+    pub fn others(&self, id: TabId) -> Vec<TabId> {
+        self.tabs.iter().map(|t| t.id).filter(|&t| t != id).collect()
+    }
+
+    /// The tabs to the right of `id`.
+    pub fn to_the_right_of(&self, id: TabId) -> Vec<TabId> {
+        let start = self.index_of(id).map_or(self.tabs.len(), |i| i + 1);
+        self.tabs[start..].iter().map(|t| t.id).collect()
+    }
+
     /// A tab with unsaved changes the user hasn't already chosen to discard.
     pub fn first_unsaved(&self) -> Option<TabId> {
         self.tabs
@@ -144,52 +170,99 @@ impl Tabs {
 pub enum TabBarAction {
     Activate(TabId),
     Close(TabId),
+    CloseOthers(TabId),
+    CloseToTheRight(TabId),
+    /// Drag to reorder: move the tab at this index to that one.
+    Move { from: usize, to: usize },
 }
 
 pub fn tab_bar(ui: &mut egui::Ui, tabs: &Tabs) -> Option<TabBarAction> {
     let mut action = None;
     let active_id = tabs.active().id;
     let active_fill = ui.visuals().extreme_bg_color;
+    let count = tabs.iter().count();
 
     egui::ScrollArea::horizontal()
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
-                for tab in tabs.iter() {
-                    let is_active = tab.id == active_id;
-                    let frame = Frame::NONE
-                        .fill(if is_active { active_fill } else { Color32::TRANSPARENT })
-                        .inner_margin(Margin::symmetric(10, 5))
-                        .corner_radius(CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 });
+                let mut rects = Vec::with_capacity(count);
+                let mut dragging = None;
 
-                    let inner = frame.show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        let mut name = tab.doc.display_name();
-                        if tab.doc.is_dirty() {
-                            name = format!("• {name}");
+                for (index, tab) in tabs.iter().enumerate() {
+                    {
+                        let is_active = tab.id == active_id;
+                        let frame = Frame::NONE
+                            .fill(if is_active { active_fill } else { Color32::TRANSPARENT })
+                            .inner_margin(Margin::symmetric(10, 5))
+                            .corner_radius(CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 });
+
+                        let inner = frame.show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            let mut name = tab.doc.display_name();
+                            if tab.doc.is_dirty() {
+                                name = format!("\u{2022} {name}");
+                            }
+                            let text = if is_active {
+                                RichText::new(name).strong()
+                            } else {
+                                RichText::new(name)
+                            };
+                            let label = ui.add(egui::Label::new(text).selectable(false));
+                            // An id tied to the tab (not its position), so a
+                            // drag keeps following the tab as it moves.
+                            let label = ui.interact(
+                                label.rect,
+                                Id::unique(("sloth-tab", tab.id)),
+                                Sense::click_and_drag(),
+                            );
+                            let close = ui
+                                .add(egui::Button::new(RichText::new("\u{d7}").weak()).frame(false).small())
+                                .on_hover_text("Close Tab (\u{2318}W)");
+                            (label, close)
+                        });
+                        rects.push(inner.response.rect);
+                        let (label, close) = inner.inner;
+
+                        if label.dragged() {
+                            dragging = Some(index);
                         }
-                        let text = if is_active {
-                            RichText::new(name).strong()
-                        } else {
-                            RichText::new(name)
+                        label.context_menu(|ui| {
+                            if ui.button("Close Tab").clicked() {
+                                action = Some(TabBarAction::Close(tab.id));
+                            }
+                            if ui.add_enabled(count > 1, egui::Button::new("Close Other Tabs")).clicked() {
+                                action = Some(TabBarAction::CloseOthers(tab.id));
+                            }
+                            let any_right = index + 1 < count;
+                            if ui.add_enabled(any_right, egui::Button::new("Close Tabs to the Right")).clicked() {
+                                action = Some(TabBarAction::CloseToTheRight(tab.id));
+                            }
+                        });
+                        let label = match &tab.doc.path {
+                            Some(path) => label.on_hover_text(path.display().to_string()),
+                            None => label,
                         };
-                        let label = ui.add(egui::Label::new(text).sense(Sense::click()).selectable(false));
-                        let close = ui
-                            .add(egui::Button::new(RichText::new("×").weak()).frame(false).small())
-                            .on_hover_text("Close Tab (⌘W)");
-                        (label, close)
-                    });
-                    let (label, close) = inner.inner;
+                        if close.clicked() || label.middle_clicked() {
+                            action = Some(TabBarAction::Close(tab.id));
+                        } else if label.clicked() || label.drag_started() {
+                            action = Some(TabBarAction::Activate(tab.id));
+                        }
+                    }
+                }
 
-                    let label = match &tab.doc.path {
-                        Some(path) => label.on_hover_text(path.display().to_string()),
-                        None => label,
-                    };
-                    if close.clicked() || label.middle_clicked() {
-                        action = Some(TabBarAction::Close(tab.id));
-                    } else if label.clicked() {
-                        action = Some(TabBarAction::Activate(tab.id));
+                // While dragging, move the tab to wherever the pointer is.
+                if let (Some(from), Some(pointer)) = (dragging, ui.ctx().pointer_latest_pos()) {
+                    // Insertion point among the tabs (past the last = the end)…
+                    let insert_at = rects
+                        .iter()
+                        .position(|r| pointer.x < r.center().x)
+                        .unwrap_or(count);
+                    // …as an index once the dragged tab is taken out.
+                    let to = if insert_at > from { insert_at - 1 } else { insert_at };
+                    if to != from {
+                        action = Some(TabBarAction::Move { from, to });
                     }
                 }
             });
@@ -232,6 +305,21 @@ mod tests {
         // Closing the last tab leaves a fresh blank one.
         assert_eq!(tabs.iter().count(), 1);
         assert!(tabs.active().doc.path.is_none());
+    }
+
+    #[test]
+    fn moving_tabs_keeps_the_active_one() {
+        let mut tabs = Tabs::new();
+        let a = tabs.active().id;
+        let b = tabs.add(Document::new());
+        let c = tabs.add(Document::new());
+        tabs.activate(b);
+        tabs.move_tab(0, 2);
+        let order: Vec<_> = tabs.iter().map(|t| t.id).collect();
+        assert_eq!(order, vec![b, c, a]);
+        assert_eq!(tabs.active().id, b);
+        assert_eq!(tabs.to_the_right_of(b), vec![c, a]);
+        assert_eq!(tabs.others(c), vec![b, a]);
     }
 
     #[test]

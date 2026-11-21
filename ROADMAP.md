@@ -56,7 +56,7 @@ Goal: Sloth never damages a file or loses work.
 | Autosave and crash recovery | M | Every 30 s, copy tabs with unsaved changes (and untitled tabs) to `~/Library/Application Support/Sloth/recovery/`, and delete the copy when the tab is saved or closed. At launch, offer to restore any copies left behind. *Not done yet: keeping untitled tabs across a normal quit (for now Sloth still asks to save them).* |
 | Atomic saves | S | Write to a temporary file and rename it over the original, so a crash mid-save can't leave a half-written file. |
 
-## 0.5.0: Comfortable editing
+## 0.5.0: Comfortable editing ✅
 
 | Item | Size | Approach |
 |---|---|---|

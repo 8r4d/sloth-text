@@ -40,6 +40,9 @@ impl Drop for TempDir {
 fn harness(settings: Settings, files: Vec<PathBuf>) -> Harness<'static, SlothApp> {
     let mut harness = Harness::builder()
         .with_size([900.0, 600.0])
+        // The app gets symbols like ⌘ from macOS's system fonts, which tests
+        // don't load; draw a placeholder box instead of failing.
+        .allow_missing_glyphs()
         .build_eframe(move |cc| SlothApp::with_settings(&cc.egui_ctx, settings, files));
     // The app asks to repaint every couple of seconds (to notice outside
     // file changes), so step a fixed number of frames rather than `run()`.
@@ -301,4 +304,173 @@ fn writes_recovery_copies_only_for_unsaved_documents() {
     execute(&mut harness, Command::Save);
     harness.state_mut().save_recovery_copies();
     assert_eq!(fs::read_dir(&own).unwrap().count(), 0);
+}
+
+// ----- 0.5: comfortable editing ---------------------------------------------
+
+/// Focus the editor with the cursor at a character index.
+fn put_cursor(harness: &mut Harness<'static, SlothApp>, at: usize) {
+    let ctx = harness.ctx.clone();
+    let tab = harness.state().tabs.active().id;
+    harness.state().focus_editor(&ctx);
+    editor::set_selection(&ctx, tab, at..at);
+    harness.run_steps(2);
+}
+
+#[test]
+fn enter_keeps_the_lines_indentation() {
+    let dir = TempDir::new("autoindent");
+    let file = dir.file("code.txt", "    item");
+    let mut harness = harness(Settings::default(), vec![file]);
+    put_cursor(&mut harness, 8);
+
+    harness.key_press(egui::Key::Enter);
+    harness.run_steps(2);
+    harness.event(egui::Event::Text("next".into()));
+    harness.run_steps(2);
+    assert_eq!(active_text(&harness), "    item\n    next");
+}
+
+#[test]
+fn tab_inserts_spaces_when_set_to() {
+    let dir = TempDir::new("spaces");
+    let file = dir.file("code.txt", "ab");
+    let mut settings = Settings::default();
+    settings.editor.indent_with_spaces = true;
+    let mut harness = harness(settings, vec![file]);
+    put_cursor(&mut harness, 2);
+
+    harness.key_press(egui::Key::Tab);
+    harness.run_steps(2);
+    assert_eq!(active_text(&harness), "ab  ");
+}
+
+#[test]
+fn indent_and_outdent_commands_shift_lines() {
+    let dir = TempDir::new("indent");
+    let file = dir.file("list.txt", "one\ntwo");
+    let mut harness = harness(Settings::default(), vec![file]);
+    let ctx = harness.ctx.clone();
+    let tab = harness.state().tabs.active().id;
+    editor::set_selection(&ctx, tab, 0..7);
+
+    execute(&mut harness, Command::Indent);
+    assert_eq!(active_text(&harness), "\tone\n\ttwo");
+    execute(&mut harness, Command::Outdent);
+    assert_eq!(active_text(&harness), "one\ntwo");
+}
+
+#[test]
+fn status_bar_counts_words_and_selection() {
+    let dir = TempDir::new("count");
+    let file = dir.file("words.txt", "the quick brown fox");
+    let mut harness = harness(Settings::default(), vec![file]);
+    harness.get_by_label("4 words");
+
+    put_cursor(&mut harness, 0);
+    let ctx = harness.ctx.clone();
+    let tab = harness.state().tabs.active().id;
+    editor::set_selection(&ctx, tab, 4..9);
+    harness.run_steps(2);
+    harness.get_by_label("1 word, 5 characters selected");
+}
+
+#[test]
+fn close_other_tabs_asks_about_unsaved_ones() {
+    let dir = TempDir::new("others");
+    let a = dir.file("a.txt", "A");
+    let b = dir.file("b.txt", "B");
+    let c = dir.file("c.txt", "C");
+    let mut harness = harness(Settings::default(), vec![a, b, c]);
+
+    // Edit a.txt, then go back to c.txt and close the others.
+    let first = harness.state().tabs.iter().next().unwrap().id;
+    harness.state_mut().tabs.get_mut(first).unwrap().doc.text.push('!');
+    execute(&mut harness, Command::CloseOtherTabs);
+
+    // b.txt is closed straight away; a.txt has edits, so we're asked.
+    harness.get_by_label_contains("Save changes to \u{201c}a.txt");
+    harness.get_by_label("Don't Save").click();
+    harness.run_steps(3);
+
+    let names: Vec<_> = harness.state().tabs.iter().map(|t| t.doc.display_name()).collect();
+    assert_eq!(names, vec!["c.txt"]);
+}
+
+#[test]
+fn switching_to_an_installed_font_and_tab_width() {
+    let mut harness = harness(Settings::default(), vec![]);
+    let families = crate::fonts::scan_for_tests();
+    let menlo = families.iter().position(|f| f == "Menlo").expect("Menlo is installed");
+
+    execute(&mut harness, Command::SetFont(menlo as u16));
+    execute(&mut harness, Command::SetTabWidth(8));
+    assert_eq!(harness.state().settings.editor.font.as_deref(), Some("Menlo"));
+    assert_eq!(harness.state().settings.editor.tab_width, 8);
+}
+
+/// Not a check: renders the editor to a PNG so a person can look at it.
+/// Run with `SLOTH_PREVIEW_DIR=/some/dir cargo test preview -- --ignored`.
+#[test]
+#[ignore]
+fn preview_editor() {
+    let Ok(out) = std::env::var("SLOTH_PREVIEW_DIR") else {
+        return;
+    };
+    let dir = TempDir::new("preview");
+    let file = dir.file(
+        "sample.rs",
+        "fn main() {\n    let list = vec![1, 2, 3];\n    for n in list {\n        println!(\"{n}\");\n    }\n}\n",
+    );
+    let settings = Settings {
+        theme: crate::theme::ThemeChoice::Light,
+        ..Settings::default()
+    };
+    let mut harness = harness(settings, vec![file]);
+    harness.set_size(egui::vec2(640.0, 260.0));
+    // Cursor just after the "{" that opens the for-loop body.
+    put_cursor(&mut harness, 61);
+    harness.run_steps(3);
+    let image = harness.render().expect("render");
+    image.save(Path::new(&out).join("editor.png")).unwrap();
+
+    // Same again in a dark theme with an installed font and tabs.
+    let menlo = crate::fonts::scan_for_tests().iter().position(|f| f == "Menlo").unwrap();
+    execute(&mut harness, Command::SetTheme(crate::theme::ThemeChoice::Midnight));
+    execute(&mut harness, Command::SetFont(menlo as u16));
+    harness.state_mut().tabs.active_mut().doc.text.push_str("\tafter a tab\n");
+    harness.run_steps(3);
+    let image = harness.render().expect("render");
+    image.save(Path::new(&out).join("editor-menlo.png")).unwrap();
+}
+
+#[test]
+fn dragging_a_tab_reorders_tabs() {
+    let dir = TempDir::new("drag");
+    let a = dir.file("a.txt", "A");
+    let b = dir.file("b.txt", "B");
+    let c = dir.file("c.txt", "C");
+    let mut harness = harness(Settings::default(), vec![a, b, c]);
+
+    let start = harness.get_by_label("a.txt").rect().center();
+    let end = harness.get_by_label("c.txt").rect().right_center() + egui::vec2(10.0, 0.0);
+    let press = |pressed| egui::Event::PointerButton {
+        pos: if pressed { start } else { end },
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    harness.event(egui::Event::PointerMoved(start));
+    harness.event(press(true));
+    harness.run_steps(2);
+    for i in 1..=10 {
+        let t = i as f32 / 10.0;
+        harness.event(egui::Event::PointerMoved(start.lerp(end, t)));
+        harness.run_steps(1);
+    }
+    harness.event(press(false));
+    harness.run_steps(3);
+
+    let names: Vec<_> = harness.state().tabs.iter().map(|t| t.doc.display_name()).collect();
+    assert_eq!(names, vec!["b.txt", "c.txt", "a.txt"]);
 }

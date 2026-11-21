@@ -1,9 +1,11 @@
 mod app;
 mod commands;
 mod document;
+mod editing;
 mod editor;
 mod file_types;
 mod find;
+mod fonts;
 mod help;
 #[cfg(target_os = "macos")]
 mod macos_open;

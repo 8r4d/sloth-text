@@ -3,11 +3,13 @@
 use std::ops::Range;
 
 use eframe::egui::{
-    self, Align, Align2, Color32, FontId, Id, Rect, ScrollArea, Sense, TextEdit, Vec2,
+    self, Align, Align2, Color32, FontId, Id, Key, Modifiers, Rect, ScrollArea, Sense, Shape,
+    Stroke, TextEdit, Vec2,
     text::{CCursor, CCursorRange, LayoutJob, TextFormat},
     text_edit::TextEditState,
 };
 
+use crate::editing::{self, Edit, Indent};
 use crate::tabs::TabId;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -16,10 +18,26 @@ pub struct EditorSettings {
     pub show_line_numbers: bool,
     pub word_wrap: bool,
     pub font_size: f32,
+    /// Installed font family for the text, or `None` for the built-in one.
+    pub font: Option<String>,
+    /// Tab key inserts spaces rather than a tab character.
+    pub indent_with_spaces: bool,
+    /// Columns per tab stop (and spaces per indent level).
+    pub tab_width: usize,
+    /// New lines start with the previous line's indentation.
+    pub auto_indent: bool,
+    pub highlight_current_line: bool,
 }
 
 impl EditorSettings {
     pub const DEFAULT_FONT_SIZE: f32 = 14.0;
+
+    pub fn indent(&self) -> Indent {
+        Indent {
+            spaces: self.indent_with_spaces,
+            width: self.tab_width.max(1),
+        }
+    }
 }
 
 impl Default for EditorSettings {
@@ -28,6 +46,11 @@ impl Default for EditorSettings {
             show_line_numbers: true,
             word_wrap: false,
             font_size: Self::DEFAULT_FONT_SIZE,
+            font: None,
+            indent_with_spaces: false,
+            tab_width: 4,
+            auto_indent: true,
+            highlight_current_line: true,
         }
     }
 }
@@ -70,6 +93,52 @@ pub fn set_selection(ctx: &egui::Context, tab: TabId, chars: Range<usize>) {
         CCursor::new(chars.end),
     )));
     state.store(ctx, id);
+}
+
+/// Apply an editing operation to a tab's text at its current selection.
+pub fn apply_edit(
+    ctx: &egui::Context,
+    tab: TabId,
+    text: &mut String,
+    op: impl FnOnce(&str, Range<usize>) -> Edit,
+) {
+    let selection = selection(ctx, tab).unwrap_or(0..0);
+    let edit = op(text, selection);
+    *text = edit.text;
+    set_selection(ctx, tab, edit.selection);
+}
+
+/// Enter, Tab and Shift-Tab, handled before the text widget sees them so
+/// we can auto-indent and indent with spaces or whole lines.
+fn handle_editing_keys(ui: &egui::Ui, tab: TabId, text: &mut String, settings: &EditorSettings) {
+    if !ui.memory(|m| m.has_focus(editor_id(tab))) {
+        return;
+    }
+    let indent = settings.indent();
+    let (outdents, tabs, newlines) = ui.input_mut(|i| {
+        let count = |i: &mut egui::InputState, mods, key| {
+            let mut n = 0;
+            while i.consume_key(mods, key) {
+                n += 1;
+            }
+            n
+        };
+        // Shift-Tab first, so plain Tab doesn't also match it.
+        let outdents = count(i, Modifiers::SHIFT, Key::Tab);
+        let tabs = count(i, Modifiers::NONE, Key::Tab);
+        let newlines = if settings.auto_indent { count(i, Modifiers::NONE, Key::Enter) } else { 0 };
+        (outdents, tabs, newlines)
+    });
+    let ctx = ui.ctx();
+    for _ in 0..outdents {
+        apply_edit(ctx, tab, text, |t, s| editing::outdent_lines(t, s, indent));
+    }
+    for _ in 0..tabs {
+        apply_edit(ctx, tab, text, |t, s| editing::tab(t, s, indent));
+    }
+    for _ in 0..newlines {
+        apply_edit(ctx, tab, text, editing::newline);
+    }
 }
 
 /// Draw the editor. `reveal` scrolls the given character index into view.
@@ -118,6 +187,11 @@ pub fn show(
                 };
                 ui.add_space(6.0); // breathing room between gutter and text
 
+                handle_editing_keys(ui, tab, text, settings);
+                // Placeholder for highlights drawn behind the text; filled in
+                // once we know where the cursor's row landed.
+                let behind_text = ui.painter().add(Shape::Noop);
+
                 let edit = TextEdit::multiline(text)
                     .id(editor_id(tab))
                     .font(font.clone())
@@ -156,6 +230,8 @@ pub fn show(
 
                 if let Some(cursor) = output.cursor_range {
                     info.line_col = Some(line_col(text, cursor.primary));
+                    let shapes = cursor_highlights(ui, &output, text, cursor, settings);
+                    ui.painter().set(behind_text, Shape::Vec(shapes));
                 }
 
                 if let Some(index) = reveal {
@@ -173,6 +249,49 @@ pub fn show(
         });
 
     info
+}
+
+/// The current-line band and matching-bracket boxes, drawn behind the text.
+fn cursor_highlights(
+    ui: &egui::Ui,
+    output: &egui::text_edit::TextEditOutput,
+    text: &str,
+    cursor: CCursorRange,
+    settings: &EditorSettings,
+) -> Vec<Shape> {
+    let mut shapes = Vec::new();
+    if cursor.primary != cursor.secondary {
+        return shapes; // a selection is showing; keep it uncluttered
+    }
+    let offset = output.galley_pos.to_vec2();
+    let caret = output.galley.pos_from_cursor(cursor.primary).translate(offset);
+
+    if settings.highlight_current_line {
+        let band = Rect::from_x_y_ranges(
+            output.response.rect.left()..=ui.clip_rect().right(),
+            caret.y_range(),
+        );
+        shapes.push(Shape::rect_filled(band, 0.0, ui.visuals().text_color().gamma_multiply(0.06)));
+    }
+
+    if let Some((a, b)) = editing::matching_bracket(text, cursor.primary.index.0) {
+        let accent = ui.visuals().text_cursor.stroke.color;
+        for i in [a, b] {
+            let left = output.galley.pos_from_cursor(CCursor::new(i));
+            let right = output.galley.pos_from_cursor(CCursor::new(i + 1));
+            let width = if right.min.y == left.min.y { right.min.x - left.min.x } else { 8.0 };
+            let rect = Rect::from_min_size(left.min, Vec2::new(width.max(2.0), left.height()))
+                .translate(offset);
+            shapes.push(Shape::rect_filled(rect, 2.0, accent.gamma_multiply(0.25)));
+            shapes.push(Shape::rect_stroke(
+                rect,
+                2.0,
+                Stroke::new(1.0, accent.gamma_multiply(0.8)),
+                egui::StrokeKind::Inside,
+            ));
+        }
+    }
+    shapes
 }
 
 /// Build the text layout, giving search matches a highlighted background.
