@@ -47,6 +47,7 @@ pick Sloth under **Open with**, and click **Change All**.
 | Find in all tabs   | ⇧⌘F      |
 | Markdown preview   | ⌥⌘P      |
 | Help (shortcut list) | ⇧⌘/ |
+| Settings           | ⌘,       |
 
 - Tabs: open several files at once; each keeps its own cursor, undo history and scroll position
 - Find and replace with match highlighting, match case, whole-word and regex
@@ -95,6 +96,8 @@ pick Sloth under **Open with**, and click **Change All**.
 | `src/macos_open.rs` | Receives files opened from Finder |
 | `src/macos_print.rs` | Printing through the macOS print dialog |
 | `src/help.rs`     | The Help window's pages |
+| `src/settings_window.rs` | The Settings window |
+| `scripts/make-icon.swift` | Draws the app icon (`icons/`); rerun after changing it |
 | `src/text_format.rs` | Encodings, byte-order marks and line endings (reading and writing) |
 | `src/recovery.rs` | Crash-recovery copies of unsaved documents |
 | `src/editing.rs`  | Auto-indent, indent/outdent and bracket matching (pure, unit-tested) |
@@ -141,5 +144,17 @@ The version number is in `Cargo.toml` and follows semantic versioning. For a rel
 
 The About window shows the version and the git commit it was built from.
 `+modified` means the build included uncommitted changes.
+
+## Large files
+
+Measured on an M-series Mac (release build), typing stays smooth up to about
+10 MB (around 25 ms a frame) and becomes sluggish around 50 MB (about 110 ms).
+Syntax highlighting turns off above 2 MB. Very large files are also slow while
+VoiceOver or another accessibility tool is active, because egui rebuilds its
+accessibility information for every line on each frame. To re-measure:
+
+```sh
+cargo test --release perf_plain -- --ignored --nocapture
+```
 
 See [ROADMAP.md](ROADMAP.md) for what's planned.

@@ -93,11 +93,28 @@ Goal: Sloth never damages a file or loses work.
 | Print (⌘P) | M | Put the text into an off-screen `NSTextView` and run `NSPrintOperation`. That gives the standard macOS print dialog and Save as PDF. *Prints plain text for now: no syntax colours or line numbers.* |
 | Multiple windows | L | Use egui's multi-viewport support. Each window gets its own tabs and find bar; menus act on the focused window. Requires splitting window state out of `SlothApp`. *Extra windows are drawn from the main window's frame; when the main window is closed it's hidden rather than closed.* |
 
-## 1.0: Polish and decision
+## 1.0: Polish and decision ✅
 
-- App icon, signing and notarisation, so the app opens on other Macs without security warnings.
-- Settings window, instead of keeping every option in menus.
-- Review performance on files of 10 MB or more. If it's not good enough, or spell check and VoiceOver matter by then, make the native text view switch (see the top of this file).
+- ✅ App icon (drawn by `scripts/make-icon.swift`).
+- ⏭ Signing and notarisation: skipped. Sloth is only used on its author's
+  Mac, where it opens without them.
+- ✅ Settings window (⌘,).
+- ✅ Performance review. Without accessibility tools running: about 4 ms per
+  idle frame and 23 ms per typed character at 10 MB, and 20 ms / 110 ms at
+  50 MB. **Decision: stay on egui.** Revisit the native `NSTextView` switch if
+  files over ~20 MB, spell check or VoiceOver become important. Known
+  limitation: with an accessibility tool active, egui rebuilds the text
+  widget's accessibility tree every frame (about 200 ms at 10 MB).
+
+## After 1.0
+
+Smaller ideas, not yet planned:
+
+- Keep untitled tabs across a normal quit (they're only kept after a crash).
+- Recent files in the Dock icon's menu.
+- Markdown preview that scrolls with the editor, and shows images.
+- Print with syntax colours and line numbers.
+- Copy Finder tags and other extended attributes when saving.
 
 ---
 

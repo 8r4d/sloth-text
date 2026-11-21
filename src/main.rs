@@ -34,7 +34,11 @@ fn main() -> eframe::Result {
             .with_title("Sloth")
             .with_inner_size([900.0, 650.0])
             .with_min_inner_size([300.0, 200.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            .with_icon(std::sync::Arc::new(
+                eframe::icon_data::from_png_bytes(include_bytes!("../icons/icon-512.png"))
+                    .expect("icon is a valid PNG"),
+            )),
         ..Default::default()
     };
 

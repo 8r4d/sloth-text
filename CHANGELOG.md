@@ -2,6 +2,14 @@
 
 Sloth uses semantic versioning (major.minor.patch).
 
+## 1.0.0
+
+- Settings window (⌘, or Sloth → Settings…) with every option in one place: theme, font and size, what to show, indentation, and files.
+- New setting: reopen the windows and tabs from last time (on by default).
+- An app icon: a content sloth on a branch.
+- Faster with large documents: the word count no longer recounts big files on every frame.
+- The status bar says "1 line" rather than "1 lines".
+
 ## 0.8.0
 
 - Print (⌘P) through the standard macOS print dialog, which also offers Save as PDF. Pages have the file name, date and page numbers.

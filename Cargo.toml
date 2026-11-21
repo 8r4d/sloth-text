@@ -1,6 +1,6 @@
 [package]
 name = "sloth"
-version = "0.8.0"
+version = "1.0.0"
 edition = "2024"
 
 [dependencies]
@@ -39,6 +39,8 @@ name = "Sloth"
 identifier = "com.bradsalomons.sloth"
 category = "public.app-category.developer-tools"
 short_description = "A simple plain-text editor"
+# Drawn by scripts/make-icon.swift
+icon = ["icons/Sloth.icns"]
 
 [package.metadata.bundle.osx]
 # Declares which files Sloth can open, for Finder's Open With and the Dock.
