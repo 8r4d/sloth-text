@@ -18,6 +18,8 @@ use crate::binder::{self, BinderAction, Renaming};
 pub(crate) mod inspector;
 #[path = "search.rs"]
 mod search;
+#[path = "views.rs"]
+mod views;
 use search::{DocResults, Direction};
 use crate::project::{MANIFEST_FILE, Node, PathChange, Place, Project, Role};
 
@@ -74,6 +76,8 @@ pub struct WriterApp {
     word_cache: inspector::WordCache,
     /// Metadata edited since project.ron was last written.
     manifest_dirty: bool,
+    /// Corkboard or outline, per folder (see views.rs).
+    folder_views: views::FolderViews,
 }
 
 impl WriterApp {
@@ -121,6 +125,7 @@ impl WriterApp {
             editing_labels: false,
             word_cache: inspector::WordCache::default(),
             manifest_dirty: false,
+            folder_views: views::FolderViews::default(),
         };
         if let Some(root) = open {
             app.open_project(&root);
@@ -606,10 +611,10 @@ impl WriterApp {
 
     fn editor_area(&mut self, ui: &mut egui::Ui) {
         let settings = self.editor.clone();
-        let placeholder = match self.selected.as_deref().and_then(|id| self.project.as_ref()?.node(id)) {
-            None => "Select a document in the binder.",
-            Some(node) if !node.is_document() => "This is a folder. Select a document inside it, or add one with ⌘N.",
-            Some(_) => "",
+        // A folder shows its items (corkboard or outline) instead of text.
+        let folder = match self.selected.as_deref().and_then(|id| self.project.as_ref()?.node(id)) {
+            Some(node) if !node.is_document() => Some(node.id.clone()),
+            _ => None,
         };
         // Not in a frame with a mouse press or release (such as the click in
         // the binder that opened the document): egui takes focus away from a
@@ -627,15 +632,21 @@ impl WriterApp {
         let reveal = self.reveal.take();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color).inner_margin(egui::Margin::symmetric(24, 16)))
-            .show(ui, |ui| match self.current() {
-                Some(tab) => {
-                    if focus {
-                        ui.memory_mut(|m| m.request_focus(editor::editor_id(tab.id)));
-                    }
-                    editor::show(ui, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None);
+            .show(ui, |ui| {
+                if let Some(folder) = &folder {
+                    self.folder_view(ui, folder);
+                    return;
                 }
-                None => {
-                    ui.weak(placeholder);
+                match self.current() {
+                    Some(tab) => {
+                        if focus {
+                            ui.memory_mut(|m| m.request_focus(editor::editor_id(tab.id)));
+                        }
+                        editor::show(ui, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None);
+                    }
+                    None => {
+                        ui.weak("Select a document in the binder.");
+                    }
                 }
             });
     }

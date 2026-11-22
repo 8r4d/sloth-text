@@ -39,6 +39,9 @@ fn project(dir: &TempDir, text: &str) -> Project {
 fn harness(project: Project) -> Harness<'static, WriterApp> {
     let mut harness = Harness::builder()
         .with_size([1000.0, 700.0])
+        // Real frame times (the default is a quarter second a step, which
+        // is too slow for a double-click to count as one).
+        .with_step_dt(1.0 / 60.0)
         // Icons like 📄 come from fonts tests don't load; draw a box instead.
         .allow_missing_glyphs()
         .build_eframe(|cc| WriterApp::new(cc, None));
@@ -527,4 +530,137 @@ fn labels_can_be_added_and_show_in_the_binder() {
     harness.state_mut().project.as_mut().unwrap().set_meta(&id, meta);
     harness.run_steps(2);
     harness.get_by_label("📄 Untitled \u{25cf}");
+}
+
+// ----- corkboard and outline -----------------------------------------------------
+
+/// A project with a chapter folder holding three scenes.
+fn chapter_project(dir: &TempDir) -> (Project, String, Vec<String>) {
+    let mut p = project(dir, "");
+    let chapter = p.add_folder(&Place::Into("manuscript".into()), "Chapter").unwrap();
+    let scenes = ["Arrival", "Letter", "Harbour"]
+        .map(|t| p.add_document(&Place::Into(chapter.clone()), t).unwrap())
+        .to_vec();
+    (p, chapter, scenes)
+}
+
+fn chapter_titles(harness: &Harness<'static, WriterApp>, chapter: &str) -> Vec<String> {
+    let project = harness.state().project.as_ref().unwrap();
+    project.node(chapter).unwrap().children.iter().map(|n| n.title.clone()).collect()
+}
+
+/// A card or outline row's title (the binder has a row of the same name;
+/// the view's comes after it).
+fn in_view<'a>(harness: &'a Harness<'static, WriterApp>, label: &'a str) -> egui_kittest::Node<'a> {
+    harness.get_all_by_label(label).last().unwrap()
+}
+
+/// Press at one point and let go at another, a few frames apart.
+fn drag_points(harness: &mut Harness<'static, WriterApp>, start: egui::Pos2, end: egui::Pos2) {
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    harness.event(egui::Event::PointerMoved(start));
+    harness.run_steps(1);
+    harness.event(button(start, true));
+    harness.run_steps(1);
+    for step in 1..=6 {
+        harness.event(egui::Event::PointerMoved(start.lerp(end, step as f32 / 6.0)));
+        harness.run_steps(1);
+    }
+    harness.event(button(end, false));
+    harness.run_steps(3);
+}
+
+#[test]
+fn a_folder_shows_its_items_as_cards() {
+    let dir = TempDir::new("cards");
+    let (p, chapter, scenes) = chapter_project(&dir);
+    let mut harness = harness(p);
+    // Out of the way: it shows the folder's own synopsis field.
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().select(chapter.clone());
+    harness.run_steps(3);
+
+    harness.get_by_label("Corkboard");
+    let titles: Vec<_> = ["📄 Arrival", "📄 Letter", "📄 Harbour"].map(|t| harness.get_all_by_label(t).count()).to_vec();
+    assert_eq!(titles, [2, 2, 2], "each in the binder and on a card");
+
+    // A synopsis typed on a card is the item's synopsis.
+    let field = harness.get_all_by_value("").find(|n| n.rect().width() > 150.0 && n.rect().left() > 200.0).unwrap();
+    field.focus();
+    field.type_text("She arrives.");
+    harness.run_steps(2);
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.node(&scenes[0]).unwrap().meta.synopsis, "She arrives.");
+    assert!(harness.state().manifest_dirty);
+
+    // Double-clicking a card opens it.
+    let pos = in_view(&harness, "📄 Letter").rect().center();
+    harness.event(egui::Event::PointerMoved(pos));
+    harness.run_steps(1);
+    for _ in 0..2 {
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            harness.run_steps(1);
+        }
+    }
+    harness.run_steps(2);
+    assert_eq!(harness.state().selected.as_deref(), Some(scenes[1].as_str()));
+}
+
+#[test]
+fn dragging_a_card_reorders_the_folder() {
+    let dir = TempDir::new("cards-drag");
+    let (p, chapter, _) = chapter_project(&dir);
+    let mut harness = harness(p);
+    // Out of the way: it shows the folder's own synopsis field.
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().select(chapter.clone());
+    harness.run_steps(3);
+
+    // Harbour onto the left half of Arrival's card: before it.
+    let start = in_view(&harness, "📄 Harbour").rect().center();
+    let target = in_view(&harness, "📄 Arrival").rect();
+    drag_points(&mut harness, start, target.left_center() + egui::vec2(4.0, 20.0));
+    assert_eq!(chapter_titles(&harness, &chapter), ["Harbour", "Arrival", "Letter"]);
+}
+
+#[test]
+fn the_outline_edits_status_and_nests_by_dragging() {
+    let dir = TempDir::new("outline");
+    let (p, chapter, scenes) = chapter_project(&dir);
+    let mut harness = harness(p);
+    // Out of the way: it shows the folder's own synopsis field.
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().select(chapter.clone());
+    harness.run_steps(3);
+    harness.get_by_label("Outline").click();
+    harness.run_steps(3);
+
+    // Status from the first row's menu.
+    harness.get_all_by_value("\u{2014}").next().unwrap().click();
+    harness.run_steps(2);
+    harness.get_by_label("Revised").click();
+    harness.run_steps(2);
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.node(&scenes[0]).unwrap().meta.status, Some(2));
+
+    // Letter onto the middle of Arrival's row: inside it.
+    let start = in_view(&harness, "📄 Letter").rect().center();
+    let target = in_view(&harness, "📄 Arrival").rect();
+    drag_points(&mut harness, start, target.center() + egui::vec2(0.0, 8.0));
+    assert_eq!(chapter_titles(&harness, &chapter), ["Arrival", "Harbour"]);
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.node(&scenes[0]).unwrap().children[0].title, "Letter");
+    // Nested rows show in the outline too.
+    assert_eq!(harness.get_all_by_label("📄 Letter").count(), 2);
 }

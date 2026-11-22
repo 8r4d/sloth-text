@@ -21,7 +21,7 @@ pub enum BinderAction {
 }
 
 /// What's being dragged: a binder item's id.
-struct Dragged(String);
+pub(crate) struct Dragged(pub(crate) String);
 
 /// An item whose title is being edited in place.
 pub struct Renaming {
@@ -206,7 +206,7 @@ fn drop_place(ui: &egui::Ui, response: &egui::Response, node: &Node) -> Option<P
 }
 
 /// The dragged item's title, following the pointer.
-fn drag_ghost(ctx: &egui::Context, label: &str) {
+pub(crate) fn drag_ghost(ctx: &egui::Context, label: &str) {
     let Some(pointer) = ctx.pointer_interact_pos() else { return };
     egui::Area::new(egui::Id::unique("binder-drag-ghost"))
         .order(egui::Order::Tooltip)
