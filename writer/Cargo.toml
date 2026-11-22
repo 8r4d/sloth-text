@@ -9,3 +9,7 @@ sloth-core = { path = "../core" }
 eframe = { version = "0.37.0", features = ["persistence"] }
 ron = "0.12"
 serde = { version = "1.0.229", features = ["derive"] }
+rfd = "0.18.0"
+
+[dev-dependencies]
+egui_kittest = { version = "0.37.0", features = ["eframe", "wgpu"] }
