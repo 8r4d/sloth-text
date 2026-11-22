@@ -30,6 +30,8 @@ mod search;
 pub(crate) mod settings_ui;
 #[path = "snapshots_ui.rs"]
 mod snapshots_ui;
+#[path = "stats_ui.rs"]
+mod stats_ui;
 #[path = "split_ui.rs"]
 mod split_ui;
 #[path = "sync_ui.rs"]
@@ -124,6 +126,15 @@ pub struct WriterApp {
     split_open: bool,
     /// What it shows.
     split: Option<String>,
+    // Writing statistics (see stats.rs and stats_ui.rs).
+    stats: crate::stats::Stats,
+    stats_dirty: bool,
+    /// Each document's words when last looked at, so a change can be
+    /// added to the day's tally.
+    word_counts: HashMap<String, u32>,
+    stats_open: bool,
+    /// The Statistics window's goal fields as typed: daily, total, deadline.
+    goal_fields: Option<[String; 3]>,
 
     // Settings (see settings_ui.rs).
     settings: settings_ui::WriterSettings,
@@ -206,6 +217,11 @@ impl WriterApp {
             new_profile_folder: None,
             split_open: false,
             split: None,
+            stats: Default::default(),
+            stats_dirty: false,
+            word_counts: HashMap::new(),
+            stats_open: false,
+            goal_fields: None,
         };
         app.apply_settings(&cc.egui_ctx);
         if let Some(root) = open {
@@ -268,7 +284,9 @@ impl WriterApp {
         self.last_sync = None;
         projects_ui::remember(&mut self.recent, &project.root);
         let first = first_document(&project.manifest.binder[0]);
+        self.stats = crate::stats::Stats::load(&project.root);
         self.project = Some(project);
+        self.count_all_words();
         if let Some(id) = first {
             self.select(id);
         }
@@ -296,6 +314,8 @@ impl WriterApp {
         self.editing_sections = None;
         self.new_profile_folder = None;
         self.split = None;
+        self.stats_open = false;
+        self.goal_fields = None;
     }
 
     // ----- documents ---------------------------------------------------------
@@ -361,6 +381,23 @@ impl WriterApp {
             match project.save() {
                 Ok(()) => self.manifest_dirty = false,
                 Err(e) => failed.push(format!("the project file ({e})")),
+            }
+        }
+        // Words written since the last save count towards today.
+        let edited: Vec<(String, String)> = self
+            .open
+            .iter()
+            .filter_map(|(id, &tab)| self.docs.get(tab).filter(|t| t.doc.is_dirty()).map(|t| (id.clone(), t.doc.text.clone())))
+            .collect();
+        for (id, text) in edited {
+            self.note_words(&id, &text);
+        }
+        if self.stats_dirty
+            && let Some(project) = &self.project
+        {
+            match self.stats.save(&project.root) {
+                Ok(()) => self.stats_dirty = false,
+                Err(e) => failed.push(format!("the writing statistics ({e})")),
             }
         }
         for tab in self.docs.iter_mut() {
@@ -825,6 +862,7 @@ impl WriterApp {
         }
         let words = self.current().map(|t| inspector::count_words(&t.doc.text));
         let status = self.status.as_ref().map(|(message, _)| message.clone());
+        let today = self.today_summary();
         egui::Panel::bottom(egui::Id::unique("status")).show(ui, |ui| {
             ui.horizontal(|ui| {
                 match words {
@@ -832,6 +870,11 @@ impl WriterApp {
                     Some(n) => ui.label(format!("{n} words")),
                     None => ui.label(""),
                 };
+                ui.separator();
+                let today = egui::Button::new(today).frame(false);
+                if ui.add(today).on_hover_text("Writing statistics and goals").clicked() {
+                    self.open_stats();
+                }
                 if let Some(message) = status {
                     ui.separator();
                     ui.label(message);
@@ -985,6 +1028,7 @@ impl eframe::App for WriterApp {
         self.new_profile_folder_window(&ctx);
         self.settings_window(&ctx);
         self.help_window(&ctx);
+        self.stats_window(&ctx);
         self.delete_snapshot_dialog(&ctx);
 
         if now - self.last_autosave >= AUTOSAVE_SECONDS {

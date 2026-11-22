@@ -242,6 +242,9 @@ pub struct Manifest {
     /// The project's id on the iPad helper, made when it's first synced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_id: Option<String>,
+    /// Word goals: a day's, the manuscript's, a deadline (see stats.rs).
+    #[serde(default, skip_serializing_if = "crate::stats::Goals::is_empty")]
+    pub goals: crate::stats::Goals,
 }
 
 /// Where to put an item, relative to another one.
@@ -296,6 +299,7 @@ impl Project {
                 profiles: Vec::new(),
                 compile: Default::default(),
                 sync_id: None,
+                goals: Default::default(),
             },
         };
         project.repair();

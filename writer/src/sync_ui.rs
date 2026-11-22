@@ -172,6 +172,7 @@ impl WriterApp {
             if tab.doc.text == was {
                 tab.doc.text = text.to_owned();
                 let _ = tab.doc.save();
+                self.note_words(id, text);
             } else {
                 let _ = snapshots::take(root, id, text, "from the iPad (you were typing)");
             }
@@ -180,8 +181,9 @@ impl WriterApp {
         let Some(path) = self.project.as_ref().and_then(|p| p.file_path(id)) else { return };
         match std::fs::read_to_string(&path) {
             Ok(now) if now == was => {
-                if let Err(e) = sloth_core::document::write_atomically(&path, text.as_bytes()) {
-                    self.error = Some(format!("Couldn't save the iPad's edit: {e}"));
+                match sloth_core::document::write_atomically(&path, text.as_bytes()) {
+                    Ok(()) => self.note_words(id, text),
+                    Err(e) => self.error = Some(format!("Couldn't save the iPad's edit: {e}")),
                 }
             }
             _ => {
@@ -200,6 +202,7 @@ impl WriterApp {
         }
         project.set_meta(&id, Meta { on_ipad: true, ..Meta::default() });
         self.manifest_dirty = true;
+        self.note_words(&id, text);
         true
     }
 

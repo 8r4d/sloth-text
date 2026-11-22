@@ -53,6 +53,7 @@ const TIPS: &[&str] = &[
     "A line with only # on it is a scene break.",
     "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",
     "Double-click a binder item to rename it.",
+    "Click \"Today\" in the status bar for writing statistics and goals.",
 ];
 
 impl WriterApp {

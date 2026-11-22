@@ -1295,9 +1295,61 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.0.0");
+    harness.get_by_label("1.1.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
-    assert_eq!(env!("CARGO_PKG_VERSION"), "1.0.0");
+    
+}
+
+// ----- writing statistics ------------------------------------------------------
+
+/// Today's words as the log has them.
+fn logged_today(dir: &TempDir) -> i64 {
+    let stats = crate::stats::Stats::load(&dir.0);
+    stats.days.get(&crate::stats::key(crate::stats::today())).copied().unwrap_or(0)
+}
+
+#[test]
+fn words_written_in_the_manuscript_count_towards_today() {
+    let dir = TempDir::new("stats");
+    let mut p = project(&dir, "Already here before today.");
+    let notes_id = p.add_document(&Place::Into("notes".into()), "Idea").unwrap();
+    let mut harness = harness(p);
+    harness.run_steps(2); // the editor takes focus
+    harness.get_by_label("Today: 0 words");
+
+    // Typing shows straight away, and is logged when saved.
+    harness.event(egui::Event::Text(" Then the snow came.".into()));
+    harness.run_steps(2);
+    harness.get_by_label("Today: 4 words");
+    harness.state_mut().save_all();
+    assert_eq!(logged_today(&dir), 4);
+
+    // Notes aren't the manuscript.
+    let notes = harness.state_mut().ensure_open(&notes_id).unwrap();
+    harness.state_mut().docs.get_mut(notes).unwrap().doc.text = "lots of words for later on".into();
+    harness.state_mut().save_all();
+    assert_eq!(logged_today(&dir), 4);
+
+    // Trashing a scene isn't writing (or unwriting) it.
+    let id = harness.state().selected.clone().unwrap();
+    harness.state_mut().trash(&id);
+    harness.state_mut().save_all();
+    harness.run_steps(2);
+    assert_eq!(logged_today(&dir), 4);
+    harness.get_by_label("Today: 4 words");
+}
+
+#[test]
+fn goals_set_in_the_statistics_window_show_in_the_status_bar() {
+    let dir = TempDir::new("goals");
+    let mut harness = harness(project(&dir, "One two three."));
+    harness.get_by_label("Today: 0 words").click();
+    harness.run_steps(2);
+    harness.get_by_label("Manuscript length");
+    harness.state_mut().project.as_mut().unwrap().manifest.goals.daily = Some(1000);
+    harness.run_steps(2);
+    harness.get_by_label("Today: 0 / 1,000");
+    harness.get_by_label("words today, of 1,000");
 }

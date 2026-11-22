@@ -2,6 +2,12 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.1.0
+
+- Writing statistics: the status bar shows the words written today, against your goal if you set one. Click it for the Statistics window: today's progress, your streak, the last 30 days as a chart, the manuscript's length, your average, and words per chapter.
+- Goals: words a day, a length for the manuscript, and a date to finish by. With a deadline and no daily goal, the day's goal is what the deadline needs.
+- Words are counted as you type in the Manuscript, net: cutting counts against the day, and moving or trashing documents doesn't count. Words from the iPad count on the day they sync.
+
 ## 1.0.0
 
 The first full release: a writing app for long projects, built on Sloth.

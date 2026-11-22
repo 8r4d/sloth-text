@@ -9,6 +9,7 @@ mod compile;
 mod keychain;
 mod project;
 mod snapshots;
+mod stats;
 mod sync;
 mod version;
 
