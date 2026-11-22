@@ -20,6 +20,8 @@ pub enum BinderAction {
     Move { id: String, place: Place },
     /// A preset kind, or `None` for a folder of your own.
     AddProfileFolder(Option<ProfileKind>),
+    /// Show this in the split view (⌥-click, or the menu).
+    OpenInSplit(String),
     RemoveProfileFolder(String),
 }
 
@@ -156,7 +158,13 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &m
         actions.push(BinderAction::Move { id: dragged.0.clone(), place });
     }
     if response.clicked() {
-        actions.push(BinderAction::Select(node.id.clone()));
+        // ⌥-click: into the split view, leaving the main editor as it is.
+        let action = if ui.input(|i| i.modifiers.alt) && node.role.is_none() {
+            BinderAction::OpenInSplit(node.id.clone())
+        } else {
+            BinderAction::Select(node.id.clone())
+        };
+        actions.push(action);
     }
     if response.double_clicked() && node.role.is_none() {
         actions.push(BinderAction::StartRename(node.id.clone()));
@@ -204,6 +212,10 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &m
         }
         if node.role.is_none() {
             ui.separator();
+            if ui.button("Open in Split View").on_hover_text("Or \u{2325}-click it").clicked() {
+                actions.push(BinderAction::OpenInSplit(node.id.clone()));
+                ui.close();
+            }
             if ui.button("Rename").clicked() {
                 actions.push(BinderAction::StartRename(node.id.clone()));
                 ui.close();

@@ -28,6 +28,8 @@ mod search;
 pub(crate) mod settings_ui;
 #[path = "snapshots_ui.rs"]
 mod snapshots_ui;
+#[path = "split_ui.rs"]
+mod split_ui;
 #[path = "sync_ui.rs"]
 mod sync_ui;
 #[path = "views.rs"]
@@ -104,14 +106,20 @@ pub struct WriterApp {
     renaming_project: Option<projects_ui::Renaming>,
 
     // Characters (see character_ui.rs).
-    /// The profile name field's text, for the profile it belongs to.
-    profile_name: Option<(String, String)>,
-    /// The open profile as typed (see profiles_ui.rs).
-    profile_sheet: Option<profiles_ui::ProfileSheet>,
+    /// Profile forms' name fields as typed, by profile (two can be on
+    /// screen at once, with the split view).
+    profile_name: HashMap<String, String>,
+    /// Open profiles as typed, by profile (see profiles_ui.rs).
+    profile_sheet: HashMap<String, profiles_ui::ProfileSheet>,
     editing_sections: Option<profiles_ui::EditingSections>,
     /// The New Profile Folder window for a folder of your own: its name, and
     /// what one item in it is called.
     new_profile_folder: Option<(String, String)>,
+
+    // The split view (see split_ui.rs).
+    split_open: bool,
+    /// What it shows.
+    split: Option<String>,
 
     // Settings (see settings_ui.rs).
     settings: settings_ui::WriterSettings,
@@ -182,10 +190,12 @@ impl WriterApp {
             confirm_delete_snapshot: None,
             recent: cc.storage.and_then(|s| eframe::get_value(s, projects_ui::RECENT_KEY)).unwrap_or_default(),
             renaming_project: None,
-            profile_name: None,
-            profile_sheet: None,
+            profile_name: HashMap::new(),
+            profile_sheet: HashMap::new(),
             editing_sections: None,
             new_profile_folder: None,
+            split_open: false,
+            split: None,
         };
         app.apply_settings(&cc.egui_ctx);
         if let Some(root) = open {
@@ -271,10 +281,11 @@ impl WriterApp {
         self.compile_open = false;
         self.comparing = None;
         self.confirm_delete_snapshot = None;
-        self.profile_name = None;
-        self.profile_sheet = None;
+        self.profile_name.clear();
+        self.profile_sheet.clear();
         self.editing_sections = None;
         self.new_profile_folder = None;
+        self.split = None;
     }
 
     // ----- documents ---------------------------------------------------------
@@ -282,27 +293,45 @@ impl WriterApp {
     fn select(&mut self, id: String) {
         // Switching documents is a natural moment to save.
         self.save_all();
-        let Some(project) = &self.project else { return };
-        if let Some(path) = project.file_path(&id) {
-            match self.open.get(&id) {
-                Some(&tab) if self.docs.get(tab).is_some() => self.docs.activate(tab),
-                _ => match Document::open(&path) {
-                    Ok(doc) => {
-                        let tab = self.docs.add(doc);
-                        self.open.insert(id.clone(), tab);
-                    }
-                    Err(e) => self.error = Some(format!("Couldn't open {}: {e}", path.display())),
-                },
-            }
+        if let Some(tab) = self.ensure_open(&id) {
+            self.docs.activate(tab);
         }
         self.selected = Some(id);
         self.focus_editor = true;
     }
 
+    /// Open a document (if it isn't already) without showing it: its tab.
+    /// `None` for a folder, or a file that can't be read (with a message).
+    fn ensure_open(&mut self, id: &str) -> Option<TabId> {
+        if let Some(&tab) = self.open.get(id)
+            && self.docs.get(tab).is_some()
+        {
+            return Some(tab);
+        }
+        let path = self.project.as_ref()?.file_path(id)?;
+        match Document::open(&path) {
+            Ok(doc) => {
+                let tab = self.docs.add(doc);
+                self.open.insert(id.to_owned(), tab);
+                Some(tab)
+            }
+            Err(e) => {
+                self.error = Some(format!("Couldn't open {}: {e}", path.display()));
+                None
+            }
+        }
+    }
+
+    /// An item's open document, if it's open.
+    fn tab_of(&mut self, id: &str) -> Option<&mut Tab> {
+        let tab = *self.open.get(id)?;
+        self.docs.get_mut(tab)
+    }
+
     /// The selected item's open document, if it's a document.
     fn current(&mut self) -> Option<&mut Tab> {
-        let tab = *self.open.get(self.selected.as_deref()?)?;
-        self.docs.get_mut(tab)
+        let id = self.selected.clone()?;
+        self.tab_of(&id)
     }
 
     fn any_unsaved(&self) -> bool {
@@ -392,7 +421,13 @@ impl WriterApp {
 
     /// The person's answer in the notice above the editor.
     fn resolve_notice(&mut self, choice: NoticeChoice) {
-        let Some(tab) = self.current() else { return };
+        let Some(id) = self.selected.clone() else { return };
+        self.resolve_notice_for(&id, choice);
+    }
+
+    /// The answer in the notice above an item's editor (main or split).
+    fn resolve_notice_for(&mut self, id: &str, choice: NoticeChoice) {
+        let Some(tab) = self.tab_of(id) else { return };
         match choice {
             NoticeChoice::Reload => {
                 let encoding = Some(tab.doc.format.encoding);
@@ -487,6 +522,7 @@ impl WriterApp {
             BinderAction::Move { id, place } => self.move_item(&id, &place),
             BinderAction::AddProfileFolder(Some(kind)) => self.add_profile_folder(kind),
             BinderAction::AddProfileFolder(None) => self.new_profile_folder = Some((String::new(), String::new())),
+            BinderAction::OpenInSplit(id) => self.open_in_split(id),
             BinderAction::RemoveProfileFolder(kind) => {
                 let Some(project) = self.project.as_mut() else { return };
                 match project.remove_profile_folder(&kind) {
@@ -613,6 +649,9 @@ impl WriterApp {
             let now = ctx.input(|i| i.time);
             self.take_snapshot(&id, "", now);
         }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND, Key::Backslash) {
+            self.toggle_split();
+        }
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::E) {
             self.compile_open = true;
         }
@@ -720,6 +759,7 @@ impl WriterApp {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text("\u{2325}\u{2318}I");
+                    ui.toggle_value(&mut self.split_open, "Split").on_hover_text("A second pane beside the editor (\u{2318}\\)");
                     if ui.button("Compile\u{2026}").on_hover_text("\u{21e7}\u{2318}E").clicked() {
                         self.compile_open = true;
                     }
@@ -892,6 +932,7 @@ impl eframe::App for WriterApp {
             self.apply(action);
         }
         self.inspector(ui);
+        self.split_pane(ui);
         self.status_bar(ui);
         self.results_panel(ui);
         self.find_bar(ui);

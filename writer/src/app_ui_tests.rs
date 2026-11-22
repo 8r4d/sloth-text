@@ -1130,3 +1130,92 @@ fn a_locations_folder_works_like_characters() {
     let links = harness.state().project.as_ref().unwrap().node(&scene).unwrap().meta.links.clone();
     assert_eq!(links["locations"], [harbour]);
 }
+
+// ----- split view --------------------------------------------------------------------
+
+/// Click at a point (press and release in their own frames).
+fn click_at(harness: &mut Harness<'static, WriterApp>, pos: egui::Pos2) {
+    harness.event(egui::Event::PointerMoved(pos));
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+        harness.run_steps(1);
+    }
+}
+
+#[test]
+fn option_click_opens_beside_the_main_editor() {
+    let dir = TempDir::new("split");
+    let mut p = project(&dir, "main scene");
+    let other = p.add_document(&Place::Into("notes".into()), "Research note").unwrap();
+    fs::write(p.file_path(&other).unwrap(), "a note").unwrap();
+    let mut harness = harness(p);
+    let main = harness.state().selected.clone();
+
+    harness.get_by_label("📄 Research note").click_modifiers(egui::Modifiers::ALT);
+    harness.run_steps(3);
+    let app = harness.state();
+    assert!(app.split_open);
+    assert_eq!(app.split.as_deref(), Some(other.as_str()));
+    assert_eq!(app.selected, main, "the main editor keeps its scene");
+    harness.get_all_by_value("a note").next().unwrap();
+    harness.get_all_by_value("main scene").next().unwrap();
+
+    // Typing in the split pane edits that document.
+    let field = harness.get_all_by_value("a note").next().unwrap().rect();
+    click_at(&mut harness, field.right_center() - egui::vec2(4.0, 0.0));
+    harness.event(egui::Event::Text(" and more".into()));
+    harness.run_steps(2);
+    harness.state_mut().save_all();
+    assert_eq!(fs::read_to_string(dir.0.join("notes/research-note.md")).unwrap(), "a note and more");
+    assert_eq!(fs::read_to_string(dir.0.join("manuscript/untitled.md")).unwrap(), "main scene");
+
+    // ⌘\\ closes it.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Backslash);
+    harness.run_steps(2);
+    assert!(!harness.state().split_open);
+}
+
+#[test]
+fn two_profiles_side_by_side_keep_their_typing() {
+    let dir = TempDir::new("split-profiles");
+    let mut p = project(&dir, "");
+    let mara = p.add_document(&Place::Into("characters".into()), "Mara").unwrap();
+    let jonah = p.add_document(&Place::Into("characters".into()), "Jonah").unwrap();
+    fs::write(p.file_path(&mara).unwrap(), "Eldest\n").unwrap();
+    fs::write(p.file_path(&jonah).unwrap(), "Youngest\n").unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().select(mara.clone());
+    harness.state_mut().open_in_split(jonah.clone());
+    harness.run_steps(3);
+
+    // Type with spaces into the split pane's profile, word by word.
+    let field = harness.get_all_by_value("Youngest").next().unwrap().rect();
+    click_at(&mut harness, field.right_center() - egui::vec2(4.0, 0.0));
+    for typed in [" ", "son", ",", " ", "stayed", " ", "home."] {
+        harness.event(egui::Event::Text(typed.into()));
+        harness.run_steps(1);
+    }
+    let text = |h: &mut Harness<'static, WriterApp>, id: &str| h.state_mut().tab_of(id).unwrap().doc.text.clone();
+    assert_eq!(text(&mut harness, &jonah), "Youngest son, stayed home.\n");
+    assert_eq!(text(&mut harness, &mara), "Eldest\n");
+}
+
+#[test]
+fn the_split_pane_picks_from_its_menu_and_wont_double_up() {
+    let dir = TempDir::new("split-menu");
+    let mut p = project(&dir, "main");
+    p.add_document(&Place::Into("notes".into()), "Note").unwrap();
+    let mut harness = harness(p);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Backslash);
+    harness.run_steps(3);
+    harness.get_by_label_contains("Choose what to show here");
+
+    harness.get_by_label("Show\u{2026}").click();
+    harness.run_steps(2);
+    harness.get_all_by_label("Untitled").last().unwrap().click();
+    harness.run_steps(2);
+    // The scene that's already in the main editor.
+    harness.get_by_label("This is open in the main editor.");
+}

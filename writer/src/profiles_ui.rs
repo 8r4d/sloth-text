@@ -23,10 +23,9 @@ pub(super) struct EditingSections {
     names: Vec<String>,
 }
 
-/// The profile as the form is editing it, and the file text it was last
+/// A profile as its form is editing it, and the file text it was last
 /// written as (to notice changes from elsewhere).
 pub(super) struct ProfileSheet {
-    id: String,
     written: String,
     sheet: Sheet,
 }
@@ -49,13 +48,13 @@ impl WriterApp {
         let title = project.node(id).map(|n| n.title.clone()).unwrap_or_default();
         let appearances: Vec<(String, String)> =
             project.appearances(&kind.id, id).into_iter().map(|n| (n.id.clone(), n.title.clone())).collect();
-        let Some(text) = self.current().map(|t| t.doc.text.clone()) else { return };
+        let Some(text) = self.tab_of(id).map(|t| t.doc.text.clone()) else { return };
         // The form edits its own copy, exactly as typed: re-reading the file
         // every frame would trim a space typed at the end before the next
         // word arrives. The file is read again only if it changed from
         // outside the form (a restore, a rename, another program).
-        let original = match &self.profile_sheet {
-            Some(c) if c.id == id && c.written == text => c.sheet.clone(),
+        let original = match self.profile_sheet.get(id) {
+            Some(c) if c.written == text => c.sheet.clone(),
             _ => Sheet::parse(&text),
         };
         let mut sheet = original.clone();
@@ -72,10 +71,7 @@ impl WriterApp {
                     ui.label(RichText::new(&kind.item).small().weak());
 
                     // The name: the item's title.
-                    let buffer = match &mut self.profile_name {
-                        Some((for_id, name)) if for_id == id => name,
-                        slot => &mut slot.insert((id.to_owned(), title.clone())).1,
-                    };
+                    let buffer = self.profile_name.entry(id.to_owned()).or_insert_with(|| title.clone());
                     let name = ui.add(
                         egui::TextEdit::singleline(buffer)
                             .font(FontId::new(26.0, sloth_core::fonts::prose_family()))
@@ -173,12 +169,12 @@ impl WriterApp {
         });
 
         let written = if sheet != original { sheet.to_text() } else { text };
-        if let Some(tab) = self.current()
+        if let Some(tab) = self.tab_of(id)
             && tab.doc.text != written
         {
             tab.doc.text = written.clone();
         }
-        self.profile_sheet = Some(ProfileSheet { id: id.to_owned(), written, sheet });
+        self.profile_sheet.insert(id.to_owned(), ProfileSheet { written, sheet });
         if let Some(name) = rename {
             self.apply(BinderAction::FinishRename { id: id.to_owned(), title: name });
         }

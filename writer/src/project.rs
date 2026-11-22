@@ -211,7 +211,7 @@ impl Node {
     }
 
     /// This node and everything under it, parents first.
-    fn subtree(&self) -> Vec<&Node> {
+    pub fn subtree(&self) -> Vec<&Node> {
         let mut out = vec![self];
         for child in &self.children {
             out.extend(child.subtree());
