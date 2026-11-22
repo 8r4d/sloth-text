@@ -80,9 +80,17 @@ pick Sloth under **Open with**, and click **Change All**.
 
 ## Code layout
 
-The repository is a Cargo workspace with two crates: `sloth-core` in `core/`
-holds code meant to be shared with other apps (documents, the editor widget, find,
-tabs, themes), and the `sloth` app in `sloth/` builds the editor from it.
+The repository is a Cargo workspace with three crates:
+
+- `sloth-core` in `core/`: code shared by both apps (documents, the editor
+  widget, find, tabs, themes)
+- `sloth` in `sloth/`: this editor
+- `sloth-writer` in `writer/`: Sloth Writer (working name), a long-form writing
+  app in early development. For now it is a placeholder window; run it with
+  `cargo run -p sloth-writer`
+
+`cargo run` and `cargo test` at the root cover Sloth and core; add `--workspace`
+to include Writer.
 
 | File | What's in it |
 |------|--------------|

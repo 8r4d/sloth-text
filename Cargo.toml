@@ -1,5 +1,7 @@
 [workspace]
-members = ["core", "sloth"]
+members = ["core", "sloth", "writer"]
+# Plain `cargo run` opens Sloth; `cargo test` covers core and Sloth.
+default-members = ["core", "sloth"]
 resolver = "3"
 
 # Profiles only take effect at the workspace root.

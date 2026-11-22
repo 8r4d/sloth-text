@@ -17,7 +17,7 @@ syntect = { version = "5.3", default-features = false, features = ["default-synt
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSFont", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSText", "NSTextView", "NSView", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSFont", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSText", "NSTextView", "NSView", "NSWindow"] }
 # Apple Events, used to receive files opened from Finder.
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDictionary", "NSGeometry", "NSNotification", "NSString", "NSURL", "NSValue", "objc2-core-services"] }
 # Same major version eframe uses.

@@ -1,0 +1,9 @@
+[package]
+name = "sloth-writer"
+version = "0.1.0"
+edition = "2024"
+description = "Sloth Writer (working name): a long-form writing app built on sloth-core"
+
+[dependencies]
+sloth-core = { path = "../core" }
+eframe = { version = "0.37.0", features = ["persistence"] }
