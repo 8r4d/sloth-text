@@ -18,6 +18,8 @@ use crate::binder::{self, BinderAction, Renaming};
 mod compile_window;
 #[path = "inspector.rs"]
 pub(crate) mod inspector;
+#[path = "projects_ui.rs"]
+mod projects_ui;
 #[path = "search.rs"]
 mod search;
 #[path = "snapshots_ui.rs"]
@@ -90,6 +92,10 @@ pub struct WriterApp {
     snapshot_name: String,
     comparing: Option<snapshots_ui::Comparing>,
     confirm_delete_snapshot: Option<crate::snapshots::Snapshot>,
+
+    /// Projects opened lately, newest first (see projects_ui.rs).
+    recent: Vec<PathBuf>,
+    renaming_project: Option<projects_ui::Renaming>,
 }
 
 impl WriterApp {
@@ -142,6 +148,8 @@ impl WriterApp {
             snapshot_name: String::new(),
             comparing: None,
             confirm_delete_snapshot: None,
+            recent: cc.storage.and_then(|s| eframe::get_value(s, projects_ui::RECENT_KEY)).unwrap_or_default(),
+            renaming_project: None,
         };
         if let Some(root) = open {
             app.open_project(&root);
@@ -199,6 +207,7 @@ impl WriterApp {
 
     fn set_project(&mut self, project: Project) {
         self.close_project();
+        projects_ui::remember(&mut self.recent, &project.root);
         let first = first_document(&project.manifest.binder[0]);
         self.project = Some(project);
         if let Some(id) = first {
@@ -571,6 +580,7 @@ impl WriterApp {
                 if ui.button("Open Project…  (⌘O)").clicked() {
                     self.open_project_dialog();
                 }
+                self.recent_list(ui);
             });
         });
     }
@@ -579,7 +589,10 @@ impl WriterApp {
         egui::Panel::top(egui::Id::unique("toolbar")).show(ui, |ui| {
             ui.horizontal(|ui| {
                 if let Some(project) = &self.project {
-                    ui.strong(project.title());
+                    let title = egui::Button::new(egui::RichText::new(project.title()).strong()).frame(false);
+                    if ui.add(title).on_hover_text("Rename the project").clicked() {
+                        self.start_renaming_project();
+                    }
                 }
                 ui.separator();
                 if ui.button("New Document").on_hover_text("⌘N").clicked() {
@@ -762,6 +775,7 @@ impl eframe::App for WriterApp {
         self.labels_window(&ctx);
         self.compile_window(&ctx);
         self.compare_window(&ctx);
+        self.rename_project_window(&ctx);
         self.delete_snapshot_dialog(&ctx);
 
         if now - self.last_autosave >= AUTOSAVE_SECONDS {
@@ -779,6 +793,7 @@ impl eframe::App for WriterApp {
         self.save_all();
         let root = self.project.as_ref().map(|p| p.root.clone());
         eframe::set_value(storage, LAST_PROJECT_KEY, &root);
+        eframe::set_value(storage, projects_ui::RECENT_KEY, &self.recent);
     }
 }
 

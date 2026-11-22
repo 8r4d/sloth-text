@@ -265,6 +265,12 @@ impl Project {
         &self.manifest.title
     }
 
+    /// Rename the project (its title, not its folder) and save.
+    pub fn set_title(&mut self, title: &str) -> io::Result<()> {
+        self.manifest.title = clean_title(title)?;
+        self.save()
+    }
+
     pub fn node(&self, id: &str) -> Option<&Node> {
         find(&self.manifest.binder, id)
     }
@@ -534,6 +540,14 @@ impl Project {
     }
 }
 
+/// A folder name for a project called `title`: as typed, minus what file
+/// systems don't allow ("/", ":") and leading dots, which would hide it.
+pub fn folder_name(title: &str) -> String {
+    let name: String = title.chars().map(|c| if matches!(c, '/' | ':' | '\\') { '-' } else { c }).collect();
+    let name = name.trim().trim_start_matches('.').trim();
+    if name.is_empty() { "Untitled".to_owned() } else { name.to_owned() }
+}
+
 /// A file-name stem from a title: lower case, letters and digits, words
 /// joined by `-`. "Mara's Arrival!" becomes `maras-arrival`.
 pub fn slug(title: &str) -> String {
@@ -664,6 +678,14 @@ mod tests {
     }
 
     #[test]
+    fn folder_names_keep_the_title() {
+        assert_eq!(folder_name("The Long Winter"), "The Long Winter");
+        assert_eq!(folder_name("Book 1: Snow/Ice"), "Book 1- Snow-Ice");
+        assert_eq!(folder_name(" .hidden "), "hidden");
+        assert_eq!(folder_name("..."), "Untitled");
+    }
+
+    #[test]
     fn slugs() {
         assert_eq!(slug("The Arrival"), "the-arrival");
         assert_eq!(slug("Mara's Arrival!"), "maras-arrival");
@@ -689,6 +711,15 @@ mod tests {
 
         let opened = Project::open(&dir.0).unwrap();
         assert_eq!(opened.manifest, created.manifest);
+    }
+
+    #[test]
+    fn the_project_can_be_renamed() {
+        let dir = TempDir::new("retitle");
+        let mut p = Project::create(&dir.0, "Working Title").unwrap();
+        p.set_title("  The Long Winter ").unwrap();
+        assert_eq!(Project::open(&dir.0).unwrap().title(), "The Long Winter");
+        assert!(p.set_title(" ").is_err());
     }
 
     #[test]

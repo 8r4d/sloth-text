@@ -744,3 +744,76 @@ fn snapshots_are_taken_compared_restored_and_deleted() {
     assert!(snapshot_list(&harness).iter().all(|s| s.name != "first draft"));
     assert_eq!(snapshot_list(&harness).len(), 2);
 }
+
+// ----- recent projects and renaming ----------------------------------------------
+
+#[test]
+fn recent_projects_are_listed_and_reopen() {
+    let dir = TempDir::new("recent");
+    let alpha = Project::create(&dir.0.join("Alpha"), "Alpha").unwrap();
+    let beta = Project::create(&dir.0.join("Beta"), "Beta").unwrap();
+    let mut harness = harness(alpha);
+    harness.state_mut().set_project(beta);
+    harness.state_mut().recent.push(dir.0.join("Gone"));
+    harness.state_mut().close_project();
+    harness.run_steps(3);
+
+    // Newest first.
+    let recent = harness.state().recent.clone();
+    assert_eq!(recent[..2], [dir.0.join("Beta"), dir.0.join("Alpha")]);
+
+    // A project that isn't there any more can be taken off the list.
+    harness.get_by_label_contains("(not found)");
+    harness.get_by_label("Remove").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().recent.len(), 2);
+
+    harness.get_by_label_contains("Alpha").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().project.as_ref().unwrap().title(), "Alpha");
+    assert_eq!(harness.state().recent[0], dir.0.join("Alpha"));
+}
+
+#[test]
+fn renaming_the_project_renames_its_folder_too() {
+    let dir = TempDir::new("rename-project");
+    let old_root = dir.0.join("Working Title");
+    let p = Project::create(&old_root, "Working Title").unwrap();
+    fs::write(old_root.join("manuscript/untitled.md"), "words").unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().current().unwrap().doc.text = "words, unsaved".into();
+
+    // The title in the toolbar opens the window.
+    harness.get_by_label("Working Title").click();
+    harness.run_steps(3);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.event(egui::Event::Text("The Long Winter".into()));
+    harness.run_steps(1);
+    harness.get_by_label("Rename").click();
+    harness.run_steps(3);
+
+    let new_root = dir.0.join("The Long Winter");
+    assert!(!old_root.exists());
+    let app = harness.state_mut();
+    assert_eq!(app.project.as_ref().unwrap().title(), "The Long Winter");
+    assert_eq!(app.project.as_ref().unwrap().root, new_root);
+    assert_eq!(app.recent, std::slice::from_ref(&new_root));
+    // Unsaved words were saved before the move, and editing carries on.
+    assert_eq!(app.current().unwrap().doc.text, "words, unsaved");
+    assert_eq!(fs::read_to_string(new_root.join("manuscript/untitled.md")).unwrap(), "words, unsaved");
+}
+
+#[test]
+fn a_folder_with_another_name_keeps_it() {
+    let dir = TempDir::new("rename-title-only");
+    let p = Project::create(&dir.0.join("my-novel"), "Working Title").unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().start_renaming_project();
+    harness.run_steps(2);
+    // The folder isn't named after the title, so it's left alone by default.
+    harness.get_by_label("Rename").click();
+    harness.run_steps(2);
+    harness.state_mut().rename_project("Snowbound", false);
+    assert!(dir.0.join("my-novel/project.ron").is_file());
+    assert_eq!(harness.state().project.as_ref().unwrap().title(), "Snowbound");
+}
