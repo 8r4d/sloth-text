@@ -253,6 +253,18 @@ impl WriterApp {
             BinderAction::NewFolder(near) => self.new_item(Some(near), false),
             BinderAction::Trash(id) => self.trash(&id),
             BinderAction::EmptyTrash => self.confirm_empty_trash = true,
+            BinderAction::Move { id, place } => self.move_item(&id, &place),
+        }
+    }
+
+    fn move_item(&mut self, id: &str, place: &Place) {
+        self.renaming = None;
+        // Save first: the file may move to another folder.
+        self.save_all();
+        let Some(project) = self.project.as_mut() else { return };
+        match project.move_node(id, place) {
+            Ok(changes) => self.follow(&changes),
+            Err(e) => self.error = Some(e.to_string()),
         }
     }
 

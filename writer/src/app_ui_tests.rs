@@ -146,3 +146,69 @@ fn trash_then_empty_closes_the_document() {
     assert_eq!(app.selected, None);
     assert!(app.current().is_none());
 }
+
+/// Drag one binder row onto another with the mouse. `fraction` is how far
+/// down the target row to let go: near the top means before it, near the
+/// bottom after it, the middle inside it.
+fn drag(harness: &mut Harness<'static, WriterApp>, from: &str, to: &str, fraction: f32) {
+    let start = harness.get_by_label(from).rect().center();
+    let target = harness.get_by_label(to).rect();
+    let end = egui::pos2(target.center().x, target.top() + target.height() * fraction);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    harness.event(egui::Event::PointerMoved(start));
+    harness.run_steps(1);
+    harness.event(button(start, true));
+    harness.run_steps(1);
+    for step in 1..=6 {
+        harness.event(egui::Event::PointerMoved(start.lerp(end, step as f32 / 6.0)));
+        harness.run_steps(1);
+    }
+    harness.event(button(end, false));
+    harness.run_steps(3);
+}
+
+fn manuscript_titles(harness: &Harness<'static, WriterApp>) -> Vec<String> {
+    harness.state().project.as_ref().unwrap().manifest.binder[0]
+        .children
+        .iter()
+        .map(|n| n.title.clone())
+        .collect()
+}
+
+#[test]
+fn dragging_reorders_and_moves_between_folders() {
+    let dir = TempDir::new("drag");
+    let mut p = project(&dir, "");
+    p.add_document(&Place::Into("manuscript".into()), "Second").unwrap();
+    let mut harness = harness(p);
+
+    // Onto the top edge of the first row: before it.
+    drag(&mut harness, "📄 Second", "📄 Untitled", 0.1);
+    assert_eq!(manuscript_titles(&harness), ["Second", "Untitled"]);
+
+    // Onto the middle of a role folder: inside it, and the file follows.
+    drag(&mut harness, "📄 Untitled", "📚 Notes", 0.5);
+    assert_eq!(manuscript_titles(&harness), ["Second"]);
+    assert!(dir.0.join("notes/untitled.md").is_file());
+    assert!(!dir.0.join("manuscript/untitled.md").exists());
+    assert_eq!(harness.state().error, None);
+}
+
+#[test]
+fn an_item_cant_be_dropped_inside_itself() {
+    let dir = TempDir::new("drag-self");
+    let mut p = project(&dir, "");
+    let chapter = p.add_document(&Place::Into("manuscript".into()), "Chapter").unwrap();
+    p.add_document(&Place::Into(chapter), "Scene").unwrap();
+    let mut harness = harness(p);
+
+    drag(&mut harness, "📄 Chapter", "📄 Scene", 0.5);
+    assert_eq!(manuscript_titles(&harness), ["Untitled", "Chapter"]);
+    // Refused quietly while dragging, rather than with an error afterwards.
+    assert_eq!(harness.state().error, None);
+}
