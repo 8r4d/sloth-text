@@ -88,6 +88,7 @@ impl WriterApp {
         let filter = &mut self.font_filter;
         let token = &mut self.helper_token;
         let mut token_changed = false;
+        let mut show_about = false;
         let mut open = true;
         egui::Window::new("Settings")
             .open(&mut open)
@@ -176,10 +177,20 @@ impl WriterApp {
                     settings.font_size * 1.2 * settings.line_spacing,
                 ))));
                 ui.add_space(6.0);
-                if ui.button("Restore Defaults").clicked() {
-                    *settings = WriterSettings::default();
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("Restore Defaults").clicked() {
+                        *settings = WriterSettings::default();
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.link(format!("Sloth Writer {}", crate::version::VERSION)).on_hover_text("About Sloth Writer").clicked() {
+                            show_about = true;
+                        }
+                    });
+                });
             });
+        if show_about {
+            self.help = Some(super::about_ui::HelpPage::About);
+        }
         if self.settings != before {
             self.apply_settings(ctx);
         }

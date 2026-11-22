@@ -1283,3 +1283,21 @@ fn compile_presets_in_the_window() {
     assert_eq!(compile(&harness).format, crate::compile::Format::Epub);
     assert!(harness.state().manifest_dirty, "kept with the project");
 }
+
+// ----- about and help ----------------------------------------------------------
+
+#[test]
+fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
+    let dir = TempDir::new("help");
+    let mut harness = harness(project(&dir, ""));
+    harness.get_by_label("Help").click();
+    harness.run_steps(2);
+    harness.get_by_label("Find in Project");
+    harness.get_by_label("Release Notes").click();
+    harness.run_steps(2);
+    harness.get_by_label("1.0.0");
+    harness.get_by_label("About").click();
+    harness.run_steps(2);
+    harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
+    assert_eq!(env!("CARGO_PKG_VERSION"), "1.0.0");
+}

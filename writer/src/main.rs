@@ -1,4 +1,4 @@
-//! Sloth Writer (working name): a long-form writing app built on sloth-core.
+//! Sloth Writer: a long-form writing app built on sloth-core.
 //! A project is a folder of Markdown documents arranged in a binder; see
 //! `project.rs` for the format and `app.rs` for the window.
 
@@ -10,6 +10,7 @@ mod keychain;
 mod project;
 mod snapshots;
 mod sync;
+mod version;
 
 use eframe::egui;
 

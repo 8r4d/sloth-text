@@ -1,8 +1,8 @@
 [package]
 name = "sloth-writer"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
-description = "Sloth Writer (working name): a long-form writing app built on sloth-core"
+description = "Sloth Writer: a long-form writing app built on sloth-core"
 
 [dependencies]
 sloth-core = { path = "../core" }
@@ -31,5 +31,6 @@ name = "Sloth Writer"
 identifier = "com.bradsalomons.sloth-writer"
 category = "public.app-category.productivity"
 short_description = "A writing app for long projects"
+copyright = "© 2026 Brad Salomons"
 # Drawn by scripts/make-writer-icon.swift
 icon = ["icons/SlothWriter.icns"]

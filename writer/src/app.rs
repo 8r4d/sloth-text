@@ -14,6 +14,8 @@ use sloth_core::tabs::{self, DiskNotice, NoticeChoice, Tab, TabId, Tabs};
 
 use crate::binder::{self, BinderAction, Renaming};
 
+#[path = "about_ui.rs"]
+mod about_ui;
 #[path = "profiles_ui.rs"]
 mod profiles_ui;
 #[path = "compile_window.rs"]
@@ -126,6 +128,9 @@ pub struct WriterApp {
     // Settings (see settings_ui.rs).
     settings: settings_ui::WriterSettings,
     settings_open: bool,
+    /// The About and Help window, open at this page (see about_ui.rs).
+    help: Option<about_ui::HelpPage>,
+    about_icon: Option<egui::TextureHandle>,
     /// The text filtering the Settings window's font list.
     font_filter: String,
 
@@ -157,6 +162,8 @@ impl WriterApp {
             editor: settings.editor(),
             settings,
             settings_open: false,
+            help: None,
+            about_icon: None,
             font_filter: String::new(),
             // Tests never touch the real Keychain.
             helper_token: if cfg!(test) { String::new() } else { crate::keychain::load_token() },
@@ -685,6 +692,12 @@ impl WriterApp {
         if pressed(ctx, Modifiers::COMMAND, Key::Comma) {
             self.settings_open = true;
         }
+        // ⌘? (⇧⌘/): help.
+        if pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::Slash)
+            || pressed(ctx, Modifiers::COMMAND, Key::Questionmark)
+        {
+            self.help = Some(about_ui::HelpPage::Shortcuts);
+        }
         // Quit by closing the window, which saves first (see `before_close`).
         if pressed(ctx, Modifiers::COMMAND, Key::Q) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -719,6 +732,7 @@ impl WriterApp {
             ui.vertical_centered(|ui| {
                 ui.add_space(ui.available_height() * 0.3);
                 ui.heading("Sloth Writer");
+                ui.weak(format!("Version {}", crate::version::VERSION));
                 ui.add_space(16.0);
                 if ui.button("New Project…").clicked() {
                     self.new_project_dialog();
@@ -728,9 +742,17 @@ impl WriterApp {
                 }
                 self.recent_list(ui);
                 ui.add_space(20.0);
-                if ui.small_button("Settings\u{2026}").clicked() {
-                    self.settings_open = true;
-                }
+                ui.horizontal(|ui| {
+                    // Centre the pair of buttons.
+                    let width = 150.0;
+                    ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+                    if ui.small_button("Settings\u{2026}").clicked() {
+                        self.settings_open = true;
+                    }
+                    if ui.small_button("About Sloth Writer").clicked() {
+                        self.help = Some(about_ui::HelpPage::About);
+                    }
+                });
             });
         });
     }
@@ -745,18 +767,27 @@ impl WriterApp {
                     }
                 }
                 ui.separator();
-                if ui.button("New Document").on_hover_text("⌘N").clicked() {
+                // Icons that match the binder's, so the two "new" buttons
+                // read apart at a glance, and the Trash kept well away.
+                let doc = ui.button("\u{1f4c4} New Document").on_hover_text("Add a document (\u{2318}N)");
+                if doc.clicked() {
                     self.new_item(self.selected.clone(), true);
                 }
-                if ui.button("New Folder").on_hover_text("⌥⌘N").clicked() {
+                ui.add_space(6.0);
+                let folder = ui.button("\u{1f4c1} New Folder").on_hover_text("Add a folder (\u{2325}\u{2318}N)");
+                if folder.clicked() {
                     self.new_item(self.selected.clone(), false);
                 }
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(12.0);
                 let can_trash = self
                     .selected
                     .as_deref()
                     .and_then(|id| self.project.as_ref()?.node(id))
                     .is_some_and(|n| n.role.is_none());
-                if ui.add_enabled(can_trash, egui::Button::new("Move to Trash")).clicked() {
+                let trash = egui::Button::new("\u{1f5d1} Move to Trash");
+                if ui.add_enabled(can_trash, trash).on_hover_text("Move the selected item to the Trash").clicked() {
                     let id = self.selected.clone().expect("enabled only with a selection");
                     self.trash(&id);
                 }
@@ -772,6 +803,9 @@ impl WriterApp {
                         if ui.add_enabled(!self.sync_running(), egui::Button::new(label)).on_hover_text(hint).clicked() {
                             self.sync_now = true;
                         }
+                    }
+                    if ui.button("Help").on_hover_text("Keyboard shortcuts, release notes and the version (\u{2318}?)").clicked() {
+                        self.help = Some(about_ui::HelpPage::Shortcuts);
                     }
                     if ui.button("Settings").on_hover_text("\u{2318},").clicked() {
                         self.settings_open = true;
@@ -912,6 +946,7 @@ impl eframe::App for WriterApp {
         if self.project.is_none() {
             self.start_screen(ui);
             self.settings_window(&ctx);
+            self.help_window(&ctx);
             return;
         }
 
@@ -949,6 +984,7 @@ impl eframe::App for WriterApp {
         self.sections_window(&ctx);
         self.new_profile_folder_window(&ctx);
         self.settings_window(&ctx);
+        self.help_window(&ctx);
         self.delete_snapshot_dialog(&ctx);
 
         if now - self.last_autosave >= AUTOSAVE_SECONDS {

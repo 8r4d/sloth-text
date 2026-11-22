@@ -20,8 +20,9 @@ After installing, Sloth appears in Finder's **Open With** menu for text files.
 To make it the default for a type, select a file, choose **File → Get Info**,
 pick Sloth under **Open with**, and click **Change All**.
 
-Sloth Writer, the long-form writing app in `writer/`, installs the same way
-(and `helper/` holds its PHP sync service for writing on an iPad; see
+Sloth Writer 1.0, the long-form writing app in `writer/`, installs the same
+way. Its features are listed in `writer/CHANGELOG.md` and in the app's Help
+window (⌘?). `helper/` holds its PHP sync service for writing on an iPad (see
 `helper/README.md`):
 
 ```sh
