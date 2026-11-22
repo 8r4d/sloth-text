@@ -1,5 +1,6 @@
-//! Search all tabs (⇧⌘F): a panel listing every match in every open
-//! document, grouped by tab. Clicking a result jumps to it.
+//! Search many documents at once (⇧⌘F): a panel listing every match,
+//! grouped by document. Clicking a result jumps to it. Sloth searches its
+//! open tabs; Sloth Writer searches a whole project.
 
 use std::ops::Range;
 
@@ -68,23 +69,43 @@ fn snippet(line: &str, start: usize, end: usize) -> (String, Range<usize>) {
     (text, (start - from + shift)..(end.min(to) - from + shift))
 }
 
-/// Results for one tab.
-pub struct TabResults<'a> {
-    pub tab: TabId,
+/// Results for one document. `K` identifies it to the app: a tab in
+/// Sloth, a binder item in Sloth Writer.
+pub struct TabResults<'a, K = TabId> {
+    pub key: K,
     pub name: String,
     pub rows: &'a [ResultRow],
 }
 
-pub enum ResultsAction {
+pub enum ResultsAction<K = TabId> {
     /// Go to this match.
-    Jump(TabId, Range<usize>),
+    Jump(K, Range<usize>),
     Close,
+}
+
+/// How the panel's heading names what was searched.
+pub struct ResultsWording {
+    /// One document, as counted: "tab".
+    pub one: &'static str,
+    /// Several: "tabs".
+    pub many: &'static str,
+    /// Shown when nothing matched: "No matches in open tabs".
+    pub none: &'static str,
+}
+
+impl ResultsWording {
+    pub const TABS: Self = Self { one: "tab", many: "tabs", none: "No matches in open tabs" };
 }
 
 /// Rows shown per tab; the rest are summarised (the counts stay exact).
 const ROWS_PER_TAB: usize = 500;
 
-pub fn results_panel(ui: &mut egui::Ui, results: &[TabResults<'_>], error: Option<&str>) -> Option<ResultsAction> {
+pub fn results_panel<K: Clone>(
+    ui: &mut egui::Ui,
+    results: &[TabResults<'_, K>],
+    error: Option<&str>,
+    wording: &ResultsWording,
+) -> Option<ResultsAction<K>> {
     let mut action = None;
     let total: usize = results.iter().map(|r| r.rows.len()).sum();
     let tabs_with_matches = results.iter().filter(|r| !r.rows.is_empty()).count();
@@ -92,11 +113,11 @@ pub fn results_panel(ui: &mut egui::Ui, results: &[TabResults<'_>], error: Optio
     ui.horizontal(|ui| {
         let heading = match (error, total) {
             (Some(e), _) => RichText::new(e).color(ui.visuals().error_fg_color),
-            (None, 0) => RichText::new("No matches in open tabs").strong(),
+            (None, 0) => RichText::new(wording.none).strong(),
             (None, n) => RichText::new(format!(
                 "{n} {} in {tabs_with_matches} {}",
                 if n == 1 { "match" } else { "matches" },
-                if tabs_with_matches == 1 { "tab" } else { "tabs" },
+                if tabs_with_matches == 1 { wording.one } else { wording.many },
             ))
             .strong(),
         };
@@ -128,7 +149,7 @@ pub fn results_panel(ui: &mut egui::Ui, results: &[TabResults<'_>], error: Optio
                 job.append(&row.snippet[h.end..], 0.0, plain);
                 let response = ui.add(egui::Label::new(job).sense(Sense::click()).selectable(false).truncate());
                 if response.clicked() {
-                    action = Some(ResultsAction::Jump(tab.tab, row.range.clone()));
+                    action = Some(ResultsAction::Jump(tab.key.clone(), row.range.clone()));
                 }
                 if response.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

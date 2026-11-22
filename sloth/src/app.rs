@@ -19,7 +19,7 @@ use crate::editor::{self, CursorInfo, EditorSettings, Highlights, SyntaxInput};
 use crate::syntax;
 use crate::file_types;
 use crate::find::{self, FindAction, FindBarInfo, FindOptions, FindState};
-use crate::search_results::{self, ResultRow, ResultsAction, TabResults};
+use crate::search_results::{self, ResultRow, ResultsAction, ResultsWording, TabResults};
 use crate::help;
 use crate::recovery::{Leftovers, Recovery};
 use crate::settings::{self, Settings};
@@ -1357,13 +1357,15 @@ impl SlothApp {
             .collect();
         let results: Vec<TabResults<'_>> = rows
             .iter()
-            .map(|(id, name, rows)| TabResults { tab: *id, name: name.clone(), rows })
+            .map(|(id, name, rows)| TabResults { key: *id, name: name.clone(), rows })
             .collect();
         let error = self.find_error();
         let action = egui::Panel::bottom(self.panel_id("search-results"))
             .resizable(true)
             .default_size(200.0)
-            .show(ui, |ui| search_results::results_panel(ui, &results, error.as_deref()))
+            .show(ui, |ui| {
+                search_results::results_panel(ui, &results, error.as_deref(), &ResultsWording::TABS)
+            })
             .inner;
         match action {
             Some(ResultsAction::Jump(tab, range)) => {
@@ -1941,6 +1943,9 @@ impl SlothApp {
                 error: error.as_deref(),
                 history: &self.settings.search_history,
                 results_open: self.w.show_results,
+                results_label: "All Tabs",
+                results_hint: "List matches in every open tab (\u{21e7}\u{2318}F)",
+                allow_replace: true,
             };
             let action = egui::Panel::top(self.panel_id("find"))
                 .show(ui, |ui| find::find_bar(ui, &mut self.w.find, info))

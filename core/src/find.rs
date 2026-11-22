@@ -195,10 +195,16 @@ pub struct FindBarInfo<'a> {
     /// Recent searches, newest first.
     pub history: &'a [String],
     pub results_open: bool,
+    /// The button that shows the results panel, and its tooltip.
+    pub results_label: &'a str,
+    pub results_hint: &'a str,
+    /// Offer the Replace… button.
+    pub allow_replace: bool,
 }
 
 pub fn find_bar(ui: &mut egui::Ui, state: &mut FindState, info: FindBarInfo<'_>) -> Option<FindAction> {
-    let FindBarInfo { match_count, current_index, error, history, results_open } = info;
+    let FindBarInfo { match_count, current_index, error, history, results_open, results_label, results_hint, allow_replace } =
+        info;
     let mut action = None;
     let enter_pressed = |ui: &egui::Ui| ui.input(|i| i.key_pressed(Key::Enter));
     let shift_held = |ui: &egui::Ui| ui.input(|i| i.modifiers.shift);
@@ -311,21 +317,17 @@ pub fn find_bar(ui: &mut egui::Ui, state: &mut FindState, info: FindBarInfo<'_>)
             if ui.button("×").on_hover_text("Close (Esc)").clicked() {
                 action = Some(FindAction::Close);
             }
-            if ui
-                .selectable_label(results_open, "All Tabs")
-                .on_hover_text("List matches in every open tab (\u{21e7}\u{2318}F)")
-                .clicked()
-            {
+            if ui.selectable_label(results_open, results_label).on_hover_text(results_hint).clicked() {
                 action = Some(FindAction::ToggleResults);
             }
             let label = if state.show_replace { "Hide Replace" } else { "Replace…" };
-            if ui.button(label).clicked() {
+            if allow_replace && ui.button(label).clicked() {
                 state.show_replace = !state.show_replace;
             }
         });
     });
 
-    if state.show_replace {
+    if allow_replace && state.show_replace {
         ui.horizontal(|ui| {
             let replace = ui.add(
                 TextEdit::singleline(&mut state.replacement)

@@ -8,7 +8,7 @@ use eframe::egui;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 
-use super::WriterApp;
+use super::{Direction, WriterApp};
 use crate::binder::BinderAction;
 use crate::project::{Place, Project};
 
@@ -324,4 +324,86 @@ fn typing_goes_straight_into_a_newly_opened_document() {
     harness.event(egui::Event::Text("Hello".into()));
     harness.run_steps(2);
     assert_eq!(current_text(&mut harness).as_deref(), Some("Hello"));
+}
+
+// ----- find --------------------------------------------------------------------
+
+/// Type into whatever has focus (the find field, once it's open).
+fn type_text(harness: &mut Harness<'static, WriterApp>, text: &str) {
+    harness.run_steps(2);
+    harness.event(egui::Event::Text(text.into()));
+    harness.run_steps(3);
+}
+
+#[test]
+fn find_steps_through_the_open_document() {
+    let dir = TempDir::new("find");
+    let mut harness = harness(project(&dir, "the cat and the hat"));
+
+    harness.state_mut().open_find(false);
+    type_text(&mut harness, "the");
+    assert_eq!(harness.state().find.current, Some(0..3));
+    harness.get_by_label("1 of 2");
+
+    let ctx = harness.ctx.clone();
+    harness.state_mut().find_step(&ctx, Direction::Next);
+    harness.run_steps(2);
+    assert_eq!(harness.state().find.current, Some(12..15));
+    harness.get_by_label("2 of 2");
+
+    // Next again wraps round to the first.
+    harness.state_mut().find_step(&ctx, Direction::Next);
+    assert_eq!(harness.state().find.current, Some(0..3));
+}
+
+#[test]
+fn project_search_lists_every_document_and_jumps_to_a_match() {
+    let dir = TempDir::new("find-project");
+    let mut p = project(&dir, "a whale");
+    let second = p.add_document(&Place::Into("manuscript".into()), "Second").unwrap();
+    fs::write(dir.0.join("manuscript/second.md"), "notes\nthe whale returns").unwrap();
+    let cut = p.add_document(&Place::Into("manuscript".into()), "Cut").unwrap();
+    fs::write(dir.0.join("manuscript/cut.md"), "a whale in the bin").unwrap();
+    p.trash(&cut).unwrap();
+    let mut harness = harness(p);
+
+    harness.state_mut().open_find(true);
+    type_text(&mut harness, "whale");
+    // The trashed document isn't searched.
+    harness.get_by_label("2 matches in 2 documents");
+    harness.get_by_label("Untitled  (1)");
+    harness.get_by_label("Second  (1)");
+
+    // Line 2 of Second, as the results panel shows it.
+    harness.get_by_label("     2  the whale returns").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().selected.as_deref(), Some(second.as_str()));
+    assert_eq!(harness.state().find.current, Some(10..15));
+    // The match is highlighted as the current one, with the cursor just
+    // after it (egui collapses a selection to its end when it redraws).
+    let tab = harness.state_mut().current().unwrap().id;
+    assert_eq!(sloth_core::editor::selection(&harness.ctx, tab).map(|r| r.end), Some(15));
+}
+
+#[test]
+fn project_search_sees_unsaved_edits() {
+    let dir = TempDir::new("find-unsaved");
+    let mut harness = harness(project(&dir, "nothing here"));
+    harness.state_mut().current().unwrap().doc.text = "a fresh idea".into();
+
+    harness.state_mut().open_find(true);
+    type_text(&mut harness, "fresh");
+    harness.get_by_label("1 match in 1 document");
+}
+
+#[test]
+fn escape_closes_find() {
+    let dir = TempDir::new("find-escape");
+    let mut harness = harness(project(&dir, "text"));
+    harness.state_mut().open_find(true);
+    type_text(&mut harness, "te");
+    harness.key_press(egui::Key::Escape);
+    harness.run_steps(2);
+    assert!(!harness.state().find.visible);
+    assert!(!harness.state().show_results);
 }

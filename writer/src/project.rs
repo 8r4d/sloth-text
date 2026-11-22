@@ -212,6 +212,18 @@ impl Project {
             .and_then(|top| top.role)
     }
 
+    /// Every document outside the Trash, in binder order: what a project
+    /// search looks through.
+    pub fn documents(&self) -> Vec<&Node> {
+        self.manifest
+            .binder
+            .iter()
+            .filter(|top| top.role != Some(Role::Trash))
+            .flat_map(Node::subtree)
+            .filter(|n| n.is_document())
+            .collect()
+    }
+
     pub fn file_path(&self, id: &str) -> Option<PathBuf> {
         let rel = self.node(id)?.path.as_ref()?;
         Some(self.root.join(rel))

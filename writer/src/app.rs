@@ -9,9 +9,14 @@ use std::time::Duration;
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
 use sloth_core::document::{DiskState, Document};
 use sloth_core::editor::{self, EditorSettings, Highlights};
+use sloth_core::find::{FindAction, FindOptions, FindState};
 use sloth_core::tabs::{self, DiskNotice, NoticeChoice, Tab, TabId, Tabs};
 
 use crate::binder::{self, BinderAction, Renaming};
+
+#[path = "search.rs"]
+mod search;
+use search::{DocResults, Direction};
 use crate::project::{MANIFEST_FILE, Node, PathChange, Place, Project, Role};
 
 /// Where the last open project is remembered between launches.
@@ -47,6 +52,18 @@ pub struct WriterApp {
     /// Put the keyboard focus in the editor on the next frame, so a newly
     /// opened document can be typed in straight away.
     focus_editor: bool,
+    /// Scroll the editor to this character on the next frame.
+    reveal: Option<usize>,
+
+    // Find (see search.rs).
+    find: FindState,
+    /// The project-wide results panel is open.
+    show_results: bool,
+    results: Vec<DocResults>,
+    results_error: Option<String>,
+    /// The search the results were built for, and when.
+    results_key: Option<(String, FindOptions)>,
+    results_at: f64,
 }
 
 impl WriterApp {
@@ -77,6 +94,13 @@ impl WriterApp {
             status: None,
             window_title: String::new(),
             focus_editor: false,
+            reveal: None,
+            find: FindState::default(),
+            show_results: false,
+            results: Vec::new(),
+            results_error: None,
+            results_key: None,
+            results_at: 0.0,
         };
         if let Some(root) = open {
             app.open_project(&root);
@@ -149,6 +173,10 @@ impl WriterApp {
         self.open.clear();
         self.renaming = None;
         self.confirm_empty_trash = false;
+        self.find.close();
+        self.show_results = false;
+        self.results.clear();
+        self.results_key = None;
     }
 
     // ----- documents ---------------------------------------------------------
@@ -412,6 +440,27 @@ impl WriterApp {
         if pressed(ctx, Modifiers::COMMAND, Key::O) {
             self.open_project_dialog();
         }
+        // Find. The longer shortcuts first, so ⇧⌘F isn't taken as ⌘F.
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::F) {
+            self.open_find(true);
+        }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND, Key::F) {
+            self.open_find(false);
+        }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::G) {
+            self.find_step(ctx, Direction::Previous);
+        }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND, Key::G) {
+            self.find_step(ctx, Direction::Next);
+        }
+        // Escape closes the find bar, unless it's ending a rename or a dialog.
+        if self.find.visible
+            && self.renaming.is_none()
+            && !self.confirm_empty_trash
+            && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+        {
+            self.find_action(ctx, FindAction::Close);
+        }
         // Quit by closing the window, which saves first (see `before_close`).
         if pressed(ctx, Modifiers::COMMAND, Key::Q) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -537,6 +586,10 @@ impl WriterApp {
         } else if self.focus_editor {
             ui.ctx().request_repaint();
         }
+        // Find matches in this document, highlighted while the find bar is open.
+        let matches = if self.find.visible { self.current_matches().unwrap_or_default() } else { Vec::new() };
+        let highlights = Highlights { all: &matches, current: self.find.current.clone() };
+        let reveal = self.reveal.take();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color).inner_margin(egui::Margin::symmetric(24, 16)))
             .show(ui, |ui| match self.current() {
@@ -544,7 +597,7 @@ impl WriterApp {
                     if focus {
                         ui.memory_mut(|m| m.request_focus(editor::editor_id(tab.id)));
                     }
-                    editor::show(ui, tab.id, &mut tab.doc.text, &settings, Highlights::default(), None, None);
+                    editor::show(ui, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None);
                 }
                 None => {
                     ui.weak(placeholder);
@@ -620,6 +673,8 @@ impl eframe::App for WriterApp {
             self.apply(action);
         }
         self.status_bar(ui);
+        self.results_panel(ui);
+        self.find_bar(ui);
         self.notice_bar(ui);
         self.editor_area(ui);
         self.empty_trash_dialog(&ctx);
