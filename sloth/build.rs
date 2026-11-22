@@ -23,8 +23,8 @@ fn main() {
     println!("cargo:rustc-env=SLOTH_COMMIT_DATE={date}");
 
     // Re-run when commits are made or sources change.
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/index");
+    println!("cargo:rerun-if-changed=../.git/HEAD");
+    println!("cargo:rerun-if-changed=../.git/index");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=CHANGELOG.md");
 }

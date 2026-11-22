@@ -1,9 +1,9 @@
 // Draws Sloth's app icon (a sloth face on a leafy green tile) as PNGs.
-// Run: swift scripts/make-icon.swift icons
-// Writes icons/icon-<size>.png and icons/Sloth.icns.
+// Run: swift scripts/make-icon.swift sloth/icons
+// Writes sloth/icons/icon-<size>.png and sloth/icons/Sloth.icns.
 import AppKit
 
-let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icons"
+let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "sloth/icons"
 
 func color(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
     CGColor(red: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,

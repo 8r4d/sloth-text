@@ -1,47 +1,8 @@
-[package]
-name = "sloth"
-version = "1.0.0"
-edition = "2024"
+[workspace]
+members = ["sloth"]
+resolver = "3"
 
-[dependencies]
-chardetng = "1.0.0"
-eframe = { version = "0.37.0", features = ["persistence"] }
-egui_commonmark = { version = "0.26", default-features = false, features = ["pulldown_cmark"] }
-encoding_rs = "0.8.44"
-fontique = { version = "0.11.1", default-features = false, features = ["system"] }
-read-fonts = "0.41.0"
-regex = "1.13.2"
-rfd = "0.18.0"
-ron = "0.12"
-serde = { version = "1.0.229", features = ["derive"] }
-syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-# macOS bindings (already used by muda): window tabbing, Finder file-open events, printing.
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSFont", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSText", "NSTextView", "NSView", "NSWindow"] }
-# Apple Events, used to receive files opened from Finder.
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDictionary", "NSGeometry", "NSNotification", "NSString", "NSURL", "NSValue", "objc2-core-services"] }
-muda = "0.21.2"
-# Same major version eframe uses; needed only to tweak the macOS menu.
-winit = "0.30"
-
+# Profiles only take effect at the workspace root.
 [profile.release]
 lto = true
 strip = true
-
-[dev-dependencies]
-egui_kittest = { version = "0.37.0", features = ["eframe", "wgpu"] }
-
-# scripts/install.sh builds Sloth.app (via cargo-bundle) and installs it
-[package.metadata.bundle]
-name = "Sloth"
-identifier = "com.bradsalomons.sloth"
-category = "public.app-category.developer-tools"
-short_description = "A simple plain-text editor"
-# Drawn by scripts/make-icon.swift
-icon = ["icons/Sloth.icns"]
-
-[package.metadata.bundle.osx]
-# Declares which files Sloth can open, for Finder's Open With and the Dock.
-info_plist_exts = ["macos/document-types.plist"]

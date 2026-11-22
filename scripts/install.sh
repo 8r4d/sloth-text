@@ -4,7 +4,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-cargo bundle --release
+# cargo-bundle reads the bundle settings from the package's own Cargo.toml,
+# so run it there; the output still lands in the workspace's target folder.
+(cd sloth && cargo bundle --release)
 APP=target/release/bundle/osx/Sloth.app
 
 rm -rf /Applications/Sloth.app
