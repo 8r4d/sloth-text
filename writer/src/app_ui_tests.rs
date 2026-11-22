@@ -212,3 +212,116 @@ fn an_item_cant_be_dropped_inside_itself() {
     // Refused quietly while dragging, rather than with an error afterwards.
     assert_eq!(harness.state().error, None);
 }
+
+// ----- changes made by other programs -----------------------------------------
+
+/// Run one frame in which the outside-change check is due.
+fn check_disk(harness: &mut Harness<'static, WriterApp>) {
+    harness.state_mut().last_disk_check = -100.0;
+    harness.run_steps(1);
+}
+
+/// Edit the open document in the app, then change its file "in another
+/// program" (different length, so the change shows even within the file
+/// system's timestamp resolution).
+fn edit_both_sides(harness: &mut Harness<'static, WriterApp>, dir: &TempDir) -> PathBuf {
+    let file = dir.0.join("manuscript/untitled.md");
+    harness.state_mut().current().unwrap().doc.text = "my edit".into();
+    fs::write(&file, "their longer edit").unwrap();
+    file
+}
+
+#[test]
+fn an_outside_change_reloads_an_unedited_document() {
+    let dir = TempDir::new("outside-clean");
+    let mut harness = harness(project(&dir, "old"));
+    fs::write(dir.0.join("manuscript/untitled.md"), "new words").unwrap();
+
+    check_disk(&mut harness);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("new words"));
+    let status = harness.state().status.clone().unwrap().0;
+    assert!(status.starts_with("Reloaded untitled.md"), "{status}");
+}
+
+#[test]
+fn autosave_never_writes_over_an_outside_change() {
+    let dir = TempDir::new("outside-autosave");
+    let mut harness = harness(project(&dir, "old"));
+    let file = edit_both_sides(&mut harness, &dir);
+
+    // An autosave is due but the periodic check isn't: the save itself
+    // must notice the change.
+    harness.state_mut().last_disk_check = 1e9;
+    harness.state_mut().last_autosave = -100.0;
+    harness.run_steps(2);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "their longer edit");
+
+    // The person chooses theirs: it's saved straight away.
+    harness.get_by_label("Keep My Version").click();
+    harness.run_steps(2);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "my edit");
+    assert!(harness.query_by_label("Keep My Version").is_none());
+}
+
+#[test]
+fn reload_from_disk_takes_the_other_version() {
+    let dir = TempDir::new("outside-reload");
+    let mut harness = harness(project(&dir, "old"));
+    let file = edit_both_sides(&mut harness, &dir);
+
+    check_disk(&mut harness);
+    harness.get_by_label("Reload from Disk").click();
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("their longer edit"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "their longer edit");
+}
+
+#[test]
+fn a_deleted_file_is_written_back() {
+    let dir = TempDir::new("outside-deleted");
+    let mut harness = harness(project(&dir, "keep these words"));
+    let file = dir.0.join("manuscript/untitled.md");
+    fs::remove_file(&file).unwrap();
+
+    check_disk(&mut harness);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "keep these words");
+    let status = harness.state().status.clone().unwrap().0;
+    assert!(status.contains("again"), "{status}");
+}
+
+#[test]
+fn quitting_waits_for_a_version_choice() {
+    let dir = TempDir::new("outside-quit");
+    let mut p = project(&dir, "old");
+    p.add_document(&Place::Into("manuscript".into()), "Other").unwrap();
+    let mut harness = harness(p);
+    let conflicted = harness.state().selected.clone();
+    edit_both_sides(&mut harness, &dir);
+    check_disk(&mut harness);
+
+    // Looking at another document when quitting: the conflict is shown.
+    harness.get_by_label("📄 Other").click();
+    harness.run_steps(2);
+    assert!(!harness.state_mut().before_close());
+    assert_eq!(harness.state().selected, conflicted);
+    assert!(harness.state().error.is_some());
+
+    harness.run_steps(1);
+    harness.get_by_label("Keep My Version").click();
+    harness.run_steps(2);
+    assert!(harness.state_mut().before_close());
+}
+
+#[test]
+fn typing_goes_straight_into_a_newly_opened_document() {
+    let dir = TempDir::new("focus");
+    let mut p = project(&dir, "");
+    p.add_document(&Place::Into("manuscript".into()), "Second").unwrap();
+    let mut harness = harness(p);
+
+    harness.get_by_label("📄 Second").click();
+    harness.run_steps(2);
+    harness.event(egui::Event::Text("Hello".into()));
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Hello"));
+}

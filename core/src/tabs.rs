@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui::{self, Color32, CornerRadius, Frame, Id, Margin, RichText, Sense};
 
-use crate::document::Document;
+use crate::document::{DiskState, Document};
 use crate::syntax::HighlightCache;
 
 /// Stable identity for a tab (indices shift as tabs close; ids don't).
@@ -207,6 +207,79 @@ impl Tabs {
             .find(|t| t.doc.is_dirty() && !t.discard_on_quit)
             .map(|t| t.id)
     }
+}
+
+impl Tabs {
+    /// Look for open files that other programs changed or removed. A
+    /// changed file with no unsaved edits is reloaded (nothing to lose);
+    /// the rest get a `disk_notice`. Returns the names of reloaded files.
+    pub fn check_disk(&mut self) -> Vec<String> {
+        let mut reloaded = Vec::new();
+        for tab in self.iter_mut() {
+            match tab.doc.disk_state() {
+                DiskState::Unchanged => {}
+                DiskState::Changed if !tab.doc.is_dirty() => {
+                    let encoding = Some(tab.doc.format.encoding);
+                    if tab.doc.reload_with_encoding(encoding).is_ok() {
+                        tab.disk_notice = None;
+                        reloaded.push(tab.doc.display_name());
+                    }
+                }
+                DiskState::Changed => tab.disk_notice = Some(DiskNotice::Changed),
+                DiskState::Missing => tab.disk_notice = Some(DiskNotice::Missing),
+            }
+        }
+        reloaded
+    }
+}
+
+/// What the person chose in a [`disk_notice_bar`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoticeChoice {
+    /// Replace the edits with the file on disk.
+    Reload,
+    /// Keep the edits (or, for a missing file, just dismiss the notice).
+    Keep,
+}
+
+/// A bar above the editor when the tab's file was changed by another
+/// program while it has unsaved edits, or was deleted or moved. Draws
+/// nothing if the tab has no notice.
+pub fn disk_notice_bar(ui: &mut egui::Ui, id: Id, tab: &Tab) -> Option<NoticeChoice> {
+    let notice = tab.disk_notice?;
+    let name = tab.doc.display_name();
+    let mut choice = None;
+    egui::Panel::top(id)
+        .frame(
+            Frame::NONE
+                .fill(ui.visuals().warn_fg_color.gamma_multiply(0.15))
+                .inner_margin(Margin::symmetric(10, 6)),
+        )
+        .show(ui, |ui| {
+            ui.horizontal(|ui| match notice {
+                DiskNotice::Changed => {
+                    ui.label(format!(
+                        "\u{201c}{name}\u{201d} was changed by another program. \
+                         You also have unsaved changes."
+                    ));
+                    if ui.button("Reload from Disk").clicked() {
+                        choice = Some(NoticeChoice::Reload);
+                    }
+                    if ui.button("Keep My Version").clicked() {
+                        choice = Some(NoticeChoice::Keep);
+                    }
+                }
+                DiskNotice::Missing => {
+                    ui.label(format!(
+                        "\u{201c}{name}\u{201d} was deleted or moved. Saving will create it again."
+                    ));
+                    if ui.button("OK").clicked() {
+                        choice = Some(NoticeChoice::Keep);
+                    }
+                }
+            });
+        });
+    choice
 }
 
 pub enum TabBarAction {

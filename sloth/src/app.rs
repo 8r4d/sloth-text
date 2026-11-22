@@ -12,7 +12,7 @@ use eframe::egui::{
 };
 
 use crate::commands::{self, Command, MenuEntry};
-use crate::document::{DiskState, Document, SaveError};
+use crate::document::{Document, SaveError};
 use crate::editing;
 use crate::fonts;
 use crate::editor::{self, CursorInfo, EditorSettings, Highlights, SyntaxInput};
@@ -23,7 +23,7 @@ use crate::search_results::{self, ResultRow, ResultsAction, TabResults};
 use crate::help;
 use crate::recovery::{Leftovers, Recovery};
 use crate::settings::{self, Settings};
-use crate::tabs::{self, DiskNotice, Tab, TabBarAction, TabId, Tabs};
+use crate::tabs::{self, NoticeChoice, Tab, TabBarAction, TabId, Tabs};
 use crate::text_format::TextEncoding;
 use crate::version;
 
@@ -1169,22 +1169,7 @@ impl SlothApp {
 
     /// Look for open files that other programs changed or removed.
     fn check_disk(&mut self) {
-        let mut reloaded = Vec::new();
-        for tab in self.w.tabs.iter_mut() {
-            match tab.doc.disk_state() {
-                DiskState::Unchanged => {}
-                DiskState::Changed if !tab.doc.is_dirty() => {
-                    // Nothing to lose: just pick up the new version.
-                    let encoding = Some(tab.doc.format.encoding);
-                    if tab.doc.reload_with_encoding(encoding).is_ok() {
-                        tab.disk_notice = None;
-                        reloaded.push(tab.doc.display_name());
-                    }
-                }
-                DiskState::Changed => tab.disk_notice = Some(DiskNotice::Changed),
-                DiskState::Missing => tab.disk_notice = Some(DiskNotice::Missing),
-            }
-        }
+        let reloaded = self.w.tabs.check_disk();
         if !reloaded.is_empty() {
             self.w.find.current = None;
             self.w.status = Some(format!("Reloaded {} (changed on disk)", reloaded.join(", ")));
@@ -1216,43 +1201,15 @@ impl SlothApp {
     }
 
     fn disk_notice_bar(&mut self, ui: &mut egui::Ui) {
-        let tab = self.w.tabs.active();
-        let Some(notice) = tab.disk_notice else {
-            return;
-        };
-        let name = tab.doc.display_name();
-        let mut reload = false;
-        let mut dismiss = false;
-        egui::Panel::top(self.panel_id("disk-notice"))
-            .frame(
-                egui::Frame::NONE
-                    .fill(ui.visuals().warn_fg_color.gamma_multiply(0.15))
-                    .inner_margin(Margin::symmetric(10, 6)),
-            )
-            .show(ui, |ui| {
-                ui.horizontal(|ui| match notice {
-                    DiskNotice::Changed => {
-                        ui.label(format!(
-                            "\u{201c}{name}\u{201d} was changed by another program. \
-                             You also have unsaved changes."
-                        ));
-                        reload = ui.button("Reload from Disk").clicked();
-                        dismiss = ui.button("Keep My Version").clicked();
-                    }
-                    DiskNotice::Missing => {
-                        ui.label(format!(
-                            "\u{201c}{name}\u{201d} was deleted or moved. Saving will create it again."
-                        ));
-                        dismiss = ui.button("OK").clicked();
-                    }
-                });
-            });
-        if reload {
-            self.reload_active(ReloadKind::Revert);
-        } else if dismiss {
-            let tab = self.w.tabs.active_mut();
-            tab.doc.acknowledge_disk_state();
-            tab.disk_notice = None;
+        let id = self.panel_id("disk-notice");
+        match tabs::disk_notice_bar(ui, id, self.w.tabs.active()) {
+            Some(NoticeChoice::Reload) => self.reload_active(ReloadKind::Revert),
+            Some(NoticeChoice::Keep) => {
+                let tab = self.w.tabs.active_mut();
+                tab.doc.acknowledge_disk_state();
+                tab.disk_notice = None;
+            }
+            None => {}
         }
     }
 

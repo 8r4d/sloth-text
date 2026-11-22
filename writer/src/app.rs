@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
-use sloth_core::document::Document;
+use sloth_core::document::{DiskState, Document};
 use sloth_core::editor::{self, EditorSettings, Highlights};
-use sloth_core::tabs::{Tab, TabId, Tabs};
+use sloth_core::tabs::{self, DiskNotice, NoticeChoice, Tab, TabId, Tabs};
 
 use crate::binder::{self, BinderAction, Renaming};
 use crate::project::{MANIFEST_FILE, Node, PathChange, Place, Project, Role};
@@ -18,6 +18,11 @@ use crate::project::{MANIFEST_FILE, Node, PathChange, Place, Project, Role};
 const LAST_PROJECT_KEY: &str = "last_project";
 /// Unsaved edits are written this often, and when switching documents.
 const AUTOSAVE_SECONDS: f64 = 2.0;
+/// While the window is in front, open files are checked for changes made by
+/// other programs this often (and whenever it comes back to the front).
+const DISK_CHECK_SECONDS: f64 = 2.0;
+/// How long a status-bar message stays up.
+const STATUS_SECONDS: f64 = 8.0;
 
 pub struct WriterApp {
     project: Option<Project>,
@@ -34,7 +39,14 @@ pub struct WriterApp {
     error: Option<String>,
     confirm_empty_trash: bool,
     last_autosave: f64,
+    last_disk_check: f64,
+    was_focused: bool,
+    /// A short message for the status bar, and when it was set.
+    status: Option<(String, f64)>,
     window_title: String,
+    /// Put the keyboard focus in the editor on the next frame, so a newly
+    /// opened document can be typed in straight away.
+    focus_editor: bool,
 }
 
 impl WriterApp {
@@ -60,7 +72,11 @@ impl WriterApp {
             error: None,
             confirm_empty_trash: false,
             last_autosave: 0.0,
+            last_disk_check: 0.0,
+            was_focused: false,
+            status: None,
             window_title: String::new(),
+            focus_editor: false,
         };
         if let Some(root) = open {
             app.open_project(&root);
@@ -154,6 +170,7 @@ impl WriterApp {
             }
         }
         self.selected = Some(id);
+        self.focus_editor = true;
     }
 
     /// The selected item's open document, if it's a document.
@@ -166,18 +183,95 @@ impl WriterApp {
         self.docs.iter().any(|t| t.doc.path.is_some() && t.doc.is_dirty())
     }
 
+    /// Save every open document with unsaved edits. One whose file another
+    /// program changed since it was read is left alone: writing would throw
+    /// away those changes, so it waits for the person to choose a version
+    /// in the notice above the editor.
     fn save_all(&mut self) {
         let mut failed = Vec::new();
         for tab in self.docs.iter_mut() {
-            if tab.doc.path.is_some()
-                && tab.doc.is_dirty()
-                && let Err(e) = tab.doc.save()
-            {
+            if tab.doc.path.is_none() || !tab.doc.is_dirty() || tab.disk_notice == Some(DiskNotice::Changed) {
+                continue;
+            }
+            // Checked here too, not just every couple of seconds, so an
+            // autosave can't land between an outside change and the check.
+            if tab.doc.disk_state() == DiskState::Changed {
+                tab.disk_notice = Some(DiskNotice::Changed);
+                continue;
+            }
+            if let Err(e) = tab.doc.save() {
                 failed.push(format!("{} ({e})", tab.doc.display_name()));
             }
         }
         if !failed.is_empty() {
             self.error = Some(format!("Couldn't save {}", failed.join(", ")));
+        }
+    }
+
+    /// Pick up changes other programs made to open documents. Unedited ones
+    /// reload quietly; edited ones get a notice (see `save_all`). A file that
+    /// was deleted or moved is written back from the open copy: the binder
+    /// still lists it, and the words are safer on disk than only in memory.
+    fn check_outside_changes(&mut self, now: f64) {
+        let reloaded = self.docs.check_disk();
+        let mut restored = Vec::new();
+        for tab in self.docs.iter_mut() {
+            if tab.disk_notice == Some(DiskNotice::Missing) && tab.doc.save().is_ok() {
+                tab.disk_notice = None;
+                restored.push(tab.doc.display_name());
+            }
+        }
+        if !reloaded.is_empty() {
+            self.set_status(format!("Reloaded {} (changed by another program)", reloaded.join(", ")), now);
+        }
+        if !restored.is_empty() {
+            self.set_status(format!("Saved {} again (its file had been deleted or moved)", restored.join(", ")), now);
+        }
+    }
+
+    fn set_status(&mut self, message: String, now: f64) {
+        self.status = Some((message, now));
+    }
+
+    /// The binder id of an open document whose file changed on disk while it
+    /// has unsaved edits, waiting for the person to pick a version.
+    fn unresolved_change(&self) -> Option<String> {
+        let tab = self.docs.iter().find(|t| t.disk_notice == Some(DiskNotice::Changed))?;
+        self.open.iter().find(|(_, t)| **t == tab.id).map(|(id, _)| id.clone())
+    }
+
+    /// Asked to quit or close the window: save, and say whether it may go
+    /// ahead. Not while a version choice is waiting, since either answer
+    /// could lose words; that document is shown instead.
+    fn before_close(&mut self) -> bool {
+        self.save_all();
+        let Some(id) = self.unresolved_change() else { return true };
+        self.select(id);
+        let name = self.current().map(|t| t.doc.display_name()).unwrap_or_default();
+        self.error = Some(format!(
+            "\u{201c}{name}\u{201d} was changed by another program while you were editing it. \
+             Choose which version to keep before quitting."
+        ));
+        false
+    }
+
+    /// The person's answer in the notice above the editor.
+    fn resolve_notice(&mut self, choice: NoticeChoice) {
+        let Some(tab) = self.current() else { return };
+        match choice {
+            NoticeChoice::Reload => {
+                let encoding = Some(tab.doc.format.encoding);
+                match tab.doc.reload_with_encoding(encoding) {
+                    Ok(()) => tab.disk_notice = None,
+                    Err(e) => self.error = Some(format!("Couldn't reload: {e}")),
+                }
+            }
+            NoticeChoice::Keep => {
+                tab.doc.acknowledge_disk_state();
+                tab.disk_notice = None;
+                // Write it now rather than at the next autosave.
+                self.save_all();
+            }
         }
     }
 
@@ -230,6 +324,8 @@ impl WriterApp {
         let Some(node) = self.project.as_ref().and_then(|p| p.node(id)) else { return };
         if node.role.is_none() {
             self.renaming = Some(Renaming { id: id.to_owned(), text: node.title.clone(), focus: true });
+            // The title field gets the focus, not the editor.
+            self.focus_editor = false;
         }
     }
 
@@ -316,6 +412,10 @@ impl WriterApp {
         if pressed(ctx, Modifiers::COMMAND, Key::O) {
             self.open_project_dialog();
         }
+        // Quit by closing the window, which saves first (see `before_close`).
+        if pressed(ctx, Modifiers::COMMAND, Key::Q) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {
@@ -389,14 +489,35 @@ impl WriterApp {
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
+        let now = ui.input(|i| i.time);
+        if self.status.as_ref().is_some_and(|(_, at)| now - at > STATUS_SECONDS) {
+            self.status = None;
+        }
         let words = self.current().map(|t| t.doc.text.split_whitespace().count());
+        let status = self.status.as_ref().map(|(message, _)| message.clone());
         egui::Panel::bottom(egui::Id::unique("status")).show(ui, |ui| {
-            ui.horizontal(|ui| match words {
-                Some(1) => ui.label("1 word"),
-                Some(n) => ui.label(format!("{n} words")),
-                None => ui.label(""),
+            ui.horizontal(|ui| {
+                match words {
+                    Some(1) => ui.label("1 word"),
+                    Some(n) => ui.label(format!("{n} words")),
+                    None => ui.label(""),
+                };
+                if let Some(message) = status {
+                    ui.separator();
+                    ui.label(message);
+                }
             });
         });
+        if self.status.is_some() {
+            ui.ctx().request_repaint_after(Duration::from_secs_f64(STATUS_SECONDS));
+        }
+    }
+
+    fn notice_bar(&mut self, ui: &mut egui::Ui) {
+        let Some(tab) = self.current() else { return };
+        if let Some(choice) = tabs::disk_notice_bar(ui, egui::Id::unique("disk-notice"), tab) {
+            self.resolve_notice(choice);
+        }
     }
 
     fn editor_area(&mut self, ui: &mut egui::Ui) {
@@ -406,10 +527,23 @@ impl WriterApp {
             Some(node) if !node.is_document() => "This is a folder. Select a document inside it, or add one with ⌘N.",
             Some(_) => "",
         };
+        // Not in a frame with a mouse press or release (such as the click in
+        // the binder that opened the document): egui takes focus away from a
+        // text field when a click lands outside it, so wait a frame.
+        let pressed = ui.input(|i| i.pointer.any_pressed() || i.pointer.any_released());
+        let focus = self.focus_editor && !pressed;
+        if focus {
+            self.focus_editor = false;
+        } else if self.focus_editor {
+            ui.ctx().request_repaint();
+        }
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color).inner_margin(egui::Margin::symmetric(24, 16)))
             .show(ui, |ui| match self.current() {
                 Some(tab) => {
+                    if focus {
+                        ui.memory_mut(|m| m.request_focus(editor::editor_id(tab.id)));
+                    }
                     editor::show(ui, tab.id, &mut tab.doc.text, &settings, Highlights::default(), None, None);
                 }
                 None => {
@@ -442,7 +576,24 @@ impl WriterApp {
 impl eframe::App for WriterApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if ctx.input(|i| i.viewport().close_requested()) && !self.before_close() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
         self.shortcuts(&ctx);
+
+        // Look for outside changes when the window comes to the front, and
+        // every couple of seconds while it's there. Before autosave below,
+        // so a change is noticed before anything could write over it.
+        let now = ctx.input(|i| i.time);
+        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        if focused && (!self.was_focused || now - self.last_disk_check >= DISK_CHECK_SECONDS) {
+            self.check_outside_changes(now);
+            self.last_disk_check = now;
+        }
+        self.was_focused = focused;
+        if self.project.is_some() {
+            ctx.request_repaint_after(Duration::from_secs_f64(DISK_CHECK_SECONDS));
+        }
         self.update_title(&ctx);
         self.error_bar(ui);
 
@@ -469,10 +620,10 @@ impl eframe::App for WriterApp {
             self.apply(action);
         }
         self.status_bar(ui);
+        self.notice_bar(ui);
         self.editor_area(ui);
         self.empty_trash_dialog(&ctx);
 
-        let now = ctx.input(|i| i.time);
         if now - self.last_autosave >= AUTOSAVE_SECONDS {
             self.save_all();
             self.last_autosave = now;

@@ -3688,6 +3688,7 @@ dependencies = [
  "ron",
  "serde",
  "sloth-core",
+ "winit",
 ]
 
 [[package]]
