@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process';
 import { Client, ACCOUNT, SETUP_PASSWORD, browser, mac, newProject } from './lib.mjs';
 
 // Forgets every password try, so one test's lock doesn't spill into the next.
-const forgetTries = () => execSync(`${process.env.HELPER_DB} -e "DELETE FROM login_attempts"`);
+const forgetTries = () => execSync(`${process.env.HELPER_DB} -e "DELETE FROM writer_login_attempts"`);
 
 test('setup makes the one account, once', async () => {
   await browser();
@@ -144,4 +144,11 @@ test('the inbox: scenes written on the iPad, until the Mac collects them', async
   assert.deepEqual(waiting.map(i => [i.title, i.text]), [['On the train', 'An idea.'], ['Untitled', 'Another.']]);
   await m.call('inbox_collect', { ids: [id] }, `&p=${p}`);
   assert.deepEqual((await m.call('inbox', undefined, `&p=${p}`)).body.map(i => i.title), ['Untitled']);
+});
+
+test("its tables are prefixed, so it can share a database with other sites", async () => {
+  await browser(); // makes sure the tables exist
+  const tables = execSync(`${process.env.HELPER_DB} -N -e "SHOW TABLES"`).toString().trim().split('\n');
+  assert.ok(tables.length >= 8);
+  assert.ok(tables.every(t => t.startsWith('writer_')), tables.join(', '));
 });

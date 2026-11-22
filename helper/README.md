@@ -18,10 +18,23 @@ version is kept.
    runs `.php` files rather than showing them, so it's still safe).
 3. Upload everything in `public/` into your website folder, or a subfolder
    such as `writer/`. Use HTTPS (most hosts give a free certificate).
-4. Open the page. The first visit asks for the setup password and lets you
-   choose a username and password.
-5. Make a token on that page and paste it, with the page's address, into
-   Sloth Writer's settings.
+4. Open the page. While there's no account yet, it shows **Create My
+   Account**: enter the setup password from `writer-config.php`, then choose
+   your username and password. (That's the only way to make an account, and
+   it only works once: afterwards the page asks you to sign in.)
+5. Under **Account**, make a token and paste it, with the page's address,
+   into Sloth Writer's Settings (iPad helper).
+6. On the iPad, open the page in Safari, sign in, and choose **Share → Add
+   to Home Screen** to have it like an app.
+
+### Behind Cloudflare
+
+The page is `index.php` so that every script and stylesheet is addressed by
+its file's modification time (`app.js?v=1763841234`): each upload is a new
+address, so Cloudflare (and Safari) never serve a stale copy, with nothing to
+bump by hand. The service worker is registered the same way. PHP's output
+and the API (`Cache-Control: no-store`) aren't cached. Don't turn on a
+Cloudflare rule that caches everything (HTML or PHP) for this subdomain.
 
 The database tables are created on the first request.
 
@@ -30,9 +43,11 @@ The database tables are created on the first request.
 | File | What it does |
 |------|--------------|
 | `public/api.php` | The whole service: accounts, tokens, projects, scenes with versions, history, the inbox |
-| `public/index.html`, `app.js`, `style.css` | The page: sign in and tokens (the iPad scene editor is next) |
+| `public/index.php` | The page's HTML, with each script and stylesheet versioned for Cloudflare |
+| `public/app.js`, `style.css` | The iPad page: projects, scenes, writing with autosave, clashes, offline drafts, new scenes, account |
+| `public/sw.js`, `manifest.json`, icons | Opening without a connection, and Add to Home Screen |
 | `writer-config.example.php` | The settings to copy and fill in |
-| `tests/run.sh` | Runs the tests against a throwaway MariaDB and PHP server |
+| `tests/run.sh` | Runs the API and browser tests, then Sloth Writer's sync, against a throwaway MariaDB and PHP server |
 
 ## Tests
 

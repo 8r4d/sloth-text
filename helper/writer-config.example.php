@@ -13,6 +13,11 @@ return [
     // later unlocks "Forgot password?". Long and random, used nowhere else.
     'app_password' => 'change-me-to-something-long-and-random',
 
+    // The helper's tables are named with this in front (writer_users,
+    // writer_scenes…), so it can share a database with other sites, such as
+    // feets, without touching their tables. Leave it unless you need another.
+    'table_prefix' => 'writer_',
+
     'mysql' => [
         'host'     => 'your-mysql-host.example.com',
         'port'     => 3306,

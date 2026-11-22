@@ -57,7 +57,7 @@ export HELPER_URL="http://127.0.0.1:$WEB_PORT/"
 export HELPER_SETUP_PASSWORD='test-setup-password'
 export HELPER_DB="mariadb --socket=$TMP/s -uroot writer"
 status=0
-node --test --test-concurrency=1 "$ROOT"/tests/*.test.mjs || status=$?
+node --test --test-concurrency=1 --test-timeout=60000 "$ROOT"/tests/*.test.mjs || status=$?
 
 # Then Sloth Writer's own sync code against this helper, with a token made
 # the way the helper's page makes one (signed in as the tests' account).

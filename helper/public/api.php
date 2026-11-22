@@ -53,7 +53,7 @@ const BY_WEB = 'web';
 
 const SCHEMA = [
     <<<SQL
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS {users} (
       id            INT AUTO_INCREMENT PRIMARY KEY,
       username      VARCHAR(32)  NOT NULL UNIQUE,
       password_hash VARCHAR(255) NOT NULL,
@@ -61,7 +61,7 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
-    CREATE TABLE IF NOT EXISTS sessions (
+    CREATE TABLE IF NOT EXISTS {sessions} (
       token_hash  CHAR(64) PRIMARY KEY,  -- sha256 of the cookie value
       user_id     INT      NOT NULL,
       expires_at  DATETIME NOT NULL,
@@ -69,7 +69,7 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
-    CREATE TABLE IF NOT EXISTS login_attempts (  -- recent password tries, see count_login_try()
+    CREATE TABLE IF NOT EXISTS {login_attempts} (  -- recent password tries, see count_login_try()
       id        INT AUTO_INCREMENT PRIMARY KEY,
       username  VARCHAR(32) NOT NULL,  -- lower case; '' for the setup password
       ip        VARCHAR(45) NOT NULL,
@@ -79,7 +79,7 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
-    CREATE TABLE IF NOT EXISTS api_tokens (  -- the Mac's way in; only the hash is kept
+    CREATE TABLE IF NOT EXISTS {api_tokens} (  -- the Mac's way in; only the hash is kept
       id           INT AUTO_INCREMENT PRIMARY KEY,
       user_id      INT          NOT NULL,
       token_hash   CHAR(64)     NOT NULL UNIQUE,
@@ -90,7 +90,7 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
-    CREATE TABLE IF NOT EXISTS projects (
+    CREATE TABLE IF NOT EXISTS {projects} (
       id          INT AUTO_INCREMENT PRIMARY KEY,
       user_id     INT          NOT NULL,
       uid         VARCHAR(64)  NOT NULL,  -- the project's id, from Writer
@@ -102,7 +102,7 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
-    CREATE TABLE IF NOT EXISTS scenes (
+    CREATE TABLE IF NOT EXISTS {scenes} (
       project_id  INT          NOT NULL,
       scene_id    VARCHAR(64)  NOT NULL,
       text        MEDIUMTEXT   NOT NULL,
@@ -115,7 +115,7 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
-    CREATE TABLE IF NOT EXISTS scene_versions (  -- every earlier version, never changed
+    CREATE TABLE IF NOT EXISTS {scene_versions} (  -- every earlier version, never changed
       id          INT AUTO_INCREMENT PRIMARY KEY,
       project_id  INT          NOT NULL,
       scene_id    VARCHAR(64)  NOT NULL,
@@ -127,7 +127,7 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
-    CREATE TABLE IF NOT EXISTS inbox (  -- new scenes written on the iPad, until the Mac collects them
+    CREATE TABLE IF NOT EXISTS {inbox} (  -- new scenes written on the iPad, until the Mac collects them
       id          INT AUTO_INCREMENT PRIMARY KEY,
       project_id  INT          NOT NULL,
       title       VARCHAR(200) NOT NULL,
@@ -169,12 +169,40 @@ if (!$config) {
     fail('writer-config.php not found', 500);
 }
 
+// Table names are written {users}, {scenes}… and get the configured prefix
+// (writer_ unless the config says otherwise), so the helper can share a
+// database with other sites (feets, say) without touching their tables.
+final class Db extends PDO {
+    public static string $prefix = 'writer_';
+
+    public static function tables(string $sql): string {
+        return preg_replace_callback('/\{(\w+)\}/', fn($m) => self::$prefix . $m[1], $sql);
+    }
+
+    public function prepare(string $query, array $options = []): PDOStatement|false {
+        return parent::prepare(self::tables($query), $options);
+    }
+
+    public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): PDOStatement|false {
+        return $fetchMode === null ? parent::query(self::tables($query)) : parent::query(self::tables($query), $fetchMode, ...$fetchModeArgs);
+    }
+
+    public function exec(string $statement): int|false {
+        return parent::exec(self::tables($statement));
+    }
+}
+
 function db(): PDO {
     global $config;
     static $pdo = null;
     if (!$pdo) {
         $c = $config['mysql'];
-        $pdo = new PDO(
+        $prefix = (string) ($config['table_prefix'] ?? 'writer_');
+        if (!preg_match('/^[A-Za-z0-9_]*$/', $prefix)) {
+            fail("writer-config.php: 'table_prefix' may only have letters, digits and _", 500);
+        }
+        Db::$prefix = $prefix;
+        $pdo = new Db(
             "mysql:host={$c['host']};port={$c['port']};dbname={$c['database']};charset=utf8mb4",
             $c['user'],
             $c['password'],
@@ -218,9 +246,9 @@ function set_session_cookie(string $value, int $expires): void {
 
 function start_session(int $userId): void {
     $token = bin2hex(random_bytes(32));
-    db()->prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, NOW() + INTERVAL ' . SESSION_DAYS . ' DAY)')
+    db()->prepare('INSERT INTO {sessions} (token_hash, user_id, expires_at) VALUES (?, ?, NOW() + INTERVAL ' . SESSION_DAYS . ' DAY)')
         ->execute([hash('sha256', $token), $userId]);
-    db()->exec('DELETE FROM sessions WHERE expires_at < NOW()');
+    db()->exec('DELETE FROM {sessions} WHERE expires_at < NOW()');
     set_session_cookie($token, time() + SESSION_DAYS * 86400);
 }
 
@@ -242,20 +270,20 @@ function bearer_token(): string {
 function current_user(): ?array {
     $token = bearer_token();
     if ($token !== '') {
-        $stmt = db()->prepare('SELECT u.id, u.username, t.id AS token_id FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?');
+        $stmt = db()->prepare('SELECT u.id, u.username, t.id AS token_id FROM {api_tokens} t JOIN {users} u ON u.id = t.user_id WHERE t.token_hash = ?');
         $stmt->execute([hash('sha256', $token)]);
         $user = $stmt->fetch();
         if (!$user) {
             return null;
         }
-        db()->prepare('UPDATE api_tokens SET last_used_at = NOW() WHERE id = ?')->execute([$user['token_id']]);
+        db()->prepare('UPDATE {api_tokens} SET last_used_at = NOW() WHERE id = ?')->execute([$user['token_id']]);
         return ['id' => (int) $user['id'], 'username' => $user['username'], 'by' => BY_MAC];
     }
     $cookie = $_COOKIE[SESSION_COOKIE] ?? '';
     if ($cookie === '') {
         return null;
     }
-    $stmt = db()->prepare('SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > NOW()');
+    $stmt = db()->prepare('SELECT u.id, u.username FROM {sessions} s JOIN {users} u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > NOW()');
     $stmt->execute([hash('sha256', $cookie)]);
     $user = $stmt->fetch();
     return $user ? ['id' => (int) $user['id'], 'username' => $user['username'], 'by' => BY_WEB] : null;
@@ -280,14 +308,14 @@ function client_ip(): string {
 // setup password, which is only limited per IP. Returns the try's id.
 function count_login_try(string $username): int {
     $pdo = db();
-    $pdo->exec('DELETE FROM login_attempts WHERE tried_at < NOW() - INTERVAL 1 DAY');
+    $pdo->exec('DELETE FROM {login_attempts} WHERE tried_at < NOW() - INTERVAL 1 DAY');
     $name = mb_strtolower(mb_substr(trim($username), 0, 32));
     $ip = client_ip();
-    $pdo->prepare('INSERT INTO login_attempts (username, ip) VALUES (?, ?)')->execute([$name, $ip]);
+    $pdo->prepare('INSERT INTO {login_attempts} (username, ip) VALUES (?, ?)')->execute([$name, $ip]);
     $id = (int) $pdo->lastInsertId();
     $stmt = $pdo->prepare(
         'SELECT COALESCE(SUM(username = ? AND username <> \'\'), 0) AS by_name, COALESCE(SUM(ip = ?), 0) AS by_ip
-         FROM login_attempts WHERE (username = ? OR ip = ?) AND tried_at > NOW() - INTERVAL ' . LOGIN_WINDOW . ' MINUTE'
+         FROM {login_attempts} WHERE (username = ? OR ip = ?) AND tried_at > NOW() - INTERVAL ' . LOGIN_WINDOW . ' MINUTE'
     );
     $stmt->execute([$name, $ip, $name, $ip]);
     $tries = $stmt->fetch();
@@ -300,7 +328,7 @@ function count_login_try(string $username): int {
 // The password was right: forget this try, and the username's earlier ones.
 function login_passed(int $tryId, string $username = ''): void {
     $name = mb_strtolower(trim($username));
-    db()->prepare("DELETE FROM login_attempts WHERE id = ? OR (username = ? AND username <> '')")->execute([$tryId, $name]);
+    db()->prepare("DELETE FROM {login_attempts} WHERE id = ? OR (username = ? AND username <> '')")->execute([$tryId, $name]);
 }
 
 function new_password(string $password): string {
@@ -311,7 +339,7 @@ function new_password(string $password): string {
 }
 
 function needs_setup(): bool {
-    return (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn() === 0;
+    return (int) db()->query('SELECT COUNT(*) FROM {users}')->fetchColumn() === 0;
 }
 
 function user_json(array $user): array {
@@ -340,7 +368,7 @@ function setup(array $b): array {
         fail('Username must be 3-32 letters, numbers, dots, dashes or underscores', 400);
     }
     $password = new_password($b['password'] ?? '');
-    db()->prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
+    db()->prepare('INSERT INTO {users} (username, password_hash) VALUES (?, ?)')
         ->execute([$username, password_hash($password, PASSWORD_DEFAULT)]);
     $id = (int) db()->lastInsertId();
     start_session($id);
@@ -348,7 +376,7 @@ function setup(array $b): array {
 }
 
 function find_user(string $username): ?array {
-    $stmt = db()->prepare('SELECT id, username, password_hash FROM users WHERE username = ?');
+    $stmt = db()->prepare('SELECT id, username, password_hash FROM {users} WHERE username = ?');
     $stmt->execute([trim($username)]);
     return $stmt->fetch() ?: null;
 }
@@ -368,16 +396,16 @@ function login(array $b): array {
 function logout(): array {
     $token = $_COOKIE[SESSION_COOKIE] ?? '';
     if ($token !== '') {
-        db()->prepare('DELETE FROM sessions WHERE token_hash = ?')->execute([hash('sha256', $token)]);
+        db()->prepare('DELETE FROM {sessions} WHERE token_hash = ?')->execute([hash('sha256', $token)]);
     }
     set_session_cookie('', 1);
     return ['ok' => true];
 }
 
 function set_password(int $userId, string $password): void {
-    db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+    db()->prepare('UPDATE {users} SET password_hash = ? WHERE id = ?')
         ->execute([password_hash($password, PASSWORD_DEFAULT), $userId]);
-    db()->prepare('DELETE FROM sessions WHERE user_id = ?')->execute([$userId]);
+    db()->prepare('DELETE FROM {sessions} WHERE user_id = ?')->execute([$userId]);
     start_session($userId);
 }
 
@@ -411,7 +439,7 @@ function recover(array $b): array {
 
 function list_tokens(int $userId): array {
     $stmt = db()->prepare('SELECT id, label, UNIX_TIMESTAMP(created_at) AS created, UNIX_TIMESTAMP(last_used_at) AS used
-                           FROM api_tokens WHERE user_id = ? ORDER BY id');
+                           FROM {api_tokens} WHERE user_id = ? ORDER BY id');
     $stmt->execute([$userId]);
     return array_map(fn($t) => [
         'id' => (int) $t['id'], 'label' => $t['label'],
@@ -423,13 +451,13 @@ function list_tokens(int $userId): array {
 function create_token(int $userId, array $b): array {
     $label = trim((string) ($b['label'] ?? '')) ?: 'Sloth Writer';
     $token = bin2hex(random_bytes(32));
-    db()->prepare('INSERT INTO api_tokens (user_id, token_hash, label) VALUES (?, ?, ?)')
+    db()->prepare('INSERT INTO {api_tokens} (user_id, token_hash, label) VALUES (?, ?, ?)')
         ->execute([$userId, hash('sha256', $token), mb_substr($label, 0, 100)]);
     return ['id' => (int) db()->lastInsertId(), 'token' => $token, 'label' => $label];
 }
 
 function delete_token(int $userId, int $id): array {
-    db()->prepare('DELETE FROM api_tokens WHERE id = ? AND user_id = ?')->execute([$id, $userId]);
+    db()->prepare('DELETE FROM {api_tokens} WHERE id = ? AND user_id = ?')->execute([$id, $userId]);
     return ['ok' => true];
 }
 
@@ -440,11 +468,11 @@ function project_row(int $userId, string $uid, bool $create = false, string $tit
     if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $uid)) {
         fail('That project id is not valid', 400);
     }
-    $stmt = db()->prepare('SELECT id, uid, title, index_json, seq FROM projects WHERE user_id = ? AND uid = ?');
+    $stmt = db()->prepare('SELECT id, uid, title, index_json, seq FROM {projects} WHERE user_id = ? AND uid = ?');
     $stmt->execute([$userId, $uid]);
     $row = $stmt->fetch();
     if (!$row && $create) {
-        db()->prepare("INSERT INTO projects (user_id, uid, title, index_json) VALUES (?, ?, ?, '[]')")
+        db()->prepare("INSERT INTO {projects} (user_id, uid, title, index_json) VALUES (?, ?, ?, '[]')")
             ->execute([$userId, $uid, $title]);
         return project_row($userId, $uid);
     }
@@ -469,8 +497,8 @@ function scene_id(): string {
 
 function list_projects(int $userId): array {
     $stmt = db()->prepare('SELECT p.uid, p.title, UNIX_TIMESTAMP(p.updated_at) AS updated,
-                                  (SELECT COUNT(*) FROM scenes s WHERE s.project_id = p.id) AS scenes
-                           FROM projects p WHERE p.user_id = ? ORDER BY p.updated_at DESC');
+                                  (SELECT COUNT(*) FROM {scenes} s WHERE s.project_id = p.id) AS scenes
+                           FROM {projects} p WHERE p.user_id = ? ORDER BY p.updated_at DESC');
     $stmt->execute([$userId]);
     return array_map(fn($p) => [
         'id' => $p['uid'], 'title' => $p['title'], 'scenes' => (int) $p['scenes'], 'updatedAt' => (int) $p['updated'] * 1000,
@@ -485,7 +513,7 @@ function put_index(int $userId, array $b): array {
         fail('index must be a list', 400);
     }
     $project = project_row($userId, (string) ($_GET['p'] ?? ''), true, $title);
-    db()->prepare('UPDATE projects SET title = ?, index_json = ? WHERE id = ?')
+    db()->prepare('UPDATE {projects} SET title = ?, index_json = ? WHERE id = ?')
         ->execute([$title, json_encode(array_values($b['index'])), $project['id']]);
     return ['ok' => true, 'seq' => (int) $project['seq']];
 }
@@ -495,7 +523,7 @@ function get_index(array $project): array {
 }
 
 function get_scene(array $project, string $id): array {
-    $stmt = db()->prepare('SELECT text, version FROM scenes WHERE project_id = ? AND scene_id = ?');
+    $stmt = db()->prepare('SELECT text, version FROM {scenes} WHERE project_id = ? AND scene_id = ?');
     $stmt->execute([$project['id'], $id]);
     $row = $stmt->fetch();
     if (!$row) {
@@ -513,7 +541,7 @@ function put_scene(array $user, array $project, string $id, array $b): array {
     }
     $pdo = db();
     $pdo->beginTransaction();
-    $stmt = $pdo->prepare('SELECT text, version, saved_by, updated_at FROM scenes WHERE project_id = ? AND scene_id = ? FOR UPDATE');
+    $stmt = $pdo->prepare('SELECT text, version, saved_by, updated_at FROM {scenes} WHERE project_id = ? AND scene_id = ? FOR UPDATE');
     $stmt->execute([$project['id'], $id]);
     $now = $stmt->fetch();
     $current = $now ? (int) $now['version'] : 0;
@@ -527,15 +555,15 @@ function put_scene(array $user, array $project, string $id, array $b): array {
         $pdo->rollBack();  // nothing new
         return ['version' => $current, 'seq' => (int) $project['seq']];
     }
-    $pdo->prepare('UPDATE projects SET seq = seq + 1 WHERE id = ?')->execute([$project['id']]);
-    $seq = (int) $pdo->query('SELECT seq FROM projects WHERE id = ' . (int) $project['id'])->fetchColumn();
+    $pdo->prepare('UPDATE {projects} SET seq = seq + 1 WHERE id = ?')->execute([$project['id']]);
+    $seq = (int) $pdo->query('SELECT seq FROM {projects} WHERE id = ' . (int) $project['id'])->fetchColumn();
     if ($now) {
-        $pdo->prepare('INSERT INTO scene_versions (project_id, scene_id, version, text, saved_by, saved_at) VALUES (?, ?, ?, ?, ?, ?)')
+        $pdo->prepare('INSERT INTO {scene_versions} (project_id, scene_id, version, text, saved_by, saved_at) VALUES (?, ?, ?, ?, ?, ?)')
             ->execute([$project['id'], $id, $current, $now['text'], $now['saved_by'], $now['updated_at']]);
-        $pdo->prepare('UPDATE scenes SET text = ?, version = ?, seq = ?, saved_by = ? WHERE project_id = ? AND scene_id = ?')
+        $pdo->prepare('UPDATE {scenes} SET text = ?, version = ?, seq = ?, saved_by = ? WHERE project_id = ? AND scene_id = ?')
             ->execute([$b['text'], $current + 1, $seq, $user['by'], $project['id'], $id]);
     } else {
-        $pdo->prepare('INSERT INTO scenes (project_id, scene_id, text, version, seq, saved_by) VALUES (?, ?, ?, 1, ?, ?)')
+        $pdo->prepare('INSERT INTO {scenes} (project_id, scene_id, text, version, seq, saved_by) VALUES (?, ?, ?, 1, ?, ?)')
             ->execute([$project['id'], $id, $b['text'], $seq, $user['by']]);
     }
     $pdo->commit();
@@ -545,7 +573,7 @@ function put_scene(array $user, array $project, string $id, array $b): array {
 // Scenes saved since sync point $since, text and all (scenes are small).
 function changes(array $project, int $since): array {
     $stmt = db()->prepare('SELECT scene_id, text, version, saved_by, UNIX_TIMESTAMP(updated_at) AS updated
-                           FROM scenes WHERE project_id = ? AND seq > ? ORDER BY seq');
+                           FROM {scenes} WHERE project_id = ? AND seq > ? ORDER BY seq');
     $stmt->execute([$project['id'], $since]);
     return ['seq' => (int) $project['seq'], 'scenes' => array_map(fn($s) => [
         'id' => $s['scene_id'], 'text' => $s['text'], 'version' => (int) $s['version'],
@@ -555,7 +583,7 @@ function changes(array $project, int $since): array {
 
 function history(array $project, string $id): array {
     $stmt = db()->prepare('SELECT version, saved_by, UNIX_TIMESTAMP(saved_at) AS saved, text
-                           FROM scene_versions WHERE project_id = ? AND scene_id = ? ORDER BY version DESC');
+                           FROM {scene_versions} WHERE project_id = ? AND scene_id = ? ORDER BY version DESC');
     $stmt->execute([$project['id'], $id]);
     return array_map(fn($v) => [
         'version' => (int) $v['version'], 'by' => $v['saved_by'], 'savedAt' => (int) $v['saved'] * 1000,
@@ -564,7 +592,7 @@ function history(array $project, string $id): array {
 }
 
 function history_text(array $project, string $id, int $version): array {
-    $stmt = db()->prepare('SELECT text FROM scene_versions WHERE project_id = ? AND scene_id = ? AND version = ?');
+    $stmt = db()->prepare('SELECT text FROM {scene_versions} WHERE project_id = ? AND scene_id = ? AND version = ?');
     $stmt->execute([$project['id'], $id, $version]);
     $text = $stmt->fetchColumn();
     if ($text === false) {
@@ -578,12 +606,12 @@ function inbox_add(array $project, array $b): array {
     if (!is_string($b['text'] ?? null)) {
         fail('Send the text', 400);
     }
-    db()->prepare('INSERT INTO inbox (project_id, title, text) VALUES (?, ?, ?)')->execute([$project['id'], $title, $b['text']]);
+    db()->prepare('INSERT INTO {inbox} (project_id, title, text) VALUES (?, ?, ?)')->execute([$project['id'], $title, $b['text']]);
     return ['id' => (int) db()->lastInsertId()];
 }
 
 function inbox_list(array $project): array {
-    $stmt = db()->prepare('SELECT id, title, text, UNIX_TIMESTAMP(created_at) AS created FROM inbox
+    $stmt = db()->prepare('SELECT id, title, text, UNIX_TIMESTAMP(created_at) AS created FROM {inbox}
                            WHERE project_id = ? AND NOT collected ORDER BY id');
     $stmt->execute([$project['id']]);
     return array_map(fn($i) => [
@@ -595,7 +623,7 @@ function inbox_collect(array $project, array $b): array {
     $ids = array_values(array_filter(array_map('intval', (array) ($b['ids'] ?? []))));
     if ($ids) {
         $marks = implode(',', array_fill(0, count($ids), '?'));
-        db()->prepare("UPDATE inbox SET collected = TRUE WHERE project_id = ? AND id IN ($marks)")
+        db()->prepare("UPDATE {inbox} SET collected = TRUE WHERE project_id = ? AND id IN ($marks)")
             ->execute(array_merge([$project['id']], $ids));
     }
     return ['ok' => true];
