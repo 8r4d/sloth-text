@@ -24,6 +24,8 @@ pub(crate) mod inspector;
 mod projects_ui;
 #[path = "search.rs"]
 mod search;
+#[path = "settings_ui.rs"]
+pub(crate) mod settings_ui;
 #[path = "snapshots_ui.rs"]
 mod snapshots_ui;
 #[path = "views.rs"]
@@ -103,32 +105,32 @@ pub struct WriterApp {
     /// The character name field's text, for the character it belongs to.
     character_name: Option<(String, String)>,
     editing_characteristics: Option<character_ui::EditingCharacteristics>,
+
+    // Settings (see settings_ui.rs).
+    settings: settings_ui::WriterSettings,
+    settings_open: bool,
+    /// The text filtering the Settings window's font list.
+    font_filter: String,
 }
 
 impl WriterApp {
     /// `open`: a project folder named on the command line, opened instead
     /// of the last project.
     pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>) -> Self {
-        sloth_core::fonts::apply(&cc.egui_ctx, None, sloth_core::fonts::default_prose_font(), 4);
+        // Fonts for the Settings window's list (scanned in the background).
+        sloth_core::fonts::start_scan(&cc.egui_ctx);
+        let settings: settings_ui::WriterSettings =
+            cc.storage.and_then(|s| eframe::get_value(s, settings_ui::SETTINGS_KEY)).unwrap_or_default();
         let mut app = Self {
             project: None,
             selected: None,
             docs: Tabs::new(),
             open: HashMap::new(),
-            // Prose, not code: a reading face, roomy lines, a centred column.
-            editor: EditorSettings {
-                show_line_numbers: false,
-                word_wrap: true,
-                font_size: 18.0,
-                prose: true,
-                line_spacing: 1.3,
-                max_text_width: Some(680.0),
-                auto_indent: false,
-                highlight_current_line: false,
-                syntax_highlighting: false,
-                smart_dashes: true,
-                ..EditorSettings::default()
-            },
+            // Prose, not code: set from the settings (see settings_ui.rs).
+            editor: settings.editor(),
+            settings,
+            settings_open: false,
+            font_filter: String::new(),
             renaming: None,
             error: None,
             confirm_empty_trash: false,
@@ -160,6 +162,7 @@ impl WriterApp {
             character_name: None,
             editing_characteristics: None,
         };
+        app.apply_settings(&cc.egui_ctx);
         if let Some(root) = open {
             app.open_project(&root);
             return app;
@@ -550,6 +553,9 @@ impl WriterApp {
         {
             self.find_action(ctx, FindAction::Close);
         }
+        if pressed(ctx, Modifiers::COMMAND, Key::Comma) {
+            self.settings_open = true;
+        }
         // Quit by closing the window, which saves first (see `before_close`).
         if pressed(ctx, Modifiers::COMMAND, Key::Q) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -592,6 +598,10 @@ impl WriterApp {
                     self.open_project_dialog();
                 }
                 self.recent_list(ui);
+                ui.add_space(20.0);
+                if ui.small_button("Settings\u{2026}").clicked() {
+                    self.settings_open = true;
+                }
             });
         });
     }
@@ -625,6 +635,9 @@ impl WriterApp {
                     ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text("\u{2325}\u{2318}I");
                     if ui.button("Compile\u{2026}").on_hover_text("\u{21e7}\u{2318}E").clicked() {
                         self.compile_open = true;
+                    }
+                    if ui.button("Settings").on_hover_text("\u{2318},").clicked() {
+                        self.settings_open = true;
                     }
                     if ui.button("Close Project").clicked() {
                         self.close_project();
@@ -761,6 +774,7 @@ impl eframe::App for WriterApp {
 
         if self.project.is_none() {
             self.start_screen(ui);
+            self.settings_window(&ctx);
             return;
         }
 
@@ -794,6 +808,7 @@ impl eframe::App for WriterApp {
         self.compare_window(&ctx);
         self.rename_project_window(&ctx);
         self.characteristics_window(&ctx);
+        self.settings_window(&ctx);
         self.delete_snapshot_dialog(&ctx);
 
         if now - self.last_autosave >= AUTOSAVE_SECONDS {
@@ -812,6 +827,7 @@ impl eframe::App for WriterApp {
         let root = self.project.as_ref().map(|p| p.root.clone());
         eframe::set_value(storage, LAST_PROJECT_KEY, &root);
         eframe::set_value(storage, projects_ui::RECENT_KEY, &self.recent);
+        eframe::set_value(storage, settings_ui::SETTINGS_KEY, &self.settings);
     }
 }
 

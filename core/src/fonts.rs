@@ -12,6 +12,8 @@ use read_fonts::{FontRef, TableProvider};
 /// Installed fixed-width font families, sorted. Filled in by a background
 /// scan started at launch; empty until then.
 static FAMILIES: OnceLock<Vec<String>> = OnceLock::new();
+/// Every installed font family (for prose), sorted; filled in by the same scan.
+static ALL_FAMILIES: OnceLock<Vec<String>> = OnceLock::new();
 
 const EDITOR_FONT_KEY: &str = "sloth-editor-font";
 const PROSE_FONT_KEY: &str = "sloth-prose-font";
@@ -34,12 +36,20 @@ pub fn families() -> &'static [String] {
     FAMILIES.get().map(Vec::as_slice).unwrap_or(&[])
 }
 
+/// Every installed font family, fixed-width or not, for choosing a prose
+/// font. Empty until the scan started by [`start_scan`] finishes.
+pub fn all_families() -> &'static [String] {
+    ALL_FAMILIES.get().map(Vec::as_slice).unwrap_or(&[])
+}
+
 /// Scan installed fonts in the background (it takes a moment), then wake
 /// the UI so the View → Font menu can be filled in.
 pub fn start_scan(ctx: &egui::Context) {
     let ctx = ctx.clone();
     std::thread::spawn(move || {
-        let _ = FAMILIES.set(scan());
+        let (mono, all) = scan();
+        let _ = FAMILIES.set(mono);
+        let _ = ALL_FAMILIES.set(all);
         ctx.request_repaint();
     });
 }
@@ -48,22 +58,25 @@ pub fn start_scan(ctx: &egui::Context) {
 /// Not `#[cfg(test)]`: the app's UI tests, in another crate, call it too.
 #[doc(hidden)]
 pub fn scan_for_tests() -> &'static [String] {
-    let _ = FAMILIES.set(scan());
+    let (mono, all) = scan();
+    let _ = FAMILIES.set(mono);
+    let _ = ALL_FAMILIES.set(all);
     families()
 }
 
-fn scan() -> Vec<String> {
+/// The installed families: (fixed-width ones, all of them), each sorted.
+fn scan() -> (Vec<String>, Vec<String>) {
     let mut collection = Collection::new(CollectionOptions::default());
-    let names: Vec<String> = collection.family_names().map(str::to_owned).collect();
-    let mut mono: Vec<String> = names
-        .into_iter()
+    let mut all: Vec<String> = collection
+        .family_names()
+        .map(str::to_owned)
         // Hidden system fonts (".SF NS Mono" etc.) aren't meant to be picked.
         .filter(|name| !name.starts_with('.'))
-        .filter(|name| is_fixed_width(&mut collection, name))
         .collect();
-    mono.sort_by_key(|n| n.to_lowercase());
-    mono.dedup();
-    mono
+    all.sort_by_key(|n| n.to_lowercase());
+    all.dedup();
+    let mono = all.iter().filter(|name| is_fixed_width(&mut collection, name)).cloned().collect();
+    (mono, all)
 }
 
 fn is_fixed_width(collection: &mut Collection, family: &str) -> bool {
@@ -128,7 +141,8 @@ mod tests {
 
     #[test]
     fn finds_menlo_and_skips_proportional_fonts() {
-        let families = scan();
+        let (families, all) = scan();
+        assert!(all.iter().any(|f| f == "Helvetica") && all.iter().any(|f| f == "Menlo"), "every family is listed");
         // Menlo ships with every Mac since 10.6; Helvetica isn't fixed width.
         assert!(families.iter().any(|f| f == "Menlo"), "{families:?}");
         assert!(!families.iter().any(|f| f == "Helvetica"));

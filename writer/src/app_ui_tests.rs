@@ -897,3 +897,43 @@ fn scenes_list_their_characters_and_characters_their_scenes() {
     harness.run_steps(2);
     assert!(linked(&harness).is_empty());
 }
+
+// ----- settings ----------------------------------------------------------------------
+
+#[test]
+fn settings_change_the_editor_and_are_remembered() {
+    let dir = TempDir::new("settings");
+    let mut harness = harness(project(&dir, "text"));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Comma);
+    harness.run_steps(6);
+    assert!(harness.state().settings_open);
+    harness.get_by_label("Restore Defaults");
+
+    // Smart dashes off: the editor follows straight away.
+    harness.get_by_label_contains("make an em dash").click();
+    harness.run_steps(2);
+    assert!(!harness.state().settings.smart_dashes);
+    assert!(!harness.state().editor.smart_dashes);
+
+    // Full width.
+    harness.get_by_label("Keep lines to a comfortable length").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().editor.max_text_width, None);
+
+    // Restore Defaults puts them back.
+    harness.get_by_label("Restore Defaults").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().settings, crate::app::settings_ui::WriterSettings::default());
+    assert!(harness.state().editor.smart_dashes);
+}
+
+#[test]
+fn settings_open_from_the_start_screen() {
+    let dir = TempDir::new("settings-start");
+    let mut harness = harness(project(&dir, ""));
+    harness.state_mut().close_project();
+    harness.run_steps(2);
+    harness.get_by_label("Settings\u{2026}").click();
+    harness.run_steps(6);
+    harness.get_by_label("Restore Defaults");
+}

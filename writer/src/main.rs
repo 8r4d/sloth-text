@@ -10,7 +10,6 @@ mod project;
 mod snapshots;
 
 use eframe::egui;
-use sloth_core::theme::ThemeChoice;
 
 fn main() -> eframe::Result {
     // `sloth-writer path/to/project` opens that project.
@@ -40,9 +39,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Sloth Writer",
         options,
-        Box::new(|cc| {
-            ThemeChoice::default().apply(&cc.egui_ctx);
-            Ok(Box::new(app::WriterApp::new(cc, open)))
-        }),
+        Box::new(|cc| Ok(Box::new(app::WriterApp::new(cc, open)))),
     )
 }
