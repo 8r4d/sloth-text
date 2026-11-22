@@ -70,16 +70,20 @@ impl WriterApp {
     /// `open`: a project folder named on the command line, opened instead
     /// of the last project.
     pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>) -> Self {
+        sloth_core::fonts::apply(&cc.egui_ctx, None, sloth_core::fonts::default_prose_font(), 4);
         let mut app = Self {
             project: None,
             selected: None,
             docs: Tabs::new(),
             open: HashMap::new(),
-            // Prose, not code. A proportional font comes with Phase 2.
+            // Prose, not code: a reading face, roomy lines, a centred column.
             editor: EditorSettings {
                 show_line_numbers: false,
                 word_wrap: true,
-                font_size: 16.0,
+                font_size: 18.0,
+                prose: true,
+                line_spacing: 1.3,
+                max_text_width: Some(680.0),
                 auto_indent: false,
                 highlight_current_line: false,
                 syntax_highlighting: false,

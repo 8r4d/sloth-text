@@ -1,5 +1,7 @@
-//! The editor font: listing the installed fixed-width fonts, and installing
-//! the chosen one (plus the tab width) into egui.
+//! The editor fonts: listing the installed fixed-width fonts, and installing
+//! the chosen one (plus the tab width) into egui. Also the "prose" family,
+//! a reading face for editors showing prose (Sloth Writer), kept separate
+//! so the rest of the interface keeps its usual font.
 
 use std::sync::{Arc, OnceLock};
 
@@ -12,6 +14,21 @@ use read_fonts::{FontRef, TableProvider};
 static FAMILIES: OnceLock<Vec<String>> = OnceLock::new();
 
 const EDITOR_FONT_KEY: &str = "sloth-editor-font";
+const PROSE_FONT_KEY: &str = "sloth-prose-font";
+
+/// The font family a prose editor draws with. Always defined once [`apply`]
+/// has run: the chosen reading face, falling back to egui's own fonts.
+pub fn prose_family() -> FontFamily {
+    FontFamily::Name("prose".into())
+}
+
+/// Reading faces that come with macOS, best first: the default prose font
+/// is the first one installed.
+pub const PROSE_DEFAULTS: [&str; 4] = ["Iowan Old Style", "Charter", "Georgia", "Palatino"];
+
+pub fn default_prose_font() -> Option<&'static str> {
+    PROSE_DEFAULTS.into_iter().find(|f| load_regular(f).is_some())
+}
 
 pub fn families() -> &'static [String] {
     FAMILIES.get().map(Vec::as_slice).unwrap_or(&[])
@@ -65,9 +82,20 @@ fn is_fixed_width(collection: &mut Collection, family: &str) -> bool {
         .is_some_and(|post| post.is_fixed_pitch() != 0)
 }
 
-/// Install the editor font (`None` for the built-in one) and tab width.
-pub fn apply(ctx: &egui::Context, family: Option<&str>, tab_width: usize) {
+/// Install the editor font and the prose font (`None` for egui's built-in
+/// ones), and the tab width.
+pub fn apply(ctx: &egui::Context, family: Option<&str>, prose: Option<&str>, tab_width: usize) {
     let mut fonts = FontDefinitions::default();
+
+    // The prose family: the reading face, then egui's fonts for any
+    // characters it lacks.
+    let mut prose_fonts = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    if let Some((blob, index)) = prose.and_then(load_regular) {
+        let data = FontData::from_blob(Arc::new(blob), index);
+        fonts.font_data.insert(PROSE_FONT_KEY.to_owned(), Arc::new(data));
+        prose_fonts.insert(0, PROSE_FONT_KEY.to_owned());
+    }
+    fonts.families.insert(prose_family(), prose_fonts);
 
     if let Some((blob, index)) = family.and_then(load_regular) {
         let data = FontData::from_blob(Arc::new(blob), index);
@@ -105,5 +133,11 @@ mod tests {
         assert!(families.iter().any(|f| f == "Menlo"), "{families:?}");
         assert!(!families.iter().any(|f| f == "Helvetica"));
         assert!(load_regular("Menlo").is_some());
+    }
+
+    #[test]
+    fn a_reading_face_is_installed() {
+        // Georgia and Palatino have shipped with macOS for decades.
+        assert!(default_prose_font().is_some());
     }
 }

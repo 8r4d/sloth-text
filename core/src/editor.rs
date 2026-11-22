@@ -33,6 +33,14 @@ pub struct EditorSettings {
     pub markdown_preview: bool,
     /// Typing `--` makes an em dash (Sloth Writer; off in Sloth).
     pub smart_dashes: bool,
+    /// Set in the prose font (see `fonts::prose_family`) rather than the
+    /// fixed-width editor font (Sloth Writer; off in Sloth).
+    pub prose: bool,
+    /// Line height as a multiple of the font's usual one.
+    pub line_spacing: f32,
+    /// With word wrap, keep lines at most this wide (points), centred in the
+    /// editor. `None` uses the full width.
+    pub max_text_width: Option<f32>,
 }
 
 impl EditorSettings {
@@ -60,6 +68,9 @@ impl Default for EditorSettings {
             syntax_highlighting: true,
             markdown_preview: false,
             smart_dashes: false,
+            prose: false,
+            line_spacing: 1.0,
+            max_text_width: None,
         }
     }
 }
@@ -157,6 +168,21 @@ fn handle_editing_keys(ui: &egui::Ui, tab: TabId, text: &mut String, settings: &
     }
 }
 
+/// The font the editor's text is set in: the fixed-width editor font, or
+/// for prose the prose family (egui's own proportional font if no prose
+/// family was installed).
+fn editor_font(ui: &egui::Ui, settings: &EditorSettings) -> FontId {
+    if !settings.prose {
+        return FontId::monospace(settings.font_size);
+    }
+    let prose = crate::fonts::prose_family();
+    if ui.fonts(|f| f.families().contains(&prose)) {
+        FontId::new(settings.font_size, prose)
+    } else {
+        FontId::proportional(settings.font_size)
+    }
+}
+
 /// Draw the editor. `reveal` scrolls the given character index into view.
 pub fn show(
     ui: &mut egui::Ui,
@@ -167,7 +193,9 @@ pub fn show(
     reveal: Option<usize>,
     mut syntax: Option<SyntaxInput<'_>>,
 ) -> CursorInfo {
-    let font = FontId::monospace(settings.font_size);
+    let font = editor_font(ui, settings);
+    let line_height = (settings.line_spacing != 1.0)
+        .then(|| ui.fonts_mut(|f| f.row_height(&font)) * settings.line_spacing);
     let line_count = text.split('\n').count();
     let digits = line_count.to_string().len().max(2);
 
@@ -192,6 +220,12 @@ pub fn show(
         .show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
+                // A centred column, inside the scroll area so the scroll bar
+                // stays at the edge and the margins still scroll.
+                let column = settings.max_text_width.filter(|_| settings.word_wrap);
+                if let Some(max) = column {
+                    ui.add_space(((ui.available_width() - max) / 2.0).max(0.0));
+                }
 
                 // Reserve the gutter column; numbers are painted after layout,
                 // once we know where each text row landed.
@@ -215,12 +249,11 @@ pub fn show(
                 let edit = TextEdit::multiline(text)
                     .id(editor_id(tab))
                     .font(font.clone())
-                    .code_editor()
                     .frame(egui::Frame::NONE)
                     .lock_focus(true) // keep Tab inside the editor
                     .desired_rows(1)
                     .desired_width(if settings.word_wrap {
-                        ui.available_width()
+                        column.map_or(ui.available_width(), |max| ui.available_width().min(max))
                     } else {
                         f32::INFINITY
                     });
@@ -229,6 +262,7 @@ pub fn show(
                 // and paints search-match backgrounds.
                 let wrap = settings.word_wrap;
                 let layout_font = font.clone();
+                let edit = if settings.prose { edit } else { edit.code_editor() };
                 let mut layouter =
                     move |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
                         let text = buf.as_str();
@@ -239,6 +273,7 @@ pub fn show(
                         let mut job = build_layout(
                             text,
                             &layout_font,
+                            line_height,
                             ui.visuals().text_color(),
                             &spans,
                             &highlights,
@@ -425,11 +460,12 @@ fn cursor_highlights(
 fn build_layout(
     text: &str,
     font: &FontId,
+    line_height: Option<f32>,
     color: Color32,
     spans: &[Span],
     highlights: &Highlights<'_>,
 ) -> LayoutJob {
-    let plain = TextFormat::simple(font.clone(), color);
+    let plain = TextFormat { line_height, ..TextFormat::simple(font.clone(), color) };
     if spans.is_empty() && highlights.all.is_empty() {
         return LayoutJob::single_section(text.to_owned(), plain);
     }
@@ -583,7 +619,7 @@ mod tests {
         let spans = [Span { range: 0..3, color: red, italic: false }]; // "let"
         let found: Vec<Range<usize>> = std::iter::once(2..5).collect(); // "t x": overlaps the end of "let"
         let highlights = Highlights { all: &found, current: None };
-        let job = build_layout(text, &font, Color32::WHITE, &spans, &highlights);
+        let job = build_layout(text, &font, None, Color32::WHITE, &spans, &highlights);
 
         let pieces: Vec<(&str, Color32, bool)> = job
             .sections

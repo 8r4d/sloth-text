@@ -719,7 +719,7 @@ impl SlothApp {
 
     fn apply_fonts(&self, ctx: &egui::Context) {
         let e = &self.settings.editor;
-        fonts::apply(ctx, e.font.as_deref(), e.tab_width);
+        fonts::apply(ctx, e.font.as_deref(), None, e.tab_width);
     }
 
     /// Close queued tabs, stopping to ask about any with unsaved changes.
