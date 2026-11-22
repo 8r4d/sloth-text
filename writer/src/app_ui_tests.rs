@@ -817,3 +817,83 @@ fn a_folder_with_another_name_keeps_it() {
     assert!(dir.0.join("my-novel/project.ron").is_file());
     assert_eq!(harness.state().project.as_ref().unwrap().title(), "Snowbound");
 }
+
+// ----- characters ------------------------------------------------------------------
+
+#[test]
+fn a_character_is_a_profile_with_characteristics() {
+    let dir = TempDir::new("character");
+    let mut p = project(&dir, "");
+    let mara = p.add_document(&Place::Into("characters".into()), "Mara").unwrap();
+    fs::write(p.file_path(&mara).unwrap(), "Eldest daughter.\n").unwrap();
+    let mut harness = harness(p);
+    harness.get_by_label("👤 Mara").click();
+    harness.run_steps(3);
+
+    // The form shows the name and the description from the file.
+    harness.get_all_by_value("Mara").next().unwrap();
+    harness.get_all_by_value("Eldest daughter.").next().unwrap();
+
+    // + Characteristic adds a section from the project's list.
+    harness.get_by_label("+ Characteristic").click();
+    harness.run_steps(2);
+    harness.get_by_label("Motivations").click();
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Eldest daughter.\n\n## Motivations\n\n\n"));
+    // Already there, so it isn't offered again.
+    harness.get_by_label("+ Characteristic").click();
+    harness.run_steps(2);
+    assert!(harness.query_by_label("Motivations").is_none() || harness.get_all_by_label("Motivations").count() == 1);
+
+    // Saved like any document.
+    harness.state_mut().save_all();
+    assert!(fs::read_to_string(dir.0.join("characters/mara.md")).unwrap().contains("## Motivations"));
+}
+
+#[test]
+fn renaming_a_characteristic_renames_it_in_every_profile() {
+    let dir = TempDir::new("characteristic-rename");
+    let mut p = project(&dir, "");
+    let a = p.add_document(&Place::Into("characters".into()), "Mara").unwrap();
+    let b = p.add_document(&Place::Into("characters".into()), "Jonah").unwrap();
+    fs::write(p.file_path(&a).unwrap(), "## Motivations\n\nTo leave.\n").unwrap();
+    fs::write(p.file_path(&b).unwrap(), "## Motivations\n\nTo stay.\n").unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().select(a.clone()); // one open, one not
+
+    harness.state_mut().rename_characteristic("Motivations", "Wants");
+    let app = harness.state_mut();
+    assert!(app.project.as_ref().unwrap().manifest.characteristics.contains(&"Wants".to_owned()));
+    assert_eq!(app.current().unwrap().doc.text, "## Wants\n\nTo leave.\n");
+    assert_eq!(fs::read_to_string(dir.0.join("characters/jonah.md")).unwrap(), "## Wants\n\nTo stay.\n");
+}
+
+#[test]
+fn scenes_list_their_characters_and_characters_their_scenes() {
+    let dir = TempDir::new("appearances");
+    let mut p = project(&dir, "scene text");
+    let scene = p.manifest.binder[0].children[0].id.clone();
+    let mara = p.add_document(&Place::Into("characters".into()), "Mara").unwrap();
+    let mut harness = harness(p);
+
+    // In the scene's inspector: + Character, then Mara.
+    harness.get_by_label("+ Character").click();
+    harness.run_steps(2);
+    harness.get_all_by_label("Mara").last().unwrap().click();
+    harness.run_steps(2);
+    let linked = |h: &Harness<'static, WriterApp>| h.state().project.as_ref().unwrap().node(&scene).unwrap().meta.characters.clone();
+    assert_eq!(linked(&harness), std::slice::from_ref(&mara));
+
+    // Mara's profile lists the scene; clicking it opens the scene.
+    harness.state_mut().select(mara.clone());
+    harness.run_steps(3);
+    harness.get_by_label_contains("Appears in");
+    harness.get_all_by_label("Untitled").last().unwrap().click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().selected.as_deref(), Some(scene.as_str()));
+
+    // Taking her out of the scene.
+    harness.get_by_label("Mara  \u{d7}").click();
+    harness.run_steps(2);
+    assert!(linked(&harness).is_empty());
+}

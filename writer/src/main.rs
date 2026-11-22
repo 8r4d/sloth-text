@@ -4,6 +4,7 @@
 
 mod app;
 mod binder;
+mod character;
 mod compile;
 mod project;
 mod snapshots;

@@ -14,6 +14,8 @@ use sloth_core::tabs::{self, DiskNotice, NoticeChoice, Tab, TabId, Tabs};
 
 use crate::binder::{self, BinderAction, Renaming};
 
+#[path = "character_ui.rs"]
+mod character_ui;
 #[path = "compile_window.rs"]
 mod compile_window;
 #[path = "inspector.rs"]
@@ -96,6 +98,11 @@ pub struct WriterApp {
     /// Projects opened lately, newest first (see projects_ui.rs).
     recent: Vec<PathBuf>,
     renaming_project: Option<projects_ui::Renaming>,
+
+    // Characters (see character_ui.rs).
+    /// The character name field's text, for the character it belongs to.
+    character_name: Option<(String, String)>,
+    editing_characteristics: Option<character_ui::EditingCharacteristics>,
 }
 
 impl WriterApp {
@@ -150,6 +157,8 @@ impl WriterApp {
             confirm_delete_snapshot: None,
             recent: cc.storage.and_then(|s| eframe::get_value(s, projects_ui::RECENT_KEY)).unwrap_or_default(),
             renaming_project: None,
+            character_name: None,
+            editing_characteristics: None,
         };
         if let Some(root) = open {
             app.open_project(&root);
@@ -232,6 +241,8 @@ impl WriterApp {
         self.compile_open = false;
         self.comparing = None;
         self.confirm_delete_snapshot = None;
+        self.character_name = None;
+        self.editing_characteristics = None;
     }
 
     // ----- documents ---------------------------------------------------------
@@ -662,6 +673,8 @@ impl WriterApp {
             Some(node) if !node.is_document() => Some(node.id.clone()),
             _ => None,
         };
+        // A character shows its profile form.
+        let character = self.selected.clone().filter(|id| self.is_character(id));
         // Not in a frame with a mouse press or release (such as the click in
         // the binder that opened the document): egui takes focus away from a
         // text field when a click lands outside it, so wait a frame.
@@ -681,6 +694,10 @@ impl WriterApp {
             .show(ui, |ui| {
                 if let Some(folder) = &folder {
                     self.folder_view(ui, folder);
+                    return;
+                }
+                if let Some(id) = &character {
+                    self.character_form(ui, id);
                     return;
                 }
                 match self.current() {
@@ -776,6 +793,7 @@ impl eframe::App for WriterApp {
         self.compile_window(&ctx);
         self.compare_window(&ctx);
         self.rename_project_window(&ctx);
+        self.characteristics_window(&ctx);
         self.delete_snapshot_dialog(&ctx);
 
         if now - self.last_autosave >= AUTOSAVE_SECONDS {

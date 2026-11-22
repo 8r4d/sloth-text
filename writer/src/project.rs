@@ -29,21 +29,24 @@ pub const MANIFEST_FILE: &str = "project.ron";
 /// dropping what this version doesn't understand.
 pub const FORMAT: u32 = 1;
 
-/// The four folders at the top of every binder.
+/// The folders at the top of every binder, in this order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
     Manuscript,
+    /// Character profiles (see character.rs). Never compiled.
+    Characters,
     Research,
     Notes,
     Trash,
 }
 
 impl Role {
-    pub const ALL: [Role; 4] = [Role::Manuscript, Role::Research, Role::Notes, Role::Trash];
+    pub const ALL: [Role; 5] = [Role::Manuscript, Role::Characters, Role::Research, Role::Notes, Role::Trash];
 
     pub fn title(self) -> &'static str {
         match self {
             Role::Manuscript => "Manuscript",
+            Role::Characters => "Characters",
             Role::Research => "Research",
             Role::Notes => "Notes",
             Role::Trash => "Trash",
@@ -56,6 +59,7 @@ impl Role {
     pub fn folder(self) -> &'static str {
         match self {
             Role::Manuscript => "manuscript",
+            Role::Characters => "characters",
             Role::Research => "research",
             Role::Notes => "notes",
             Role::Trash => "trash",
@@ -108,6 +112,9 @@ pub struct Meta {
     /// Private notes about the item, never compiled.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub notes: String,
+    /// Characters who appear in this scene, by their binder ids.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub characters: Vec<String>,
 }
 
 impl Meta {
@@ -126,6 +133,14 @@ pub struct Label {
 /// Statuses a new or older project starts with.
 pub fn default_statuses() -> Vec<String> {
     ["To do", "First draft", "Revised", "Done"].map(String::from).to_vec()
+}
+
+/// Characteristics a character profile can have sections for; a project
+/// starts with these and can change them.
+pub fn default_characteristics() -> Vec<String> {
+    ["Physical appearance", "Personality", "Motivations", "Backstory", "Voice", "Relationships", "Arc"]
+        .map(String::from)
+        .to_vec()
 }
 
 /// Labels a new project starts with; rename or remove them freely.
@@ -170,6 +185,9 @@ pub struct Manifest {
     pub statuses: Vec<String>,
     #[serde(default)]
     pub labels: Vec<Label>,
+    /// The sections a character profile can have.
+    #[serde(default = "default_characteristics")]
+    pub characteristics: Vec<String>,
     /// Compile choices (author name, format), remembered for next time.
     #[serde(default)]
     pub compile: crate::compile::CompileSettings,
@@ -223,6 +241,7 @@ impl Project {
                 binder: Role::ALL.into_iter().map(Node::role_folder).collect(),
                 statuses: default_statuses(),
                 labels: starter_labels(),
+                characteristics: default_characteristics(),
                 compile: Default::default(),
             },
         };
@@ -296,6 +315,22 @@ impl Project {
             .collect()
     }
 
+    /// Every character, in binder order.
+    pub fn characters(&self) -> Vec<&Node> {
+        self.manifest
+            .binder
+            .iter()
+            .filter(|top| top.role == Some(Role::Characters))
+            .flat_map(Node::subtree)
+            .filter(|n| n.is_document())
+            .collect()
+    }
+
+    /// The scenes a character appears in (outside the Trash), in binder order.
+    pub fn appearances(&self, character: &str) -> Vec<&Node> {
+        self.documents().into_iter().filter(|n| n.meta.characters.iter().any(|c| c == character)).collect()
+    }
+
     /// The documents in an item, itself included: what its word count adds up.
     pub fn documents_under(&self, id: &str) -> Vec<&Node> {
         self.node(id).map(|n| n.subtree().into_iter().filter(|n| n.is_document()).collect()).unwrap_or_default()
@@ -339,7 +374,7 @@ impl Project {
     pub fn rename(&mut self, id: &str, title: &str) -> io::Result<Option<PathChange>> {
         let node = self.node(id).ok_or_else(|| invalid("That item no longer exists."))?;
         if node.role.is_some() {
-            return Err(invalid("Manuscript, Research, Notes and Trash can't be renamed."));
+            return Err(invalid("The top-level folders can't be renamed."));
         }
         let title = clean_title(title)?;
         let mut change = None;
@@ -478,12 +513,12 @@ impl Project {
     fn check_place(&self, moving: Option<&str>, place: &Place) -> io::Result<()> {
         let target = self.node(place.target()).ok_or_else(|| invalid("That item no longer exists."))?;
         if target.role.is_some() && !matches!(place, Place::Into(_)) {
-            return Err(invalid("Items go inside Manuscript, Research, Notes or Trash."));
+            return Err(invalid("Items go inside one of the top-level folders."));
         }
         if let Some(id) = moving {
             let node = self.node(id).ok_or_else(|| invalid("That item no longer exists."))?;
             if node.role.is_some() {
-                return Err(invalid("Manuscript, Research, Notes and Trash can't be moved."));
+                return Err(invalid("The top-level folders can't be moved."));
             }
             if node.subtree().iter().any(|n| n.id == target.id) {
                 return Err(invalid("An item can't go inside itself."));
@@ -700,7 +735,7 @@ mod tests {
         let dir = TempDir::new("roundtrip");
         let created = Project::create(&dir.0, " The Long Winter ").unwrap();
         assert_eq!(created.title(), "The Long Winter");
-        assert_eq!(titles(&created.manifest.binder), ["Manuscript", "Research", "Notes", "Trash"]);
+        assert_eq!(titles(&created.manifest.binder), ["Manuscript", "Characters", "Research", "Notes", "Trash"]);
         for role in Role::ALL {
             assert!(dir.0.join(role.folder()).is_dir());
         }
@@ -742,7 +777,7 @@ mod tests {
         let old = r#"(format: 1, title: "Old", binder: [(id: "notes", title: "Notes", role: Some(Notes))])"#;
         fs::write(dir.0.join(MANIFEST_FILE), old).unwrap();
         let project = Project::open(&dir.0).unwrap();
-        assert_eq!(titles(&project.manifest.binder), ["Manuscript", "Research", "Notes", "Trash"]);
+        assert_eq!(titles(&project.manifest.binder), ["Manuscript", "Characters", "Research", "Notes", "Trash"]);
     }
 
     #[test]
@@ -849,6 +884,7 @@ mod tests {
             target_words: Some(2500),
             exclude_from_compile: true,
             notes: "Check the tide tables.".into(),
+            characters: vec!["c0ffee".into()],
         };
         assert!(p.set_meta(&id, meta.clone()));
         assert!(!p.set_meta(&id, meta.clone()), "no change the second time");

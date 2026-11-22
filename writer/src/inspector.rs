@@ -114,6 +114,7 @@ impl WriterApp {
         let (title, role, mut meta) = (node.title.clone(), node.role, node.meta.clone());
         let is_document = node.is_document();
         let in_manuscript = project.role_of(&id) == Some(Role::Manuscript);
+        let in_characters = project.role_of(&id) == Some(Role::Characters);
         let statuses = project.manifest.statuses.clone();
         let labels = project.manifest.labels.clone();
 
@@ -246,6 +247,11 @@ impl WriterApp {
                     .desired_rows(6)
                     .desired_width(f32::INFINITY),
             );
+
+            // Who appears here (not for the characters themselves).
+            if !in_characters {
+                self.scene_characters(ui, &mut meta);
+            }
         }
 
         if let Some(project) = self.project.as_mut()

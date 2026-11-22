@@ -42,7 +42,7 @@ pub fn show(
     let dragging = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).map(|d| d.0.clone());
     let mut tree = Tree { labels, selected, renaming, dragging: dragging.as_deref(), actions: &mut actions };
     for node in binder {
-        node_ui(ui, node, false, &mut tree);
+        node_ui(ui, node, false, node.role, &mut tree);
     }
     actions
 }
@@ -59,27 +59,28 @@ struct Tree<'a> {
 
 /// `inside`: this row is the dragged item or inside it, so nothing can be
 /// dropped on it.
-fn node_ui(ui: &mut egui::Ui, node: &Node, inside: bool, tree: &mut Tree<'_>) {
+/// `top`: the role folder this node is in, for its icon.
+fn node_ui(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &mut Tree<'_>) {
     let inside = inside || tree.dragging == Some(node.id.as_str());
     if node.children.is_empty() {
         ui.horizontal(|ui| {
             // Line up with siblings that have an open/close arrow.
             ui.add_space(ui.spacing().icon_width + ui.spacing().item_spacing.x);
-            row(ui, node, inside, tree);
+            row(ui, node, inside, top, tree);
         });
     } else {
         let id = ui.make_persistent_id(("binder", &node.id));
         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
-            .show_header(ui, |ui| row(ui, node, inside, tree))
+            .show_header(ui, |ui| row(ui, node, inside, top, tree))
             .body(|ui| {
                 for child in &node.children {
-                    node_ui(ui, child, inside, tree);
+                    node_ui(ui, child, inside, top, tree);
                 }
             });
     }
 }
 
-fn row(ui: &mut egui::Ui, node: &Node, inside: bool, tree: &mut Tree<'_>) {
+fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &mut Tree<'_>) {
     let actions = &mut *tree.actions;
     if let Some(r) = tree.renaming.as_mut().filter(|r| r.id == node.id) {
         let response = ui.add(egui::TextEdit::singleline(&mut r.text).desired_width(f32::INFINITY));
@@ -108,7 +109,9 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, tree: &mut Tree<'_>) {
 
     let icon = match node.role {
         Some(Role::Trash) => "🗑",
+        Some(Role::Characters) => "👥",
         Some(_) => "📚",
+        None if node.is_document() && top == Some(Role::Characters) => "👤",
         None if node.is_document() => "📄",
         None => "📁",
     };
