@@ -26,6 +26,8 @@ pub struct WriterSettings {
     pub smart_dashes: bool,
     /// Show *italics*, **bold**, headings and notes styled as you type.
     pub show_markdown: bool,
+    /// The iPad helper's address (its token is in the Keychain).
+    pub helper_url: String,
     pub theme: ThemeChoice,
 }
 
@@ -38,6 +40,7 @@ impl Default for WriterSettings {
             text_width: Some(680.0),
             smart_dashes: true,
             show_markdown: true,
+            helper_url: String::new(),
             theme: ThemeChoice::default(),
         }
     }
@@ -83,6 +86,8 @@ impl WriterApp {
         let before = self.settings.clone();
         let settings = &mut self.settings;
         let filter = &mut self.font_filter;
+        let token = &mut self.helper_token;
+        let mut token_changed = false;
         let mut open = true;
         egui::Window::new("Settings")
             .open(&mut open)
@@ -144,6 +149,22 @@ impl WriterApp {
                         ui.checkbox(&mut settings.show_markdown, "Show *italics*, **bold** and headings as you type");
                     });
                     ui.end_row();
+
+                    ui.label("iPad helper");
+                    ui.vertical(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut settings.helper_url)
+                                .hint_text("https://writer.example.com/")
+                                .desired_width(240.0),
+                        );
+                        let field = ui.add(
+                            egui::TextEdit::singleline(token).password(true).hint_text("Token").desired_width(240.0),
+                        );
+                        // Saved to the Keychain on leaving the field, not per keystroke.
+                        token_changed = field.lost_focus();
+                        ui.weak("Make a token on the helper's page, then paste it here.");
+                    });
+                    ui.end_row();
                 });
 
                 // A sample in the chosen font, size and spacing.
@@ -161,6 +182,12 @@ impl WriterApp {
             });
         if self.settings != before {
             self.apply_settings(ctx);
+        }
+        if token_changed && !cfg!(test) && !crate::keychain::save_token(&self.helper_token) {
+            self.error = Some("Couldn't save the helper token to the Keychain.".to_owned());
+        }
+        if token_changed {
+            self.sync_now = true;
         }
         if !open {
             self.settings_open = false;

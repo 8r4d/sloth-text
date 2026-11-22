@@ -28,6 +28,8 @@ mod search;
 pub(crate) mod settings_ui;
 #[path = "snapshots_ui.rs"]
 mod snapshots_ui;
+#[path = "sync_ui.rs"]
+mod sync_ui;
 #[path = "views.rs"]
 mod views;
 use search::{DocResults, Direction};
@@ -113,6 +115,16 @@ pub struct WriterApp {
     settings_open: bool,
     /// The text filtering the Settings window's font list.
     font_filter: String,
+
+    // Syncing with the iPad helper (see sync_ui.rs).
+    /// The helper token, from the Keychain.
+    helper_token: String,
+    sync_running: Option<sync_ui::Running>,
+    last_sync: Option<f64>,
+    /// Sync as soon as possible (the Sync button, a new token).
+    sync_now: bool,
+    /// How the last sync went, for the Sync button's tooltip.
+    sync_message: String,
 }
 
 impl WriterApp {
@@ -133,6 +145,12 @@ impl WriterApp {
             settings,
             settings_open: false,
             font_filter: String::new(),
+            // Tests never touch the real Keychain.
+            helper_token: if cfg!(test) { String::new() } else { crate::keychain::load_token() },
+            sync_running: None,
+            last_sync: None,
+            sync_now: false,
+            sync_message: String::new(),
             renaming: None,
             error: None,
             confirm_empty_trash: false,
@@ -222,6 +240,8 @@ impl WriterApp {
 
     fn set_project(&mut self, project: Project) {
         self.close_project();
+        // Sync as soon as it's open.
+        self.last_sync = None;
         projects_ui::remember(&mut self.recent, &project.root);
         let first = first_document(&project.manifest.binder[0]);
         self.project = Some(project);
@@ -640,6 +660,13 @@ impl WriterApp {
                     if ui.button("Compile\u{2026}").on_hover_text("\u{21e7}\u{2318}E").clicked() {
                         self.compile_open = true;
                     }
+                    if !self.settings.helper_url.trim().is_empty() && !self.helper_token.is_empty() {
+                        let label = if self.sync_running() { "Syncing\u{2026}" } else { "Sync" };
+                        let hint = if self.sync_message.is_empty() { "Sync with the iPad helper" } else { &self.sync_message };
+                        if ui.add_enabled(!self.sync_running(), egui::Button::new(label)).on_hover_text(hint).clicked() {
+                            self.sync_now = true;
+                        }
+                    }
                     if ui.button("Settings").on_hover_text("\u{2318},").clicked() {
                         self.settings_open = true;
                     }
@@ -822,6 +849,7 @@ impl eframe::App for WriterApp {
         if self.any_unsaved() {
             ctx.request_repaint_after(Duration::from_secs_f64(AUTOSAVE_SECONDS));
         }
+        self.sync_tick(&ctx, now);
     }
 
     /// Called now and then and when quitting: save the words, and remember

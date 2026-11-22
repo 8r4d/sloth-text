@@ -6,8 +6,10 @@ mod app;
 mod binder;
 mod character;
 mod compile;
+mod keychain;
 mod project;
 mod snapshots;
+mod sync;
 
 use eframe::egui;
 

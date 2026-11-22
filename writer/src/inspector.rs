@@ -237,6 +237,7 @@ impl WriterApp {
                     meta.exclude_from_compile = !include;
                 }
             }
+            self.ipad_checkbox(ui, &id, &mut meta);
 
             // Notes.
             ui.add_space(10.0);

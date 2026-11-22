@@ -5,7 +5,8 @@
 #
 #   helper/tests/run.sh
 #
-# Needs: php (with pdo_mysql), mariadb (mariadbd, mariadb-install-db), node 22+.
+# Needs: php (with pdo_mysql), mariadb (mariadbd, mariadb-install-db), node 22+,
+# and cargo for the Writer sync test at the end (skipped without it).
 # On a Mac: brew install php mariadb node.
 set -euo pipefail
 
@@ -57,6 +58,17 @@ export HELPER_SETUP_PASSWORD='test-setup-password'
 export HELPER_DB="mariadb --socket=$TMP/s -uroot writer"
 status=0
 node --test --test-concurrency=1 "$ROOT"/tests/*.test.mjs || status=$?
+
+# Then Sloth Writer's own sync code against this helper, with a token made
+# the way the helper's page makes one (signed in as the tests' account).
+if [ $status -eq 0 ] && command -v cargo >/dev/null; then
+  echo; echo "Syncing Sloth Writer with it…"
+  curl -s -c "$TMP/cookies" -H 'Content-Type: application/json' \
+    -d '{"username":"writer","password":"writer-password-1"}' "${HELPER_URL}api.php?action=login" >/dev/null
+  TOKEN=$(curl -s -b "$TMP/cookies" -H 'Content-Type: application/json' -d '{"label":"cargo test"}' \
+    "${HELPER_URL}api.php?action=token_create" | sed -E 's/.*"token":"([0-9a-f]+)".*/\1/')
+  (cd "$ROOT/.." && HELPER_TOKEN="$TOKEN" cargo test -q -p sloth-writer real_helper -- --ignored) || status=$?
+fi
 if [ $status -ne 0 ]; then
   echo; echo "--- php.log (last 30 lines) ---"; tail -30 "$TMP/php.log"
 fi

@@ -115,6 +115,9 @@ pub struct Meta {
     /// Characters who appear in this scene, by their binder ids.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub characters: Vec<String>,
+    /// Synced to the helper for editing on an iPad (a folder: everything in it).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub on_ipad: bool,
 }
 
 impl Meta {
@@ -191,6 +194,9 @@ pub struct Manifest {
     /// Compile choices (author name, format), remembered for next time.
     #[serde(default)]
     pub compile: crate::compile::CompileSettings,
+    /// The project's id on the iPad helper, made when it's first synced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_id: Option<String>,
 }
 
 /// Where to put an item, relative to another one.
@@ -243,6 +249,7 @@ impl Project {
                 labels: starter_labels(),
                 characteristics: default_characteristics(),
                 compile: Default::default(),
+                sync_id: None,
             },
         };
         project.add_document(&Place::Into(Role::Manuscript.folder().into()), "Untitled")?;
@@ -559,20 +566,63 @@ impl Project {
     fn new_id(&self) -> String {
         let used: HashSet<&str> = self.all_nodes().into_iter().map(|n| n.id.as_str()).collect();
         loop {
-            // Each RandomState has fresh random keys, so this is a random number.
-            let mut n = std::collections::hash_map::RandomState::new().build_hasher().finish();
-            let id: String = (0..6)
-                .map(|_| {
-                    let digit = (n % 36) as u32;
-                    n /= 36;
-                    char::from_digit(digit, 36).expect("below 36")
-                })
-                .collect();
+            let id = random_id(6);
             if !used.contains(id.as_str()) {
                 return id;
             }
         }
     }
+
+    // ----- the iPad ------------------------------------------------------------
+
+    /// Is this item on the iPad: marked itself, or inside a marked folder?
+    pub fn on_ipad(&self, id: &str) -> bool {
+        fn walk(nodes: &[Node], id: &str, marked: bool) -> Option<bool> {
+            nodes.iter().find_map(|n| {
+                let marked = marked || n.meta.on_ipad;
+                if n.id == id { Some(marked) } else { walk(&n.children, id, marked) }
+            })
+        }
+        walk(&self.manifest.binder, id, false).unwrap_or(false)
+    }
+
+    /// The documents on the iPad (outside the Trash), in binder order, each
+    /// with the folder it's in (for the iPad's list).
+    pub fn ipad_documents(&self) -> Vec<(&Node, String)> {
+        fn walk<'a>(nodes: &'a [Node], parent: &str, marked: bool, out: &mut Vec<(&'a Node, String)>) {
+            for n in nodes {
+                let marked = marked || n.meta.on_ipad;
+                if marked && n.is_document() {
+                    out.push((n, parent.to_owned()));
+                }
+                walk(&n.children, &n.title, marked, out);
+            }
+        }
+        let mut out = Vec::new();
+        for top in self.manifest.binder.iter().filter(|n| n.role != Some(Role::Trash)) {
+            walk(std::slice::from_ref(top), "", false, &mut out);
+        }
+        out
+    }
+
+    /// The project's id on the helper, made the first time it's needed.
+    pub fn sync_id(&mut self) -> String {
+        self.manifest.sync_id.get_or_insert_with(|| random_id(16)).clone()
+    }
+}
+
+/// `len` random lower-case letters and digits.
+pub fn random_id(len: usize) -> String {
+    let mut out = String::with_capacity(len);
+    while out.len() < len {
+        // Each RandomState has fresh random keys, so this is a random number.
+        let mut n = std::collections::hash_map::RandomState::new().build_hasher().finish();
+        for _ in 0..12.min(len - out.len()) {
+            out.push(char::from_digit((n % 36) as u32, 36).expect("below 36"));
+            n /= 36;
+        }
+    }
+    out
 }
 
 /// A folder name for a project called `title`: as typed, minus what file
@@ -885,6 +935,7 @@ mod tests {
             exclude_from_compile: true,
             notes: "Check the tide tables.".into(),
             characters: vec!["c0ffee".into()],
+            on_ipad: true,
         };
         assert!(p.set_meta(&id, meta.clone()));
         assert!(!p.set_meta(&id, meta.clone()), "no change the second time");
@@ -927,6 +978,30 @@ mod tests {
         assert_eq!(p.node(&a).unwrap().meta.label, Some(0));
         assert_eq!(p.node(&b).unwrap().meta.label, None);
         assert_eq!(p.node(&c).unwrap().meta.label, Some(1), "shifted down");
+    }
+
+    #[test]
+    fn marking_for_the_ipad_includes_whats_inside() {
+        let dir = TempDir::new("ipad");
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        let untitled = p.manifest.binder[0].children[0].id.clone();
+        let chapter = p.add_folder(&manuscript(), "Chapter 1").unwrap();
+        let a = p.add_document(&Place::Into(chapter.clone()), "A").unwrap();
+        let b = p.add_document(&Place::Into(chapter.clone()), "B").unwrap();
+        p.set_meta(&chapter, Meta { on_ipad: true, ..Meta::default() });
+        p.set_meta(&untitled, Meta { on_ipad: true, ..Meta::default() });
+
+        assert!(p.on_ipad(&a) && p.on_ipad(&chapter));
+        let listed: Vec<(String, String)> = p.ipad_documents().into_iter().map(|(n, parent)| (n.title.clone(), parent)).collect();
+        assert_eq!(listed, [("Untitled".into(), "Manuscript".into()), ("A".into(), "Chapter 1".into()), ("B".into(), "Chapter 1".into())]);
+
+        // Trashed: off the iPad.
+        p.trash(&b).unwrap();
+        assert_eq!(p.ipad_documents().len(), 2);
+
+        let id = p.sync_id();
+        assert_eq!(id.len(), 16);
+        assert_eq!(p.sync_id(), id, "made once");
     }
 
     #[test]

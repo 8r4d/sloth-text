@@ -971,3 +971,116 @@ fn spaces_typed_in_a_profile_are_kept() {
         Some("Eldest daughter. Left first.\n\n## Voice\n\nDry\n")
     );
 }
+
+// ----- syncing with the iPad helper ---------------------------------------------------
+
+use crate::sync::{Action, Outcome, SyncState};
+
+/// Hand the app a finished sync, as the background thread would.
+fn finish(harness: &mut Harness<'static, WriterApp>, actions: Vec<Action>) {
+    let root = harness.state().project.as_ref().unwrap().root.clone();
+    let outcome = Outcome { actions, ..Outcome::default() };
+    harness.state_mut().finish_sync(&root, Ok(outcome), 0.0);
+    harness.run_steps(2);
+}
+
+#[test]
+fn ipad_edits_come_into_open_and_closed_scenes() {
+    let dir = TempDir::new("sync-in");
+    let mut p = project(&dir, "Mac words");
+    let other = p.add_document(&Place::Into("manuscript".into()), "Other").unwrap();
+    fs::write(dir.0.join("manuscript/other.md"), "closed words").unwrap();
+    let mut harness = harness(p);
+    let open = harness.state().selected.clone().unwrap();
+
+    finish(&mut harness, vec![
+        Action::Replace { id: open.clone(), was: "Mac words".into(), text: "iPad words".into() },
+        Action::Replace { id: other.clone(), was: "closed words".into(), text: "closed, from the iPad".into() },
+    ]);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("iPad words"));
+    assert_eq!(fs::read_to_string(dir.0.join("manuscript/untitled.md")).unwrap(), "iPad words", "saved straight away");
+    assert_eq!(fs::read_to_string(dir.0.join("manuscript/other.md")).unwrap(), "closed, from the iPad");
+}
+
+#[test]
+fn typing_during_a_sync_keeps_the_macs_words() {
+    let dir = TempDir::new("sync-typing");
+    let mut harness = harness(project(&dir, "Mac words"));
+    let open = harness.state().selected.clone().unwrap();
+    // Typed after the sync read the scene.
+    harness.state_mut().current().unwrap().doc.text = "Mac words, and more".into();
+
+    finish(&mut harness, vec![Action::Replace { id: open.clone(), was: "Mac words".into(), text: "iPad words".into() }]);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Mac words, and more"));
+    let kept = crate::snapshots::list(&dir.0, &open);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].text().unwrap(), "iPad words");
+}
+
+#[test]
+fn clashes_are_snapshotted_and_reported() {
+    let dir = TempDir::new("sync-clash");
+    let mut harness = harness(project(&dir, "Mac words"));
+    let open = harness.state().selected.clone().unwrap();
+    finish(&mut harness, vec![Action::Snapshot { id: open.clone(), text: "iPad words".into(), name: "from the iPad (both changed)".into() }]);
+    assert_eq!(crate::snapshots::list(&dir.0, &open)[0].name, "from the iPad (both changed)");
+    let status = harness.state().status.clone().unwrap().0;
+    assert!(status.contains("\u{201c}Untitled\u{201d} changed on both"), "{status}");
+}
+
+#[test]
+fn scenes_written_on_the_ipad_land_in_the_manuscript() {
+    let dir = TempDir::new("sync-new");
+    let mut harness = harness(project(&dir, ""));
+    finish(&mut harness, vec![Action::NewScene { inbox_id: 7, title: "On the train".into(), text: "An idea.".into() }]);
+
+    harness.get_by_label("📄 On the train");
+    let app = harness.state();
+    let project = app.project.as_ref().unwrap();
+    let node = project.manifest.binder[0].children.iter().find(|n| n.title == "On the train").unwrap();
+    assert!(node.meta.on_ipad, "it stays on the iPad");
+    assert_eq!(fs::read_to_string(project.file_path(&node.id).unwrap()).unwrap(), "An idea.");
+    assert!(SyncState::load(&dir.0).imported.contains(&7), "recorded, to be collected next time");
+}
+
+#[test]
+fn the_inspector_marks_scenes_for_the_ipad() {
+    let dir = TempDir::new("sync-mark");
+    let mut harness = harness(project(&dir, ""));
+    let id = harness.state().selected.clone().unwrap();
+    harness.get_by_label("Available on iPad").click();
+    harness.run_steps(2);
+    assert!(harness.state().project.as_ref().unwrap().on_ipad(&id));
+    // Without a helper set up, nothing tries to sync, and it says so.
+    assert!(!harness.state().sync_ready());
+    harness.get_by_label_contains("Set up the iPad helper");
+}
+
+/// The whole app against the real helper (run by helper/tests/run.sh, which
+/// sets HELPER_URL and HELPER_TOKEN).
+#[test]
+#[ignore]
+fn app_syncs_with_the_real_helper() {
+    let dir = TempDir::new("sync-real");
+    let mut harness = harness(project(&dir, "Written on the Mac."));
+    let id = harness.state().selected.clone().unwrap();
+    {
+        let app = harness.state_mut();
+        app.settings.helper_url = std::env::var("HELPER_URL").unwrap();
+        app.helper_token = std::env::var("HELPER_TOKEN").unwrap();
+        let project = app.project.as_mut().unwrap();
+        project.set_meta(&id, crate::project::Meta { on_ipad: true, ..Default::default() });
+    }
+    // Run frames until the background sync has come back.
+    for _ in 0..600 {
+        harness.run_steps(1);
+        if harness.state().last_sync.is_some() && !harness.state().sync_running() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(harness.state().sync_message.starts_with("Synced"), "{}", harness.state().sync_message);
+    let state = SyncState::load(&dir.0);
+    assert_eq!(state.scenes[&id].text, "Written on the Mac.");
+    assert!(harness.state().project.as_ref().unwrap().manifest.sync_id.is_some());
+}
