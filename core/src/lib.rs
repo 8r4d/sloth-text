@@ -8,6 +8,7 @@ pub mod editor;
 pub mod file_types;
 pub mod find;
 pub mod fonts;
+pub mod markdown;
 #[cfg(target_os = "macos")]
 pub mod macos_open;
 #[cfg(target_os = "macos")]

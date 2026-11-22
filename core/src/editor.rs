@@ -10,6 +10,7 @@ use eframe::egui::{
 };
 
 use crate::editing::{self, Edit, Indent};
+use crate::markdown;
 use crate::syntax::{HighlightCache, Span, SyntaxColors};
 use crate::tabs::TabId;
 
@@ -41,6 +42,9 @@ pub struct EditorSettings {
     /// With word wrap, keep lines at most this wide (points), centred in the
     /// editor. `None` uses the full width.
     pub max_text_width: Option<f32>,
+    /// Show Markdown as you type: italics, bold, headings, quotes and notes
+    /// styled, their markers faint (Sloth Writer; off in Sloth).
+    pub markdown: bool,
 }
 
 impl EditorSettings {
@@ -71,6 +75,7 @@ impl Default for EditorSettings {
             prose: false,
             line_spacing: 1.0,
             max_text_width: None,
+            markdown: false,
         }
     }
 }
@@ -262,6 +267,7 @@ pub fn show(
                 // and paints search-match backgrounds.
                 let wrap = settings.word_wrap;
                 let layout_font = font.clone();
+                let faces = settings.markdown.then(|| Faces::find(ui, &font));
                 let edit = if settings.prose { edit } else { edit.code_editor() };
                 let mut layouter =
                     move |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
@@ -270,6 +276,7 @@ pub fn show(
                             Some(s) => s.cache.highlight(text, s.syntax, s.colors),
                             None => Vec::new(),
                         };
+                        let styles = if faces.is_some() { markdown::styles(text) } else { Vec::new() };
                         let mut job = build_layout(
                             text,
                             &layout_font,
@@ -277,6 +284,8 @@ pub fn show(
                             ui.visuals().text_color(),
                             &spans,
                             &highlights,
+                            &styles,
+                            faces.as_ref(),
                         );
                         job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
                         ui.fonts_mut(|f| f.layout_job(job))
@@ -457,6 +466,7 @@ fn cursor_highlights(
 
 /// Build the text layout: syntax colours for the text, and highlighted
 /// backgrounds for search matches.
+#[allow(clippy::too_many_arguments)]
 fn build_layout(
     text: &str,
     font: &FontId,
@@ -464,9 +474,11 @@ fn build_layout(
     color: Color32,
     spans: &[Span],
     highlights: &Highlights<'_>,
+    styles: &[(Range<usize>, markdown::Style)],
+    faces: Option<&Faces>,
 ) -> LayoutJob {
     let plain = TextFormat { line_height, ..TextFormat::simple(font.clone(), color) };
-    if spans.is_empty() && highlights.all.is_empty() {
+    if spans.is_empty() && highlights.all.is_empty() && styles.is_empty() {
         return LayoutJob::single_section(text.to_owned(), plain);
     }
 
@@ -497,12 +509,15 @@ fn build_layout(
     for (r, _) in &backgrounds {
         cuts.extend([r.start, r.end]);
     }
+    for (r, _) in styles {
+        cuts.extend([r.start, r.end]);
+    }
     cuts.retain(|&c| c <= text.len() && text.is_char_boundary(c));
     cuts.sort_unstable();
     cuts.dedup();
 
     let mut job = LayoutJob::default();
-    let (mut si, mut bi) = (0, 0);
+    let (mut si, mut bi, mut mi) = (0, 0, 0);
     for pair in cuts.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         while si < spans.len() && spans[si].range.end <= a {
@@ -511,7 +526,13 @@ fn build_layout(
         while bi < backgrounds.len() && backgrounds[bi].0.end <= a {
             bi += 1;
         }
+        while mi < styles.len() && styles[mi].0.end <= a {
+            mi += 1;
+        }
         let mut format = plain.clone();
+        if let (Some((_, style)), Some(faces)) = (styles.get(mi).filter(|(r, _)| r.start <= a), faces) {
+            faces.style(&mut format, *style, color);
+        }
         if let Some(span) = spans.get(si).filter(|s| s.range.start <= a) {
             format.color = span.color;
             format.italics = span.italic;
@@ -522,6 +543,57 @@ fn build_layout(
         job.append(&text[a..b], 0.0, format);
     }
     job
+}
+
+/// The prose font's faces, for Markdown styling: which bold and italic
+/// families are installed (see `fonts::prose_variant`).
+pub(crate) struct Faces {
+    size: f32,
+    bold: Option<egui::FontFamily>,
+    italic: Option<egui::FontFamily>,
+    bold_italic: Option<egui::FontFamily>,
+}
+
+impl Faces {
+    fn find(ui: &egui::Ui, font: &FontId) -> Self {
+        let installed = ui.fonts(|f| f.families());
+        let prose = font.family == crate::fonts::prose_family();
+        let variant = |bold, italic| {
+            crate::fonts::prose_variant(bold, italic).filter(|f| prose && installed.contains(f))
+        };
+        Self { size: font.size, bold: variant(true, false), italic: variant(false, true), bold_italic: variant(true, true) }
+    }
+
+    /// Apply a Markdown style to a piece of text's format.
+    fn style(&self, format: &mut TextFormat, style: markdown::Style, color: Color32) {
+        use markdown::{BOLD, BREAK, HEADING, ITALIC, MARKER, NOTE, QUOTE};
+        let bold = style & (BOLD | HEADING) != 0;
+        let italic = style & (ITALIC | NOTE) != 0;
+        let family = match (bold, italic) {
+            (true, true) => self.bold_italic.clone().or_else(|| self.bold.clone()),
+            (true, false) => self.bold.clone(),
+            (false, true) => self.italic.clone(),
+            (false, false) => None,
+        };
+        // Without a true italic face, slant the regular one.
+        if italic && (family.is_none() || (bold && self.bold_italic.is_none())) {
+            format.italics = true;
+        }
+        if let Some(family) = family {
+            format.font_id.family = family;
+        }
+        if style & HEADING != 0 {
+            format.font_id.size = self.size * 1.3;
+            format.line_height = format.line_height.map(|h| h * 1.3);
+        }
+        if style & (MARKER | BREAK) != 0 {
+            format.color = color.gamma_multiply(0.35);
+        } else if style & NOTE != 0 {
+            format.color = color.gamma_multiply(0.5);
+        } else if style & QUOTE != 0 {
+            format.color = color.gamma_multiply(0.75);
+        }
+    }
 }
 
 fn paint_line_numbers(
@@ -619,7 +691,7 @@ mod tests {
         let spans = [Span { range: 0..3, color: red, italic: false }]; // "let"
         let found: Vec<Range<usize>> = std::iter::once(2..5).collect(); // "t x": overlaps the end of "let"
         let highlights = Highlights { all: &found, current: None };
-        let job = build_layout(text, &font, None, Color32::WHITE, &spans, &highlights);
+        let job = build_layout(text, &font, None, Color32::WHITE, &spans, &highlights, &[], None);
 
         let pieces: Vec<(&str, Color32, bool)> = job
             .sections
@@ -715,5 +787,21 @@ mod tests {
         events.extend(typed("-"));
         let out = dash_events("", events);
         assert!(!out.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Backspace, .. })));
+    }
+
+    #[test]
+    fn markdown_styles_the_text_and_dims_its_markers() {
+        let text = "a *b* c";
+        let styles = markdown::styles(text);
+        // No bold or italic faces installed: italics are slanted.
+        let faces = Faces { size: 14.0, bold: None, italic: None, bold_italic: None };
+        let font = FontId::proportional(14.0);
+        let job = build_layout(text, &font, None, Color32::WHITE, &[], &Highlights::default(), &styles, Some(&faces));
+        let pieces: Vec<(&str, bool, bool)> = job
+            .sections
+            .iter()
+            .map(|s| (&text[s.byte_range.start.0..s.byte_range.end.0], s.format.italics, s.format.color != Color32::WHITE))
+            .collect();
+        assert_eq!(pieces, [("a ", false, false), ("*", false, true), ("b", true, false), ("*", false, true), (" c", false, false)]);
     }
 }

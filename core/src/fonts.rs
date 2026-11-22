@@ -24,6 +24,19 @@ pub fn prose_family() -> FontFamily {
     FontFamily::Name("prose".into())
 }
 
+/// The prose family's bold, italic or bold italic face, if the prose font
+/// has a true one installed (see [`apply`]). Without it, editors draw
+/// italics slanted and bold as regular.
+pub fn prose_variant(bold: bool, italic: bool) -> Option<FontFamily> {
+    let name = match (bold, italic) {
+        (false, false) => return Some(prose_family()),
+        (true, false) => "prose-bold",
+        (false, true) => "prose-italic",
+        (true, true) => "prose-bold-italic",
+    };
+    Some(FontFamily::Name(name.into()))
+}
+
 /// Reading faces that come with macOS, best first: the default prose font
 /// is the first one installed.
 pub const PROSE_DEFAULTS: [&str; 4] = ["Iowan Old Style", "Charter", "Georgia", "Palatino"];
@@ -102,13 +115,25 @@ pub fn apply(ctx: &egui::Context, family: Option<&str>, prose: Option<&str>, tab
 
     // The prose family: the reading face, then egui's fonts for any
     // characters it lacks.
-    let mut prose_fonts = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    let fallback = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    let mut prose_fonts = fallback.clone();
     if let Some((blob, index)) = prose.and_then(load_regular) {
         let data = FontData::from_blob(Arc::new(blob), index);
         fonts.font_data.insert(PROSE_FONT_KEY.to_owned(), Arc::new(data));
         prose_fonts.insert(0, PROSE_FONT_KEY.to_owned());
     }
     fonts.families.insert(prose_family(), prose_fonts);
+    // Its bold and italic faces, each only if the font really has it.
+    if let Some(family) = prose {
+        for (bold, italic) in [(true, false), (false, true), (true, true)] {
+            let Some((blob, index)) = load_face(family, bold, italic) else { continue };
+            let key = format!("{PROSE_FONT_KEY}-{bold}-{italic}");
+            fonts.font_data.insert(key.clone(), Arc::new(FontData::from_blob(Arc::new(blob), index)));
+            let mut list = fallback.clone();
+            list.insert(0, key);
+            fonts.families.insert(prose_variant(bold, italic).expect("a variant"), list);
+        }
+    }
 
     if let Some((blob, index)) = family.and_then(load_regular) {
         let data = FontData::from_blob(Arc::new(blob), index);
@@ -123,6 +148,22 @@ pub fn apply(ctx: &egui::Context, family: Option<&str>, prose: Option<&str>, tab
         Arc::make_mut(data).tweak.tab_size = tab_width as f32;
     }
     ctx.set_fonts(fonts);
+}
+
+/// A family's bold and/or italic face, only if it truly is one (a family
+/// without an italic would otherwise hand back its upright face).
+fn load_face(family: &str, bold: bool, italic: bool) -> Option<(fontique::Blob<u8>, u32)> {
+    let mut collection = Collection::new(CollectionOptions::default());
+    let info = collection.family_by_name(family)?;
+    let weight = if bold { FontWeight::BOLD } else { FontWeight::NORMAL };
+    let style = if italic { FontStyle::Italic } else { FontStyle::Normal };
+    let font = info.match_font(FontWidth::NORMAL, style, weight, false)?;
+    let is_italic = !matches!(font.style(), FontStyle::Normal);
+    let is_bold = font.weight().value() >= 600.0;
+    if is_italic != italic || is_bold != bold {
+        return None;
+    }
+    Some((font.load(None)?, font.index()))
 }
 
 /// The regular (upright, normal weight) face of a family.
@@ -147,6 +188,14 @@ mod tests {
         assert!(families.iter().any(|f| f == "Menlo"), "{families:?}");
         assert!(!families.iter().any(|f| f == "Helvetica"));
         assert!(load_regular("Menlo").is_some());
+    }
+
+    #[test]
+    fn finds_true_bold_and_italic_faces() {
+        // Georgia ships with macOS with all four faces.
+        assert!(load_face("Georgia", true, false).is_some());
+        assert!(load_face("Georgia", false, true).is_some());
+        assert!(load_face("Georgia", true, true).is_some());
     }
 
     #[test]

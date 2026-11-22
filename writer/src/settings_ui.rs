@@ -24,6 +24,8 @@ pub struct WriterSettings {
     pub text_width: Option<f32>,
     /// Typing `--` makes an em dash.
     pub smart_dashes: bool,
+    /// Show *italics*, **bold**, headings and notes styled as you type.
+    pub show_markdown: bool,
     pub theme: ThemeChoice,
 }
 
@@ -35,6 +37,7 @@ impl Default for WriterSettings {
             line_spacing: 1.3,
             text_width: Some(680.0),
             smart_dashes: true,
+            show_markdown: true,
             theme: ThemeChoice::default(),
         }
     }
@@ -54,6 +57,7 @@ impl WriterSettings {
             prose: true,
             line_spacing: self.line_spacing,
             max_text_width: self.text_width,
+            markdown: self.show_markdown,
             ..EditorSettings::default()
         }
     }
@@ -135,7 +139,10 @@ impl WriterApp {
                     ui.end_row();
 
                     ui.label("Typing");
-                    ui.checkbox(&mut settings.smart_dashes, "Two hyphens (--) make an em dash (\u{2014})");
+                    ui.vertical(|ui| {
+                        ui.checkbox(&mut settings.smart_dashes, "Two hyphens (--) make an em dash (\u{2014})");
+                        ui.checkbox(&mut settings.show_markdown, "Show *italics*, **bold** and headings as you type");
+                    });
                     ui.end_row();
                 });
 
