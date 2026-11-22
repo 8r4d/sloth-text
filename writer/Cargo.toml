@@ -21,3 +21,12 @@ winit = "0.30"
 
 [dev-dependencies]
 egui_kittest = { version = "0.37.0", features = ["eframe", "wgpu"] }
+
+# scripts/install-writer.sh builds "Sloth Writer.app" (via cargo-bundle) and installs it
+[package.metadata.bundle]
+name = "Sloth Writer"
+identifier = "com.bradsalomons.sloth-writer"
+category = "public.app-category.productivity"
+short_description = "A writing app for long projects"
+# Drawn by scripts/make-writer-icon.swift
+icon = ["icons/SlothWriter.icns"]

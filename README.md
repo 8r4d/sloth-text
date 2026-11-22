@@ -20,6 +20,12 @@ After installing, Sloth appears in Finder's **Open With** menu for text files.
 To make it the default for a type, select a file, choose **File → Get Info**,
 pick Sloth under **Open with**, and click **Change All**.
 
+Sloth Writer, the long-form writing app in `writer/`, installs the same way:
+
+```sh
+scripts/install-writer.sh   # builds and installs "Sloth Writer.app"
+```
+
 ## Features
 
 | Action             | Shortcut |
@@ -110,6 +116,7 @@ to include Writer.
 | `sloth/src/help.rs`     | The Help window's pages |
 | `sloth/src/settings_window.rs` | The Settings window |
 | `scripts/make-icon.swift` | Draws the app icon (`sloth/icons/`); rerun after changing it |
+| `scripts/make-writer-icon.swift` | Draws Sloth Writer's icon (`writer/icons/`) |
 | `core/src/text_format.rs` | Encodings, byte-order marks and line endings (reading and writing) |
 | `core/src/recovery.rs` | Crash-recovery copies of unsaved documents |
 | `core/src/editing.rs`  | Auto-indent, indent/outdent and bracket matching (pure, unit-tested) |

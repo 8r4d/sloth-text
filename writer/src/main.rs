@@ -19,7 +19,11 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title("Sloth Writer")
             .with_inner_size([1100.0, 750.0])
-            .with_min_inner_size([500.0, 300.0]),
+            .with_min_inner_size([500.0, 300.0])
+            .with_icon(std::sync::Arc::new(
+                eframe::icon_data::from_png_bytes(include_bytes!("../icons/icon-512.png"))
+                    .expect("icon is a valid PNG"),
+            )),
         ..Default::default()
     };
     #[cfg(target_os = "macos")]
