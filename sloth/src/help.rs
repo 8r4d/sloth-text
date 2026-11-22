@@ -22,14 +22,18 @@ pub fn shortcuts_page(ui: &mut egui::Ui) {
         .num_columns(2)
         .spacing([40.0, 4.0])
         .show(ui, |ui| {
+            let mut first = true;
             for (title, entries) in commands::MENUS {
                 let mut cmds = Vec::new();
                 collect(entries, &mut cmds);
                 if cmds.is_empty() {
                     continue;
                 }
-                ui.add_space(6.0);
-                ui.end_row();
+                if !first {
+                    ui.label(""); // a gap between menus (add_space isn't allowed in a grid)
+                    ui.end_row();
+                }
+                first = false;
                 ui.strong(*title);
                 ui.end_row();
                 for cmd in cmds {

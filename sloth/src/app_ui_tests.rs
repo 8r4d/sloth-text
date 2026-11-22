@@ -844,3 +844,14 @@ fn reopening_at_launch_can_be_turned_off() {
     let harness = harness(settings, vec![]);
     assert!(harness.state().w.tabs.is_pristine());
 }
+
+#[test]
+fn the_help_window_shows_shortcuts_and_release_notes() {
+    let mut harness = harness(Settings::default(), vec![]);
+    harness.state_mut().w.help = Some(super::HelpPage::Shortcuts);
+    harness.run_steps(2);
+    harness.get_by_label("Find Next");
+    harness.get_by_label("Release Notes").click();
+    harness.run_steps(2);
+    harness.get_by_label("1.0.0");
+}
