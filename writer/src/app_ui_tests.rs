@@ -697,3 +697,50 @@ fn compile_summarises_the_manuscript_and_writes_it() {
     super::compile_window::write_compiled(&manuscript, crate::compile::Format::Manuscript, &docx).unwrap();
     assert!(docx_rs::read_docx(&fs::read(&docx).unwrap()).unwrap().json().contains("not saved yet"));
 }
+
+// ----- snapshots -----------------------------------------------------------------
+
+fn snapshot_list(harness: &Harness<'static, WriterApp>) -> Vec<crate::snapshots::Snapshot> {
+    let app = harness.state();
+    crate::snapshots::list(&app.project.as_ref().unwrap().root, app.selected.as_deref().unwrap())
+}
+
+#[test]
+fn snapshots_are_taken_compared_restored_and_deleted() {
+    let dir = TempDir::new("snapshots");
+    let mut harness = harness(project(&dir, "The ferry had gone."));
+
+    // Named, from the inspector.
+    harness.state_mut().snapshot_name = "first draft".into();
+    harness.get_by_label("Take").click();
+    harness.run_steps(2);
+    // Unnamed, with ⌘5, of the text as it is in the editor (unsaved).
+    harness.state_mut().current().unwrap().doc.text = "The last ferry was gone.".into();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num5);
+    harness.run_steps(2);
+    let list = snapshot_list(&harness);
+    assert_eq!(list.len(), 2);
+    assert_eq!(list.iter().find(|s| s.name == "first draft").unwrap().text().unwrap(), "The ferry had gone.");
+
+    // Compare the named one with the current text, then restore it.
+    harness.get_by_label_contains("first draft").click();
+    harness.run_steps(3);
+    harness.get_by_label_contains("added since");
+    harness.get_by_label("Restore This Version").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("The ferry had gone."));
+    // What was there is kept, so the restore can be undone.
+    let list = snapshot_list(&harness);
+    let kept = list.iter().find(|s| s.name.starts_with("before restoring")).unwrap();
+    assert_eq!(kept.text().unwrap(), "The last ferry was gone.");
+
+    // Delete one, after confirming.
+    harness.get_by_label_contains("first draft").click();
+    harness.run_steps(3);
+    harness.get_by_label("Delete Snapshot\u{2026}").click();
+    harness.run_steps(2);
+    harness.get_by_label("Delete").click();
+    harness.run_steps(2);
+    assert!(snapshot_list(&harness).iter().all(|s| s.name != "first draft"));
+    assert_eq!(snapshot_list(&harness).len(), 2);
+}

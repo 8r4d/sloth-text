@@ -20,6 +20,8 @@ mod compile_window;
 pub(crate) mod inspector;
 #[path = "search.rs"]
 mod search;
+#[path = "snapshots_ui.rs"]
+mod snapshots_ui;
 #[path = "views.rs"]
 mod views;
 use search::{DocResults, Direction};
@@ -82,6 +84,12 @@ pub struct WriterApp {
     folder_views: views::FolderViews,
     /// The Compile window is open (see compile_window.rs).
     compile_open: bool,
+
+    // Snapshots (see snapshots_ui.rs).
+    /// The name typed for the next snapshot.
+    snapshot_name: String,
+    comparing: Option<snapshots_ui::Comparing>,
+    confirm_delete_snapshot: Option<crate::snapshots::Snapshot>,
 }
 
 impl WriterApp {
@@ -131,6 +139,9 @@ impl WriterApp {
             manifest_dirty: false,
             folder_views: views::FolderViews::default(),
             compile_open: false,
+            snapshot_name: String::new(),
+            comparing: None,
+            confirm_delete_snapshot: None,
         };
         if let Some(root) = open {
             app.open_project(&root);
@@ -210,6 +221,8 @@ impl WriterApp {
         self.inspector_buffers = None;
         self.editing_labels = false;
         self.compile_open = false;
+        self.comparing = None;
+        self.confirm_delete_snapshot = None;
     }
 
     // ----- documents ---------------------------------------------------------
@@ -482,6 +495,14 @@ impl WriterApp {
         if pressed(ctx, Modifiers::COMMAND, Key::O) {
             self.open_project_dialog();
         }
+        // ⌘5: snapshot the open document.
+        if pressed(ctx, Modifiers::COMMAND, Key::Num5)
+            && let Some(id) = self.selected.clone()
+            && self.project.as_ref().and_then(|p| p.node(&id)).is_some_and(Node::is_document)
+        {
+            let now = ctx.input(|i| i.time);
+            self.take_snapshot(&id, "", now);
+        }
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::E) {
             self.compile_open = true;
         }
@@ -740,6 +761,8 @@ impl eframe::App for WriterApp {
         self.empty_trash_dialog(&ctx);
         self.labels_window(&ctx);
         self.compile_window(&ctx);
+        self.compare_window(&ctx);
+        self.delete_snapshot_dialog(&ctx);
 
         if now - self.last_autosave >= AUTOSAVE_SECONDS {
             self.save_all();

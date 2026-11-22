@@ -6,6 +6,7 @@ mod app;
 mod binder;
 mod compile;
 mod project;
+mod snapshots;
 
 use eframe::egui;
 use sloth_core::theme::ThemeChoice;

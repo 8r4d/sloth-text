@@ -12,6 +12,8 @@ serde = { version = "1.0.229", features = ["derive"] }
 rfd = "0.18.0"
 docx-rs = "0.4.22"
 pulldown-cmark = "0.13.6"
+chrono = "0.4.45"
+similar = "3.2.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Same major version eframe uses; needed to turn off winit's default menu.

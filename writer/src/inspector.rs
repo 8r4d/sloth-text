@@ -112,6 +112,7 @@ impl WriterApp {
         let Some(project) = &self.project else { return };
         let Some(node) = project.node(&id) else { return };
         let (title, role, mut meta) = (node.title.clone(), node.role, node.meta.clone());
+        let is_document = node.is_document();
         let in_manuscript = project.role_of(&id) == Some(Role::Manuscript);
         let statuses = project.manifest.statuses.clone();
         let labels = project.manifest.labels.clone();
@@ -251,6 +252,10 @@ impl WriterApp {
             && project.set_meta(&id, meta)
         {
             self.manifest_dirty = true;
+        }
+
+        if is_document {
+            self.snapshot_section(ui, &id);
         }
     }
 

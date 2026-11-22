@@ -397,8 +397,8 @@ impl Project {
         self.move_node(id, &Place::Into(Role::Trash.folder().into()))
     }
 
-    /// Delete everything in the Trash for good. Returns the files removed,
-    /// so open copies can be closed.
+    /// Delete everything in the Trash for good, snapshots included. Returns
+    /// the files removed, so open copies can be closed.
     pub fn empty_trash(&mut self) -> io::Result<Vec<PathBuf>> {
         let trash = self
             .manifest
@@ -410,6 +410,7 @@ impl Project {
         let mut removed = Vec::new();
         for item in &items {
             for node in item.subtree() {
+                crate::snapshots::delete_all(&self.root, &node.id)?;
                 if let Some(rel) = &node.path {
                     let path = self.root.join(rel);
                     match fs::remove_file(&path) {
@@ -871,8 +872,11 @@ mod tests {
         assert_eq!(changes[0].to, dir.0.join("trash/cut-scene.md"));
         assert_eq!(p.role_of(&id), Some(Role::Trash));
 
+        crate::snapshots::take(&dir.0, &id, "an old version", "").unwrap();
+
         let removed = p.empty_trash().unwrap();
         assert_eq!(removed, [dir.0.join("trash/cut-scene.md")]);
+        assert!(crate::snapshots::list(&dir.0, &id).is_empty(), "snapshots go too");
         assert!(p.node(&id).is_none());
         assert!(!dir.0.join("trash/cut-scene.md").exists());
         assert_eq!(Project::open(&dir.0).unwrap().manifest, p.manifest);
