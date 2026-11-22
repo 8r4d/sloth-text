@@ -104,6 +104,8 @@ pub struct WriterApp {
     // Characters (see character_ui.rs).
     /// The character name field's text, for the character it belongs to.
     character_name: Option<(String, String)>,
+    /// The open profile as typed (see character_ui.rs).
+    character_sheet: Option<character_ui::CharacterSheet>,
     editing_characteristics: Option<character_ui::EditingCharacteristics>,
 
     // Settings (see settings_ui.rs).
@@ -160,6 +162,7 @@ impl WriterApp {
             recent: cc.storage.and_then(|s| eframe::get_value(s, projects_ui::RECENT_KEY)).unwrap_or_default(),
             renaming_project: None,
             character_name: None,
+            character_sheet: None,
             editing_characteristics: None,
         };
         app.apply_settings(&cc.egui_ctx);
@@ -245,6 +248,7 @@ impl WriterApp {
         self.comparing = None;
         self.confirm_delete_snapshot = None;
         self.character_name = None;
+        self.character_sheet = None;
         self.editing_characteristics = None;
     }
 

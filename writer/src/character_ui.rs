@@ -13,6 +13,14 @@ use crate::project::{Meta, Role};
 /// The profile column's widest.
 const COLUMN: f32 = 680.0;
 
+/// The profile as the form is editing it, and the file text it was last
+/// written as (to notice changes from elsewhere).
+pub(super) struct CharacterSheet {
+    id: String,
+    written: String,
+    sheet: Sheet,
+}
+
 /// The Characteristics window's state: the names as being edited.
 pub(super) struct EditingCharacteristics {
     names: Vec<String>,
@@ -35,7 +43,14 @@ impl WriterApp {
         let appearances: Vec<(String, String)> =
             project.appearances(id).into_iter().map(|n| (n.id.clone(), n.title.clone())).collect();
         let Some(text) = self.current().map(|t| t.doc.text.clone()) else { return };
-        let original = Sheet::parse(&text);
+        // The form edits its own copy, exactly as typed: re-reading the file
+        // every frame would trim a space typed at the end before the next
+        // word arrives. The file is read again only if it changed from
+        // outside the form (a restore, a rename, another program).
+        let original = match &self.character_sheet {
+            Some(c) if c.id == id && c.written == text => c.sheet.clone(),
+            _ => Sheet::parse(&text),
+        };
         let mut sheet = original.clone();
         let prose = FontId::new(16.0, sloth_core::fonts::prose_family());
         let mut rename = None;
@@ -148,11 +163,13 @@ impl WriterApp {
             });
         });
 
-        if sheet != original
-            && let Some(tab) = self.current()
+        let written = if sheet != original { sheet.to_text() } else { text };
+        if let Some(tab) = self.current()
+            && tab.doc.text != written
         {
-            tab.doc.text = sheet.to_text();
+            tab.doc.text = written.clone();
         }
+        self.character_sheet = Some(CharacterSheet { id: id.to_owned(), written, sheet });
         if let Some(name) = rename {
             self.apply(BinderAction::FinishRename { id: id.to_owned(), title: name });
         }

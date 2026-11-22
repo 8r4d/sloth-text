@@ -937,3 +937,37 @@ fn settings_open_from_the_start_screen() {
     harness.run_steps(6);
     harness.get_by_label("Restore Defaults");
 }
+
+#[test]
+fn spaces_typed_in_a_profile_are_kept() {
+    let dir = TempDir::new("character-spaces");
+    let mut p = project(&dir, "");
+    let mara = p.add_document(&Place::Into("characters".into()), "Mara").unwrap();
+    fs::write(p.file_path(&mara).unwrap(), "Eldest\n\n## Voice\n\nDry\n").unwrap();
+    let mut harness = harness(p);
+    harness.get_by_label("👤 Mara").click();
+    harness.run_steps(3);
+
+    // Click at the end of the description and type a word, its space, and
+    // the next word, each in its own frame, as a person types.
+    let field = harness.get_all_by_value("Eldest").next().unwrap().rect();
+    harness.event(egui::Event::PointerMoved(field.right_center()));
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton {
+            pos: field.right_center() - egui::vec2(4.0, 0.0),
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        harness.run_steps(1);
+    }
+    for typed in [" ", "daughter", ".", " ", "Left", " ", "first."] {
+        harness.event(egui::Event::Text(typed.into()));
+        harness.run_steps(1);
+    }
+    assert_eq!(
+        current_text(&mut harness).as_deref(),
+        Some("Eldest daughter. Left first.\n\n## Voice\n\nDry\n")
+    );
+}
