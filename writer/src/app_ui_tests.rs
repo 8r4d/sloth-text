@@ -861,9 +861,9 @@ fn renaming_a_characteristic_renames_it_in_every_profile() {
     let mut harness = harness(p);
     harness.state_mut().select(a.clone()); // one open, one not
 
-    harness.state_mut().rename_characteristic("Motivations", "Wants");
+    harness.state_mut().rename_section("characters", "Motivations", "Wants");
     let app = harness.state_mut();
-    assert!(app.project.as_ref().unwrap().manifest.characteristics.contains(&"Wants".to_owned()));
+    assert!(app.project.as_ref().unwrap().profile_kind("characters").unwrap().sections.contains(&"Wants".to_owned()));
     assert_eq!(app.current().unwrap().doc.text, "## Wants\n\nTo leave.\n");
     assert_eq!(fs::read_to_string(dir.0.join("characters/jonah.md")).unwrap(), "## Wants\n\nTo stay.\n");
 }
@@ -881,7 +881,7 @@ fn scenes_list_their_characters_and_characters_their_scenes() {
     harness.run_steps(2);
     harness.get_all_by_label("Mara").last().unwrap().click();
     harness.run_steps(2);
-    let linked = |h: &Harness<'static, WriterApp>| h.state().project.as_ref().unwrap().node(&scene).unwrap().meta.characters.clone();
+    let linked = |h: &Harness<'static, WriterApp>| h.state().project.as_ref().unwrap().node(&scene).unwrap().meta.links.get("characters").cloned().unwrap_or_default();
     assert_eq!(linked(&harness), std::slice::from_ref(&mara));
 
     // Mara's profile lists the scene; clicking it opens the scene.
@@ -1083,4 +1083,50 @@ fn app_syncs_with_the_real_helper() {
     let state = SyncState::load(&dir.0);
     assert_eq!(state.scenes[&id].text, "Written on the Mac.");
     assert!(harness.state().project.as_ref().unwrap().manifest.sync_id.is_some());
+}
+
+// ----- profile folders -------------------------------------------------------------
+
+#[test]
+fn a_locations_folder_works_like_characters() {
+    let dir = TempDir::new("locations");
+    let mut harness = harness(project(&dir, "scene text"));
+    let scene = harness.state().selected.clone().unwrap();
+
+    // Right-click a top-level folder: New Profile Folder → Locations.
+    harness.get_by_label("📚 Notes").click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label("New Profile Folder").hover();
+    harness.run_steps(2);
+    harness.get_by_label("Locations").click();
+    harness.run_steps(3);
+    harness.get_by_label("🗂 Locations");
+    assert!(dir.0.join("locations").is_dir());
+
+    // A location, with its form and its own sections.
+    let harbour = harness
+        .state_mut()
+        .project
+        .as_mut()
+        .unwrap()
+        .add_document(&Place::Into("locations".into()), "The Harbour")
+        .unwrap();
+    harness.state_mut().select(harbour.clone());
+    harness.run_steps(3);
+    harness.get_by_label("Location");
+    harness.get_by_label("+ Section").click();
+    harness.run_steps(2);
+    harness.get_by_label("Sights and sounds").click();
+    harness.run_steps(2);
+    assert!(current_text(&mut harness).unwrap().contains("## Sights and sounds"));
+
+    // The scene's inspector links it: + Location.
+    harness.state_mut().select(scene.clone());
+    harness.run_steps(3);
+    harness.get_by_label("+ Location").click();
+    harness.run_steps(2);
+    harness.get_all_by_label("The Harbour").last().unwrap().click();
+    harness.run_steps(2);
+    let links = harness.state().project.as_ref().unwrap().node(&scene).unwrap().meta.links.clone();
+    assert_eq!(links["locations"], [harbour]);
 }

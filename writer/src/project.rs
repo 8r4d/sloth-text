@@ -14,7 +14,7 @@
 //! (or to the trash) moves its files too. Order and nesting live only in
 //! the manifest: reordering never renames a file.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::hash::{BuildHasher, Hasher};
 use std::io;
@@ -35,6 +35,10 @@ pub enum Role {
     Manuscript,
     /// Character profiles (see character.rs). Never compiled.
     Characters,
+    /// Another profile folder (Locations, Objects…): one per kind in the
+    /// manifest's `profiles`, its id the kind's id. Added and removed by
+    /// choice, so not in `ALL`.
+    Profile,
     Research,
     Notes,
     Trash,
@@ -47,6 +51,7 @@ impl Role {
         match self {
             Role::Manuscript => "Manuscript",
             Role::Characters => "Characters",
+            Role::Profile => "Profiles",
             Role::Research => "Research",
             Role::Notes => "Notes",
             Role::Trash => "Trash",
@@ -60,6 +65,7 @@ impl Role {
         match self {
             Role::Manuscript => "manuscript",
             Role::Characters => "characters",
+            Role::Profile => "profiles",
             Role::Research => "research",
             Role::Notes => "notes",
             Role::Trash => "trash",
@@ -112,9 +118,14 @@ pub struct Meta {
     /// Private notes about the item, never compiled.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub notes: String,
-    /// Characters who appear in this scene, by their binder ids.
+    /// Before profile folders, a scene's characters were kept here; read
+    /// from older projects and moved into `links` (see `repair`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub characters: Vec<String>,
+    /// The profiles that appear in this scene, by kind ("characters",
+    /// "locations"…), each a list of binder ids.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub links: BTreeMap<String, Vec<String>>,
     /// Synced to the helper for editing on an iPad (a folder: everything in it).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub on_ipad: bool,
@@ -144,6 +155,36 @@ pub fn default_characteristics() -> Vec<String> {
     ["Physical appearance", "Personality", "Motivations", "Backstory", "Voice", "Relationships", "Arc"]
         .map(String::from)
         .to_vec()
+}
+
+/// A kind of profile: Characters, Locations… Its id is also its top-level
+/// folder's binder id and the folder its files live in.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProfileKind {
+    pub id: String,
+    /// The folder's name: "Locations".
+    pub name: String,
+    /// One of them: "Location" (for "+ Location").
+    pub item: String,
+    /// The sections a profile can have.
+    pub sections: Vec<String>,
+}
+
+pub const CHARACTERS: &str = "characters";
+
+fn kind(id: &str, name: &str, item: &str, sections: &[&str]) -> ProfileKind {
+    ProfileKind { id: id.into(), name: name.into(), item: item.into(), sections: sections.iter().map(|s| s.to_string()).collect() }
+}
+
+/// The kinds a project can add, ready to use (Characters every project has).
+pub fn profile_presets() -> Vec<ProfileKind> {
+    vec![
+        kind("locations", "Locations", "Location", &["Description", "Sights and sounds", "History", "Who lives there", "Significance"]),
+        kind("objects", "Objects", "Object", &["Description", "Origin", "Who has it", "Significance"]),
+        kind("factions", "Factions", "Faction", &["Members", "Goals", "Rivalries", "History"]),
+        kind("worldbuilding", "Worldbuilding", "Entry", &["Rules", "History", "Limits", "Examples"]),
+        kind("themes", "Themes", "Theme", &["What it means", "Where it appears", "How it changes"]),
+    ]
 }
 
 /// Labels a new project starts with; rename or remove them freely.
@@ -188,9 +229,13 @@ pub struct Manifest {
     pub statuses: Vec<String>,
     #[serde(default)]
     pub labels: Vec<Label>,
-    /// The sections a character profile can have.
-    #[serde(default = "default_characteristics")]
+    /// Before profile folders: the characters' sections, moved into
+    /// `profiles` when an older project opens (see `repair`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub characteristics: Vec<String>,
+    /// The kinds of profile this project has, Characters first.
+    #[serde(default)]
+    pub profiles: Vec<ProfileKind>,
     /// Compile choices (author name, format), remembered for next time.
     #[serde(default)]
     pub compile: crate::compile::CompileSettings,
@@ -247,11 +292,13 @@ impl Project {
                 binder: Role::ALL.into_iter().map(Node::role_folder).collect(),
                 statuses: default_statuses(),
                 labels: starter_labels(),
-                characteristics: default_characteristics(),
+                characteristics: Vec::new(),
+                profiles: Vec::new(),
                 compile: Default::default(),
                 sync_id: None,
             },
         };
+        project.repair();
         project.add_document(&Place::Into(Role::Manuscript.folder().into()), "Untitled")?;
         Ok(project)
     }
@@ -277,6 +324,37 @@ impl Project {
             }
             let _ = fs::create_dir_all(self.root.join(role.folder()));
         }
+        // Characters is a profile kind every project has; an older project's
+        // characteristics become its sections.
+        if !self.manifest.profiles.iter().any(|k| k.id == CHARACTERS) {
+            let sections = std::mem::take(&mut self.manifest.characteristics);
+            let sections = if sections.is_empty() { default_characteristics() } else { sections };
+            self.manifest.profiles.insert(0, ProfileKind { id: CHARACTERS.into(), name: "Characters".into(), item: "Character".into(), sections });
+        }
+        self.manifest.characteristics.clear();
+        // Every other kind has its folder at the top of the binder.
+        for kind in self.manifest.profiles.iter().filter(|k| k.id != CHARACTERS) {
+            if !self.manifest.binder.iter().any(|n| n.id == kind.id) {
+                self.manifest.binder.push(Node {
+                    id: kind.id.clone(),
+                    title: kind.name.clone(),
+                    role: Some(Role::Profile),
+                    path: None,
+                    children: Vec::new(),
+                    meta: Meta::default(),
+                });
+            }
+            let _ = fs::create_dir_all(self.root.join(&kind.id));
+        }
+        // A scene's characters, from before profile folders.
+        fn move_links(node: &mut Node) {
+            let old = std::mem::take(&mut node.meta.characters);
+            if !old.is_empty() {
+                node.meta.links.entry(CHARACTERS.into()).or_default().extend(old);
+            }
+            node.children.iter_mut().for_each(move_links);
+        }
+        self.manifest.binder.iter_mut().for_each(move_links);
         // Keep them in their usual order, whatever the file said.
         self.manifest.binder.sort_by_key(|n| n.role.map(|r| r as u8).unwrap_or(u8::MAX));
     }
@@ -301,6 +379,11 @@ impl Project {
         find(&self.manifest.binder, id)
     }
 
+    /// The top-level folder an item is in (itself, if it's one).
+    fn top_of(&self, id: &str) -> Option<&Node> {
+        self.manifest.binder.iter().find(|top| top.subtree().iter().any(|n| n.id == id))
+    }
+
     /// The role folder an item sits in.
     pub fn role_of(&self, id: &str) -> Option<Role> {
         self.manifest
@@ -322,20 +405,79 @@ impl Project {
             .collect()
     }
 
-    /// Every character, in binder order.
-    pub fn characters(&self) -> Vec<&Node> {
+    // ----- profiles ------------------------------------------------------------
+
+    pub fn profile_kind(&self, kind: &str) -> Option<&ProfileKind> {
+        self.manifest.profiles.iter().find(|k| k.id == kind)
+    }
+
+    /// If this item is a profile (a document in a profile folder), its kind.
+    pub fn profile_of(&self, id: &str) -> Option<&ProfileKind> {
+        let top = self.top_of(id)?;
+        let is_profile_folder = matches!(top.role, Some(Role::Characters | Role::Profile));
+        let is_document = self.node(id).is_some_and(Node::is_document);
+        if is_profile_folder && is_document && top.id != id { self.profile_kind(&top.id) } else { None }
+    }
+
+    /// The profiles of a kind (its folder's documents), in binder order.
+    pub fn profile_items(&self, kind: &str) -> Vec<&Node> {
         self.manifest
             .binder
             .iter()
-            .filter(|top| top.role == Some(Role::Characters))
+            .filter(|top| top.id == kind)
             .flat_map(Node::subtree)
             .filter(|n| n.is_document())
             .collect()
     }
 
-    /// The scenes a character appears in (outside the Trash), in binder order.
-    pub fn appearances(&self, character: &str) -> Vec<&Node> {
-        self.documents().into_iter().filter(|n| n.meta.characters.iter().any(|c| c == character)).collect()
+    /// The scenes a profile appears in (outside the Trash), in binder order.
+    pub fn appearances(&self, kind: &str, item: &str) -> Vec<&Node> {
+        self.documents()
+            .into_iter()
+            .filter(|n| n.meta.links.get(kind).is_some_and(|ids| ids.iter().any(|i| i == item)))
+            .collect()
+    }
+
+    /// Add a profile folder of this kind (a preset, or one of your own) at
+    /// the top of the binder, after the other profile folders. Its id is made
+    /// unique if needed.
+    pub fn add_profile_folder(&mut self, mut kind: ProfileKind) -> io::Result<String> {
+        kind.name = clean_title(&kind.name)?;
+        let taken = |id: &str| self.manifest.binder.iter().any(|n| n.id == id) || self.root.join(id).is_file();
+        let base = slug(&kind.name);
+        kind.id = (1..).map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") }).find(|id| !taken(id)).expect("free");
+        if kind.item.trim().is_empty() {
+            kind.item = kind.name.clone();
+        }
+        let id = kind.id.clone();
+        self.manifest.profiles.push(kind);
+        self.repair();
+        self.save()?;
+        Ok(id)
+    }
+
+    /// Remove an empty profile folder (not Characters) and its kind.
+    pub fn remove_profile_folder(&mut self, kind: &str) -> io::Result<()> {
+        if kind == CHARACTERS {
+            return Err(invalid("Every project keeps its Characters folder."));
+        }
+        let folder = self.manifest.binder.iter().find(|n| n.id == kind && n.role == Some(Role::Profile));
+        match folder {
+            None => return Err(invalid("That folder no longer exists.")),
+            Some(f) if !f.children.is_empty() => return Err(invalid("Move or delete what's in it first.")),
+            Some(_) => {}
+        }
+        self.manifest.binder.retain(|n| n.id != kind);
+        self.manifest.profiles.retain(|k| k.id != kind);
+        let _ = fs::remove_dir(self.root.join(kind)); // only if empty
+        self.save()
+    }
+
+    /// Change a kind's list of sections (in memory; saved with the autosave).
+    pub fn set_sections(&mut self, kind: &str, sections: Vec<String>) {
+        if let Some(k) = self.manifest.profiles.iter_mut().find(|k| k.id == kind) {
+            k.sections = sections;
+        }
     }
 
     /// The documents in an item, itself included: what its word count adds up.
@@ -362,8 +504,8 @@ impl Project {
         self.check_place(None, place)?;
         let title = clean_title(title)?;
         let path = if document {
-            let role = self.role_of(place.target()).expect("checked above");
-            let rel = self.free_path(role, &slug(&title), None);
+            let dir = self.top_of(place.target()).expect("checked above").id.clone();
+            let rel = self.free_path(&dir, &slug(&title), None);
             fs::OpenOptions::new().write(true).create_new(true).open(self.root.join(&rel))?;
             Some(rel)
         } else {
@@ -386,8 +528,8 @@ impl Project {
         let title = clean_title(title)?;
         let mut change = None;
         if let Some(old) = node.path.clone() {
-            let role = self.role_of(id).expect("node exists");
-            let new = self.free_path(role, &slug(&title), Some(&old));
+            let dir = self.top_of(id).expect("node exists").id.clone();
+            let new = self.free_path(&dir, &slug(&title), Some(&old));
             if new != old {
                 let (from, to) = (self.root.join(&old), self.root.join(&new));
                 fs::rename(&from, &to)?;
@@ -404,13 +546,13 @@ impl Project {
     /// folder, its documents' files move to that folder on disk.
     pub fn move_node(&mut self, id: &str, place: &Place) -> io::Result<Vec<PathChange>> {
         self.check_place(Some(id), place)?;
-        let from_role = self.role_of(id).expect("checked above");
-        let to_role = self.role_of(place.target()).expect("checked above");
+        let from_dir = self.top_of(id).expect("checked above").id.clone();
+        let to_dir = self.top_of(place.target()).expect("checked above").id.clone();
         let node = take(&mut self.manifest.binder, id).expect("checked above");
         insert(&mut self.manifest.binder, place, node).expect("checked above");
 
         let mut changes = Vec::new();
-        if from_role != to_role {
+        if from_dir != to_dir {
             let documents: Vec<(String, String)> = self
                 .node(id)
                 .expect("just inserted")
@@ -420,7 +562,7 @@ impl Project {
                 .collect();
             for (doc_id, old) in documents {
                 let stem = Path::new(&old).file_stem().map(|s| s.to_string_lossy().into_owned());
-                let new = self.free_path(to_role, stem.as_deref().unwrap_or("untitled"), None);
+                let new = self.free_path(&to_dir, stem.as_deref().unwrap_or("untitled"), None);
                 let (from, to) = (self.root.join(&old), self.root.join(&new));
                 match fs::rename(&from, &to) {
                     Ok(()) => {
@@ -534,10 +676,11 @@ impl Project {
         Ok(())
     }
 
-    /// A relative path in `role`'s folder that no other item uses and no
-    /// file occupies: `stem.md`, else `stem-2.md`, `stem-3.md`… `current` is
-    /// the item's own path, which it may keep.
-    fn free_path(&self, role: Role, stem: &str, current: Option<&str>) -> String {
+    /// A relative path in folder `dir` (a top-level folder's id: manuscript,
+    /// characters, locations…) that no other item uses and no file occupies:
+    /// `stem.md`, else `stem-2.md`, `stem-3.md`… `current` is the item's own
+    /// path, which it may keep.
+    fn free_path(&self, dir: &str, stem: &str, current: Option<&str>) -> String {
         let used: HashSet<String> = self
             .all_nodes()
             .into_iter()
@@ -548,8 +691,8 @@ impl Project {
             .collect();
         (1..)
             .map(|n| match n {
-                1 => format!("{}/{stem}.md", role.folder()),
-                n => format!("{}/{stem}-{n}.md", role.folder()),
+                1 => format!("{dir}/{stem}.md"),
+                n => format!("{dir}/{stem}-{n}.md"),
             })
             .find(|rel| {
                 Some(rel.as_str()) == current
@@ -934,7 +1077,8 @@ mod tests {
             target_words: Some(2500),
             exclude_from_compile: true,
             notes: "Check the tide tables.".into(),
-            characters: vec!["c0ffee".into()],
+            characters: Vec::new(),
+            links: [("characters".to_owned(), vec!["c0ffee".to_owned()])].into(),
             on_ipad: true,
         };
         assert!(p.set_meta(&id, meta.clone()));
@@ -1002,6 +1146,66 @@ mod tests {
         let id = p.sync_id();
         assert_eq!(id.len(), 16);
         assert_eq!(p.sync_id(), id, "made once");
+    }
+
+    #[test]
+    fn older_projects_move_into_profile_kinds() {
+        let dir = TempDir::new("profiles-migrate");
+        fs::create_dir_all(&dir.0).unwrap();
+        // Before profile folders: characteristics on the project, characters on a scene.
+        let old = r#"(format: 1, title: "Old", characteristics: ["Wants", "Fears"], binder: [
+            (id: "manuscript", title: "Manuscript", role: Some(Manuscript), children: [
+                (id: "scene1", title: "Scene", path: Some("manuscript/scene.md"), meta: (characters: ["mara01"])),
+            ]),
+        ])"#;
+        fs::write(dir.0.join(MANIFEST_FILE), old).unwrap();
+        let p = Project::open(&dir.0).unwrap();
+        let characters = p.profile_kind(CHARACTERS).unwrap();
+        assert_eq!(characters.sections, ["Wants", "Fears"]);
+        assert_eq!(p.node("scene1").unwrap().meta.links["characters"], ["mara01"]);
+        assert!(p.node("scene1").unwrap().meta.characters.is_empty());
+        // Written back in the new form.
+        p.save().unwrap();
+        let text = fs::read_to_string(dir.0.join(MANIFEST_FILE)).unwrap();
+        assert!(!text.contains("characteristics") && !text.contains("characters: ["), "{text}");
+    }
+
+    #[test]
+    fn profile_folders_come_and_go() {
+        let dir = TempDir::new("profiles");
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        assert_eq!(p.manifest.profiles.iter().map(|k| k.id.as_str()).collect::<Vec<_>>(), ["characters"]);
+
+        let locations = profile_presets().into_iter().find(|k| k.id == "locations").unwrap();
+        let id = p.add_profile_folder(locations).unwrap();
+        assert_eq!(id, "locations");
+        // At the top, after Characters.
+        assert_eq!(titles(&p.manifest.binder), ["Manuscript", "Characters", "Locations", "Research", "Notes", "Trash"]);
+        assert!(dir.0.join("locations").is_dir());
+
+        // A profile there lives in locations/ and is a Location.
+        let harbour = p.add_document(&Place::Into("locations".into()), "The Harbour").unwrap();
+        assert_eq!(p.node(&harbour).unwrap().path.as_deref(), Some("locations/the-harbour.md"));
+        assert_eq!(p.profile_of(&harbour).unwrap().item, "Location");
+        assert!(p.profile_of("locations").is_none(), "the folder itself isn't a profile");
+
+        // Linked from a scene, it appears there.
+        let scene = p.manifest.binder[0].children[0].id.clone();
+        p.set_meta(&scene, Meta { links: [("locations".to_owned(), vec![harbour.clone()])].into(), ..Meta::default() });
+        assert_eq!(p.appearances("locations", &harbour).len(), 1);
+
+        // A folder of your own; a clashing name gets its own id.
+        let custom = ProfileKind { id: String::new(), name: "Locations".into(), item: "Place".into(), sections: vec![] };
+        assert_eq!(p.add_profile_folder(custom).unwrap(), "locations-2");
+
+        // Only an empty one can be removed, and never Characters.
+        assert!(p.remove_profile_folder("locations").is_err());
+        p.trash(&harbour).unwrap();
+        p.remove_profile_folder("locations").unwrap();
+        assert!(p.profile_kind("locations").is_none());
+        assert!(!titles(&p.manifest.binder).contains(&"Locations") || p.profile_kind("locations-2").is_some());
+        assert!(p.remove_profile_folder(CHARACTERS).is_err());
+        assert_eq!(Project::open(&dir.0).unwrap().manifest, p.manifest);
     }
 
     #[test]

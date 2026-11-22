@@ -14,8 +14,8 @@ use sloth_core::tabs::{self, DiskNotice, NoticeChoice, Tab, TabId, Tabs};
 
 use crate::binder::{self, BinderAction, Renaming};
 
-#[path = "character_ui.rs"]
-mod character_ui;
+#[path = "profiles_ui.rs"]
+mod profiles_ui;
 #[path = "compile_window.rs"]
 mod compile_window;
 #[path = "inspector.rs"]
@@ -104,11 +104,14 @@ pub struct WriterApp {
     renaming_project: Option<projects_ui::Renaming>,
 
     // Characters (see character_ui.rs).
-    /// The character name field's text, for the character it belongs to.
-    character_name: Option<(String, String)>,
-    /// The open profile as typed (see character_ui.rs).
-    character_sheet: Option<character_ui::CharacterSheet>,
-    editing_characteristics: Option<character_ui::EditingCharacteristics>,
+    /// The profile name field's text, for the profile it belongs to.
+    profile_name: Option<(String, String)>,
+    /// The open profile as typed (see profiles_ui.rs).
+    profile_sheet: Option<profiles_ui::ProfileSheet>,
+    editing_sections: Option<profiles_ui::EditingSections>,
+    /// The New Profile Folder window for a folder of your own: its name, and
+    /// what one item in it is called.
+    new_profile_folder: Option<(String, String)>,
 
     // Settings (see settings_ui.rs).
     settings: settings_ui::WriterSettings,
@@ -179,9 +182,10 @@ impl WriterApp {
             confirm_delete_snapshot: None,
             recent: cc.storage.and_then(|s| eframe::get_value(s, projects_ui::RECENT_KEY)).unwrap_or_default(),
             renaming_project: None,
-            character_name: None,
-            character_sheet: None,
-            editing_characteristics: None,
+            profile_name: None,
+            profile_sheet: None,
+            editing_sections: None,
+            new_profile_folder: None,
         };
         app.apply_settings(&cc.egui_ctx);
         if let Some(root) = open {
@@ -267,9 +271,10 @@ impl WriterApp {
         self.compile_open = false;
         self.comparing = None;
         self.confirm_delete_snapshot = None;
-        self.character_name = None;
-        self.character_sheet = None;
-        self.editing_characteristics = None;
+        self.profile_name = None;
+        self.profile_sheet = None;
+        self.editing_sections = None;
+        self.new_profile_folder = None;
     }
 
     // ----- documents ---------------------------------------------------------
@@ -480,6 +485,64 @@ impl WriterApp {
             BinderAction::Trash(id) => self.trash(&id),
             BinderAction::EmptyTrash => self.confirm_empty_trash = true,
             BinderAction::Move { id, place } => self.move_item(&id, &place),
+            BinderAction::AddProfileFolder(Some(kind)) => self.add_profile_folder(kind),
+            BinderAction::AddProfileFolder(None) => self.new_profile_folder = Some((String::new(), String::new())),
+            BinderAction::RemoveProfileFolder(kind) => {
+                let Some(project) = self.project.as_mut() else { return };
+                match project.remove_profile_folder(&kind) {
+                    Ok(()) => {
+                        if self.selected.as_deref() == Some(kind.as_str()) {
+                            self.selected = None;
+                        }
+                    }
+                    Err(e) => self.error = Some(e.to_string()),
+                }
+            }
+        }
+    }
+
+    fn add_profile_folder(&mut self, kind: crate::project::ProfileKind) {
+        let Some(project) = self.project.as_mut() else { return };
+        match project.add_profile_folder(kind) {
+            Ok(id) => self.select(id),
+            Err(e) => self.error = Some(e.to_string()),
+        }
+    }
+
+    /// New Profile Folder, for a folder of your own.
+    fn new_profile_folder_window(&mut self, ctx: &egui::Context) {
+        let Some((name, item)) = self.new_profile_folder.as_mut() else { return };
+        let mut choice = None;
+        egui::Modal::new(egui::Id::unique("new-profile-folder")).show(ctx, |ui| {
+            ui.set_width(340.0);
+            ui.heading("New Profile Folder");
+            ui.label("Folder name");
+            ui.add(egui::TextEdit::singleline(name).hint_text("Ships").desired_width(f32::INFINITY));
+            ui.label("One of them is a…");
+            ui.add(egui::TextEdit::singleline(item).hint_text("Ship").desired_width(f32::INFINITY));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("Add Folder")).clicked() {
+                    choice = Some(true);
+                }
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    choice = Some(false);
+                }
+            });
+        });
+        match choice {
+            Some(true) => {
+                let (name, item) = self.new_profile_folder.take().expect("checked above");
+                let kind = crate::project::ProfileKind {
+                    id: String::new(),
+                    name: name.trim().to_owned(),
+                    item: item.trim().to_owned(),
+                    sections: vec!["Description".to_owned(), "Notes".to_owned()],
+                };
+                self.add_profile_folder(kind);
+            }
+            Some(false) => self.new_profile_folder = None,
+            None => {}
         }
     }
 
@@ -717,8 +780,8 @@ impl WriterApp {
             Some(node) if !node.is_document() => Some(node.id.clone()),
             _ => None,
         };
-        // A character shows its profile form.
-        let character = self.selected.clone().filter(|id| self.is_character(id));
+        // A profile (a character, a location…) shows its form.
+        let profile = self.selected.clone().and_then(|id| self.profile_kind_of(&id).map(|kind| (id, kind)));
         // Not in a frame with a mouse press or release (such as the click in
         // the binder that opened the document): egui takes focus away from a
         // text field when a click lands outside it, so wait a frame.
@@ -740,8 +803,8 @@ impl WriterApp {
                     self.folder_view(ui, folder);
                     return;
                 }
-                if let Some(id) = &character {
-                    self.character_form(ui, id);
+                if let Some((id, kind)) = &profile {
+                    self.profile_form(ui, id, kind);
                     return;
                 }
                 match self.current() {
@@ -820,7 +883,8 @@ impl eframe::App for WriterApp {
                     if let Some(project) = &self.project {
                         let selected = self.selected.as_deref();
                         let labels = &project.manifest.labels;
-                        actions = binder::show(ui, &project.manifest.binder, labels, selected, &mut self.renaming);
+                        let kinds = &project.manifest.profiles;
+                        actions = binder::show(ui, &project.manifest.binder, labels, kinds, selected, &mut self.renaming);
                     }
                 });
             });
@@ -838,7 +902,8 @@ impl eframe::App for WriterApp {
         self.compile_window(&ctx);
         self.compare_window(&ctx);
         self.rename_project_window(&ctx);
-        self.characteristics_window(&ctx);
+        self.sections_window(&ctx);
+        self.new_profile_folder_window(&ctx);
         self.settings_window(&ctx);
         self.delete_snapshot_dialog(&ctx);
 

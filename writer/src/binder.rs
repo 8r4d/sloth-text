@@ -4,7 +4,7 @@
 use eframe::egui::{self, Key};
 
 use crate::app::inspector::label_color;
-use crate::project::{Label, Node, Place, Role};
+use crate::project::{Label, Node, Place, ProfileKind, Role, profile_presets};
 
 pub enum BinderAction {
     Select(String),
@@ -18,6 +18,9 @@ pub enum BinderAction {
     EmptyTrash,
     /// Dropped by dragging.
     Move { id: String, place: Place },
+    /// A preset kind, or `None` for a folder of your own.
+    AddProfileFolder(Option<ProfileKind>),
+    RemoveProfileFolder(String),
 }
 
 /// What's being dragged: a binder item's id.
@@ -35,12 +38,13 @@ pub fn show(
     ui: &mut egui::Ui,
     binder: &[Node],
     labels: &[Label],
+    kinds: &[ProfileKind],
     selected: Option<&str>,
     renaming: &mut Option<Renaming>,
 ) -> Vec<BinderAction> {
     let mut actions = Vec::new();
     let dragging = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).map(|d| d.0.clone());
-    let mut tree = Tree { labels, selected, renaming, dragging: dragging.as_deref(), actions: &mut actions };
+    let mut tree = Tree { labels, kinds, selected, renaming, dragging: dragging.as_deref(), actions: &mut actions };
     for node in binder {
         node_ui(ui, node, false, node.role, &mut tree);
     }
@@ -50,6 +54,8 @@ pub fn show(
 /// What every row needs, bundled to keep the signatures short.
 struct Tree<'a> {
     labels: &'a [Label],
+    /// The project's profile kinds, to offer the rest as new folders.
+    kinds: &'a [ProfileKind],
     selected: Option<&'a str>,
     renaming: &'a mut Option<Renaming>,
     /// The item being dragged, if any.
@@ -110,8 +116,10 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &m
     let icon = match node.role {
         Some(Role::Trash) => "🗑",
         Some(Role::Characters) => "👥",
+        Some(Role::Profile) => "🗂",
         Some(_) => "📚",
         None if node.is_document() && top == Some(Role::Characters) => "👤",
+        None if node.is_document() && top == Some(Role::Profile) => "📇",
         None if node.is_document() => "📄",
         None => "📁",
     };
@@ -153,7 +161,31 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &m
     if response.double_clicked() && node.role.is_none() {
         actions.push(BinderAction::StartRename(node.id.clone()));
     }
+    let kinds = tree.kinds;
     response.context_menu(|ui| {
+        // At the top level: profile folders to add (and this one to remove).
+        if node.role.is_some() {
+            ui.menu_button("New Profile Folder", |ui| {
+                for preset in profile_presets().into_iter().filter(|p| !kinds.iter().any(|k| k.id == p.id)) {
+                    if ui.button(&preset.name).clicked() {
+                        actions.push(BinderAction::AddProfileFolder(Some(preset)));
+                        ui.close();
+                    }
+                }
+                if ui.button("Custom\u{2026}").clicked() {
+                    actions.push(BinderAction::AddProfileFolder(None));
+                    ui.close();
+                }
+            });
+            if node.role == Some(Role::Profile) {
+                let empty = node.children.is_empty();
+                if ui.add_enabled(empty, egui::Button::new("Remove Folder")).on_disabled_hover_text("Only an empty folder can be removed").clicked() {
+                    actions.push(BinderAction::RemoveProfileFolder(node.id.clone()));
+                    ui.close();
+                }
+            }
+            ui.separator();
+        }
         if node.role == Some(Role::Trash) {
             let empty = !node.children.is_empty();
             if ui.add_enabled(empty, egui::Button::new("Empty Trash…")).clicked() {
