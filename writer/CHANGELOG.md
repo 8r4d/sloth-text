@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.2.0
+
+- Spell checking as you type, with your Mac's spelling language and learned words: misspelled words get a red wavy underline (not the word you're still typing, and not in notes). Right-click one for suggestions, Learn Spelling or Ignore Spelling. Turn it off in Settings.
+
 ## 1.1.0
 
 - Writing statistics: the status bar shows the words written today, against your goal if you set one. Click it for the Statistics window: today's progress, your streak, the last 30 days as a chart, the manuscript's length, your average, and words per chapter.

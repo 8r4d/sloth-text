@@ -15,6 +15,7 @@ pub mod macos_open;
 pub mod macos_print;
 pub mod recovery;
 pub mod search_results;
+pub mod spell;
 pub mod syntax;
 pub mod tabs;
 pub mod text_format;

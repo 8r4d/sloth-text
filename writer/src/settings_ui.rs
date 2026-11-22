@@ -26,6 +26,8 @@ pub struct WriterSettings {
     pub smart_dashes: bool,
     /// Show *italics*, **bold**, headings and notes styled as you type.
     pub show_markdown: bool,
+    /// Underline misspelled words (the Mac's spell checker).
+    pub spell_check: bool,
     /// The iPad helper's address (its token is in the Keychain).
     pub helper_url: String,
     pub theme: ThemeChoice,
@@ -40,6 +42,7 @@ impl Default for WriterSettings {
             text_width: Some(680.0),
             smart_dashes: true,
             show_markdown: true,
+            spell_check: true,
             helper_url: String::new(),
             theme: ThemeChoice::default(),
         }
@@ -61,6 +64,7 @@ impl WriterSettings {
             line_spacing: self.line_spacing,
             max_text_width: self.text_width,
             markdown: self.show_markdown,
+            spell_check: self.spell_check,
             ..EditorSettings::default()
         }
     }
@@ -148,6 +152,8 @@ impl WriterApp {
                     ui.vertical(|ui| {
                         ui.checkbox(&mut settings.smart_dashes, "Two hyphens (--) make an em dash (\u{2014})");
                         ui.checkbox(&mut settings.show_markdown, "Show *italics*, **bold** and headings as you type");
+                        ui.checkbox(&mut settings.spell_check, "Check spelling as you type")
+                            .on_hover_text("Uses your Mac's spelling language and learned words. Right-click a word for suggestions.");
                     });
                     ui.end_row();
 

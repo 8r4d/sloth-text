@@ -54,6 +54,7 @@ const TIPS: &[&str] = &[
     "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",
     "Double-click a binder item to rename it.",
     "Click \"Today\" in the status bar for writing statistics and goals.",
+    "Right-click an underlined word for spelling suggestions, Learn Spelling or Ignore Spelling.",
 ];
 
 impl WriterApp {

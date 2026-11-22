@@ -11,6 +11,7 @@ use eframe::egui::{
 
 use crate::editing::{self, Edit, Indent};
 use crate::markdown;
+use crate::spell;
 use crate::syntax::{HighlightCache, Span, SyntaxColors};
 use crate::tabs::TabId;
 
@@ -45,6 +46,9 @@ pub struct EditorSettings {
     /// Show Markdown as you type: italics, bold, headings, quotes and notes
     /// styled, their markers faint (Sloth Writer; off in Sloth).
     pub markdown: bool,
+    /// Underline misspelled words, with suggestions on right-click (Sloth
+    /// Writer; off in Sloth). See `spell`.
+    pub spell_check: bool,
 }
 
 impl EditorSettings {
@@ -76,6 +80,7 @@ impl Default for EditorSettings {
             line_spacing: 1.0,
             max_text_width: None,
             markdown: false,
+            spell_check: false,
         }
     }
 }
@@ -229,19 +234,127 @@ fn apply_format(ctx: &egui::Context, tab: TabId, text: &mut String, format: Form
     }
 }
 
-/// Right-click in the editor: Markdown formatting for the selection (or
-/// the cursor's line).
-fn format_menu(response: &egui::Response, tab: TabId, text: &mut String) {
+/// Misspelled words as byte ranges, leaving out the one the cursor (a
+/// character index) is in or at the end of: it's still being typed.
+fn misspellings(text: &str, cursor: Option<usize>) -> Vec<Range<usize>> {
+    let mut found = spell::misspelled(text);
+    if let Some(cursor) = cursor {
+        let at = text.char_indices().nth(cursor).map_or(text.len(), |(b, _)| b);
+        found.retain(|r| !(r.start <= at && at <= r.end));
+    }
+    found
+}
+
+/// A red wavy line under each misspelled word (byte ranges).
+fn paint_misspellings(ui: &egui::Ui, output: &egui::text_edit::TextEditOutput, text: &str, words: &[Range<usize>]) {
+    if words.is_empty() {
+        return;
+    }
+    let stroke = Stroke::new(1.2, Color32::from_rgb(230, 70, 70));
+    let painter = ui.painter();
+    let mut chars = 0;
+    let mut bytes = 0;
+    let mut to_char = |b: usize| {
+        // Words come in order, so walk forward from the last one.
+        chars += text[bytes..b].chars().count();
+        bytes = b;
+        chars
+    };
+    for word in words {
+        let (start, end) = (to_char(word.start), to_char(word.end));
+        let at = |i| output.galley.pos_from_cursor(CCursor::new(i)).translate(output.galley_pos.to_vec2());
+        let (a, b) = (at(start), at(end));
+        // A word split across rows (very long ones) is marked on its first.
+        let right = if (a.top() - b.top()).abs() < 1.0 { b.left() } else { output.galley_pos.x + output.galley.rect.right() };
+        let y = a.bottom() - 2.0;
+        let mut points = Vec::new();
+        let mut x = a.left();
+        let mut up = true;
+        while x <= right {
+            points.push(egui::pos2(x, if up { y - 1.2 } else { y + 1.2 }));
+            up = !up;
+            x += 2.0;
+        }
+        if points.len() >= 2 {
+            painter.add(Shape::line(points, stroke));
+        }
+    }
+}
+
+/// The misspelled word a right-click landed on, with its suggestions.
+#[derive(Clone)]
+struct Misspelling {
+    /// Bytes in the text.
+    range: Range<usize>,
+    word: String,
+    guesses: Vec<String>,
+}
+
+/// The misspelled word at a point in the editor, if any.
+fn misspelling_at(output: &egui::text_edit::TextEditOutput, text: &str, pos: egui::Pos2) -> Option<Misspelling> {
+    let index = output.galley.cursor_from_pos(pos - output.galley_pos).index.0;
+    let at = text.char_indices().nth(index).map_or(text.len(), |(b, _)| b);
+    let range = spell::misspelled(text).into_iter().find(|r| r.start <= at && at < r.end)?;
+    let word = text[range.clone()].to_owned();
+    let guesses = spell::suggestions(&word).into_iter().take(6).collect();
+    Some(Misspelling { range, word, guesses })
+}
+
+/// What the right-click menu can do to the text.
+enum MenuChoice {
+    Format(Format),
+    Correct(Misspelling, String),
+    Learn(String),
+    Ignore(String),
+}
+
+/// Right-click in the editor: spelling suggestions for a misspelled word
+/// under the pointer, then Markdown formatting for the selection (or the
+/// cursor's line).
+fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut String, settings: &EditorSettings) {
+    let response = &output.response;
     // Clicking the menu takes focus from the text, which drops its
-    // selection, so remember the selection the menu was opened on.
+    // selection, so remember the selection the menu was opened on, and
+    // the misspelled word that was clicked.
     let opened_on = editor_id(tab).with("format-menu-selection");
+    let clicked_word = editor_id(tab).with("menu-misspelling");
     if response.secondary_clicked() {
         let picked = selection(&response.ctx, tab).unwrap_or(0..0);
-        response.ctx.data_mut(|d| d.insert_temp(opened_on, picked));
+        let word = settings
+            .spell_check
+            .then(|| response.interact_pointer_pos())
+            .flatten()
+            .and_then(|pos| misspelling_at(output, text, pos));
+        response.ctx.data_mut(|d| {
+            d.insert_temp(opened_on, picked);
+            d.insert_temp(clicked_word, word);
+        });
     }
     response.context_menu(|ui| {
         let mut picked = None;
-        for format in Format::ALL {
+        let word: Option<Misspelling> = ui.ctx().data(|d| d.get_temp(clicked_word)).flatten();
+        if let Some(word) = &word {
+            if word.guesses.is_empty() {
+                ui.add_enabled(false, egui::Button::new("No Guesses Found"));
+            }
+            for guess in &word.guesses {
+                if ui.button(egui::RichText::new(guess).strong()).clicked() {
+                    picked = Some(MenuChoice::Correct(word.clone(), guess.clone()));
+                }
+            }
+            ui.separator();
+            if ui.button("Learn Spelling").on_hover_text("Add it to your Mac's dictionary").clicked() {
+                picked = Some(MenuChoice::Learn(word.word.clone()));
+            }
+            if ui.button("Ignore Spelling").on_hover_text("Until Sloth Writer quits").clicked() {
+                picked = Some(MenuChoice::Ignore(word.word.clone()));
+            }
+            if settings.markdown {
+                ui.separator();
+            }
+        }
+        let formats: &[Format] = if settings.markdown { &Format::ALL } else { &[] };
+        for &format in formats {
             if matches!(format, Format::Heading | Format::SceneBreak) {
                 ui.separator();
             }
@@ -250,14 +363,29 @@ fn format_menu(response: &egui::Response, tab: TabId, text: &mut String) {
                 button = button.shortcut_text(keys);
             }
             if ui.add(button).clicked() {
-                picked = Some(format);
+                picked = Some(MenuChoice::Format(format));
             }
         }
-        if let Some(format) = picked {
-            if let Some(range) = ui.ctx().data(|d| d.get_temp::<Range<usize>>(opened_on)) {
-                set_selection(ui.ctx(), tab, range);
+        if let Some(choice) = picked {
+            let ctx = ui.ctx();
+            match choice {
+                MenuChoice::Format(format) => {
+                    if let Some(range) = ctx.data(|d| d.get_temp::<Range<usize>>(opened_on)) {
+                        set_selection(ctx, tab, range);
+                    }
+                    apply_format(ctx, tab, text, format);
+                }
+                MenuChoice::Correct(word, guess) => {
+                    // Only if the word's still there (nothing changed meanwhile).
+                    if text.get(word.range.clone()) == Some(word.word.as_str()) {
+                        let start = text[..word.range.start].chars().count();
+                        let chars = start..start + word.word.chars().count();
+                        apply_edit(ctx, tab, text, |t, _| editing::replace(t, chars, &guess));
+                    }
+                }
+                MenuChoice::Learn(word) => spell::learn(&word),
+                MenuChoice::Ignore(word) => spell::ignore(&word),
             }
-            apply_format(ui.ctx(), tab, text, format);
             // Back to typing.
             ui.ctx().memory_mut(|m| m.request_focus(editor_id(tab)));
             ui.close();
@@ -360,6 +488,7 @@ pub fn show(
                 let wrap = settings.word_wrap;
                 let layout_font = font.clone();
                 let faces = settings.markdown.then(|| Faces::find(ui, &font));
+
                 let edit = if settings.prose { edit } else { edit.code_editor() };
                 let mut layouter =
                     move |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
@@ -369,6 +498,7 @@ pub fn show(
                             None => Vec::new(),
                         };
                         let styles = if faces.is_some() { markdown::styles(text) } else { Vec::new() };
+
                         let mut job = build_layout(
                             text,
                             &layout_font,
@@ -389,7 +519,8 @@ pub fn show(
                 // The text widget moves the cursor on any button's press;
                 // a right-click is for the formatting menu, so keep the
                 // selection it's meant to format.
-                let right_click = settings.markdown
+                let menu = settings.markdown || settings.spell_check;
+                let right_click = menu
                     && ui.input(|i| {
                         i.pointer.button_down(egui::PointerButton::Secondary)
                             || i.pointer.button_released(egui::PointerButton::Secondary)
@@ -401,8 +532,13 @@ pub fn show(
                 if let Some(kept) = kept {
                     set_selection(ui.ctx(), tab, kept);
                 }
-                if settings.markdown {
-                    format_menu(&output.response, tab, text);
+                if settings.spell_check {
+                    // The word being typed isn't flagged until the cursor leaves it.
+                    let cursor = output.cursor_range.map(|c| c.primary.index.0);
+                    paint_misspellings(ui, &output, text, &misspellings(text, cursor));
+                }
+                if menu {
+                    text_menu(&output, tab, text, settings);
                 }
 
                 if let Some(cursor) = output.cursor_range {
@@ -858,6 +994,17 @@ mod tests {
             }
         }
         text
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_word_being_typed_isnt_flagged_yet() {
+        let text = "a wrod and tset";
+        let words = |cursor| misspellings(text, cursor).into_iter().map(|r| &text[r]).collect::<Vec<_>>();
+        assert_eq!(words(None), vec!["wrod", "tset"]);
+        assert_eq!(words(Some(15)), vec!["wrod"], "typing at the end of tset");
+        assert_eq!(words(Some(4)), vec!["tset"], "cursor inside wrod");
+        assert_eq!(words(Some(8)), vec!["wrod", "tset"], "cursor elsewhere");
     }
 
     #[test]

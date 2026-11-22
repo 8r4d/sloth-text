@@ -33,7 +33,8 @@ fn line_start(text: &str, byte: usize) -> usize {
 }
 
 /// Replace a character range with `insert`, putting the cursor after it.
-fn replace(text: &str, chars: Range<usize>, insert: &str) -> Edit {
+/// Replace a character range with `insert`, leaving the cursor after it.
+pub fn replace(text: &str, chars: Range<usize>, insert: &str) -> Edit {
     let (start, end) = (char_to_byte(text, chars.start), char_to_byte(text, chars.end));
     let mut out = String::with_capacity(text.len() + insert.len());
     out.push_str(&text[..start]);

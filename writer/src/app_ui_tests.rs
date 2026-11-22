@@ -1295,7 +1295,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.1.0");
+    harness.get_by_label("1.2.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
@@ -1352,4 +1352,27 @@ fn goals_set_in_the_statistics_window_show_in_the_status_bar() {
     harness.run_steps(2);
     harness.get_by_label("Today: 0 / 1,000");
     harness.get_by_label("words today, of 1,000");
+}
+
+// ----- spelling ----------------------------------------------------------------
+
+#[test]
+fn right_clicking_a_misspelled_word_offers_its_spelling() {
+    let dir = TempDir::new("spelling");
+    let mut harness = harness(project(&dir, "Teh snow came early."));
+    harness.run_steps(2);
+    // Right-click on the first word, at the text's top left.
+    let rect = harness.get_by_label("Document text").rect();
+    let pos = rect.min + egui::vec2(14.0, 12.0);
+    harness.event(egui::Event::PointerMoved(pos));
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE });
+        harness.run_steps(1);
+    }
+    harness.run_steps(2);
+    harness.get_by_label("Learn Spelling");
+    harness.get_by_label("Ignore Spelling");
+    harness.get_by_label("The").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("The snow came early."));
 }
