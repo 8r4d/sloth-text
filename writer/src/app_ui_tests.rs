@@ -443,3 +443,88 @@ fn two_dashes_become_an_em_dash() {
     }
     assert_eq!(current_text(&mut harness).as_deref(), Some("Wait\u{2014}what\u{2014} more\u{2014}ish <!--"));
 }
+
+// ----- inspector ---------------------------------------------------------------
+
+#[test]
+fn inspector_edits_are_saved_with_autosave() {
+    let dir = TempDir::new("inspector");
+    let mut harness = harness(project(&dir, ""));
+
+    // Status: the first "None" is the status menu, the second the label's.
+    harness.get_all_by_value("None").next().unwrap().click();
+    harness.run_steps(2);
+    harness.get_by_label("First draft").click();
+    harness.run_steps(2);
+    assert!(harness.state().manifest_dirty);
+    let manifest = || fs::read_to_string(dir.0.join("project.ron")).unwrap();
+    assert!(!manifest().contains("status: Some"), "not written on every change");
+
+    harness.state_mut().last_autosave = -100.0;
+    harness.run_steps(1);
+    assert!(manifest().contains("status: Some(1)"), "{}", manifest());
+    assert!(!harness.state().manifest_dirty);
+}
+
+#[test]
+fn renaming_in_the_inspector_renames_the_file() {
+    let dir = TempDir::new("inspector-title");
+    let mut harness = harness(project(&dir, ""));
+
+    // The field, then the text inside it: click the field.
+    harness.get_all_by_value("Untitled").next().unwrap().click();
+    harness.run_steps(2);
+    // Replace the title: select all, type, leave the field.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.event(egui::Event::Text("Opening".into()));
+    harness.run_steps(1);
+    harness.key_press(egui::Key::Enter);
+    harness.run_steps(3);
+
+    assert!(dir.0.join("manuscript/opening.md").is_file());
+    harness.get_by_label("📄 Opening");
+}
+
+#[test]
+fn the_manuscript_counts_every_document_in_it() {
+    let dir = TempDir::new("inspector-words");
+    let mut p = project(&dir, "one two three");
+    p.add_document(&Place::Into("manuscript".into()), "Second").unwrap();
+    fs::write(dir.0.join("manuscript/second.md"), "four five").unwrap();
+    // Research doesn't count towards the manuscript.
+    p.add_document(&Place::Into("research".into()), "Notes").unwrap();
+    fs::write(dir.0.join("research/notes.md"), "six seven eight").unwrap();
+    let mut harness = harness(p);
+
+    harness.get_by_label("📚 Manuscript").click();
+    harness.run_steps(3);
+    harness.get_by_label("Words in the manuscript");
+    assert_eq!(harness.state_mut().words_under("manuscript"), 5);
+
+    // Typing in an open document counts straight away.
+    let first = harness.state().project.as_ref().unwrap().manifest.binder[0].children[0].id.clone();
+    harness.state_mut().select(first);
+    harness.state_mut().current().unwrap().doc.text.push_str(" and more");
+    assert_eq!(harness.state_mut().words_under("manuscript"), 7);
+}
+
+#[test]
+fn labels_can_be_added_and_show_in_the_binder() {
+    let dir = TempDir::new("inspector-labels");
+    let mut harness = harness(project(&dir, ""));
+    let starter = harness.state().project.as_ref().unwrap().manifest.labels.len();
+
+    harness.state_mut().editing_labels = true;
+    harness.run_steps(2);
+    harness.get_by_label("Add Label").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().project.as_ref().unwrap().manifest.labels.len(), starter + 1);
+    assert!(harness.state().manifest_dirty);
+
+    // Give the document a label: its binder row gains a dot.
+    let id = harness.state().selected.clone().unwrap();
+    let meta = crate::project::Meta { label: Some(0), ..Default::default() };
+    harness.state_mut().project.as_mut().unwrap().set_meta(&id, meta);
+    harness.run_steps(2);
+    harness.get_by_label("📄 Untitled \u{25cf}");
+}

@@ -14,6 +14,8 @@ use sloth_core::tabs::{self, DiskNotice, NoticeChoice, Tab, TabId, Tabs};
 
 use crate::binder::{self, BinderAction, Renaming};
 
+#[path = "inspector.rs"]
+pub(crate) mod inspector;
 #[path = "search.rs"]
 mod search;
 use search::{DocResults, Direction};
@@ -64,6 +66,14 @@ pub struct WriterApp {
     /// The search the results were built for, and when.
     results_key: Option<(String, FindOptions)>,
     results_at: f64,
+
+    // Inspector (see inspector.rs).
+    show_inspector: bool,
+    inspector_buffers: Option<inspector::Buffers>,
+    editing_labels: bool,
+    word_cache: inspector::WordCache,
+    /// Metadata edited since project.ron was last written.
+    manifest_dirty: bool,
 }
 
 impl WriterApp {
@@ -106,6 +116,11 @@ impl WriterApp {
             results_error: None,
             results_key: None,
             results_at: 0.0,
+            show_inspector: true,
+            inspector_buffers: None,
+            editing_labels: false,
+            word_cache: inspector::WordCache::default(),
+            manifest_dirty: false,
         };
         if let Some(root) = open {
             app.open_project(&root);
@@ -182,6 +197,8 @@ impl WriterApp {
         self.show_results = false;
         self.results.clear();
         self.results_key = None;
+        self.inspector_buffers = None;
+        self.editing_labels = false;
     }
 
     // ----- documents ---------------------------------------------------------
@@ -222,6 +239,15 @@ impl WriterApp {
     /// in the notice above the editor.
     fn save_all(&mut self) {
         let mut failed = Vec::new();
+        // Metadata edited in the inspector.
+        if self.manifest_dirty
+            && let Some(project) = &self.project
+        {
+            match project.save() {
+                Ok(()) => self.manifest_dirty = false,
+                Err(e) => failed.push(format!("the project file ({e})")),
+            }
+        }
         for tab in self.docs.iter_mut() {
             if tab.doc.path.is_none() || !tab.doc.is_dirty() || tab.disk_notice == Some(DiskNotice::Changed) {
                 continue;
@@ -445,6 +471,9 @@ impl WriterApp {
         if pressed(ctx, Modifiers::COMMAND, Key::O) {
             self.open_project_dialog();
         }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::I) {
+            self.show_inspector = !self.show_inspector;
+        }
         // Find. The longer shortcuts first, so ⇧⌘F isn't taken as ⌘F.
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::F) {
             self.open_find(true);
@@ -534,6 +563,7 @@ impl WriterApp {
                     self.trash(&id);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text("\u{2325}\u{2318}I");
                     if ui.button("Close Project").clicked() {
                         self.close_project();
                     }
@@ -670,19 +700,22 @@ impl eframe::App for WriterApp {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     if let Some(project) = &self.project {
                         let selected = self.selected.as_deref();
-                        actions = binder::show(ui, &project.manifest.binder, selected, &mut self.renaming);
+                        let labels = &project.manifest.labels;
+                        actions = binder::show(ui, &project.manifest.binder, labels, selected, &mut self.renaming);
                     }
                 });
             });
         for action in actions {
             self.apply(action);
         }
+        self.inspector(ui);
         self.status_bar(ui);
         self.results_panel(ui);
         self.find_bar(ui);
         self.notice_bar(ui);
         self.editor_area(ui);
         self.empty_trash_dialog(&ctx);
+        self.labels_window(&ctx);
 
         if now - self.last_autosave >= AUTOSAVE_SECONDS {
             self.save_all();

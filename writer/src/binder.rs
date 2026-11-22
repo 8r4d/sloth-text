@@ -3,7 +3,8 @@
 
 use eframe::egui::{self, Key};
 
-use crate::project::{Node, Place, Role};
+use crate::app::inspector::label_color;
+use crate::project::{Label, Node, Place, Role};
 
 pub enum BinderAction {
     Select(String),
@@ -30,10 +31,16 @@ pub struct Renaming {
     pub focus: bool,
 }
 
-pub fn show(ui: &mut egui::Ui, binder: &[Node], selected: Option<&str>, renaming: &mut Option<Renaming>) -> Vec<BinderAction> {
+pub fn show(
+    ui: &mut egui::Ui,
+    binder: &[Node],
+    labels: &[Label],
+    selected: Option<&str>,
+    renaming: &mut Option<Renaming>,
+) -> Vec<BinderAction> {
     let mut actions = Vec::new();
     let dragging = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).map(|d| d.0.clone());
-    let mut tree = Tree { selected, renaming, dragging: dragging.as_deref(), actions: &mut actions };
+    let mut tree = Tree { labels, selected, renaming, dragging: dragging.as_deref(), actions: &mut actions };
     for node in binder {
         node_ui(ui, node, false, &mut tree);
     }
@@ -42,6 +49,7 @@ pub fn show(ui: &mut egui::Ui, binder: &[Node], selected: Option<&str>, renaming
 
 /// What every row needs, bundled to keep the signatures short.
 struct Tree<'a> {
+    labels: &'a [Label],
     selected: Option<&'a str>,
     renaming: &'a mut Option<Renaming>,
     /// The item being dragged, if any.
@@ -105,10 +113,19 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, tree: &mut Tree<'_>) {
         None => "📁",
     };
     let label = format!("{icon} {}", node.title);
+    // The item's label, as a coloured dot at the end of the row. The grow
+    // atom fills the space after the title, keeping it on the left.
+    let selected = tree.selected == Some(node.id.as_str());
+    let button = match node.meta.label.and_then(|i| tree.labels.get(i)) {
+        Some(l) => {
+            let dot = egui::RichText::new("\u{25cf}").color(label_color(l.color));
+            egui::Button::selectable(selected, (label.as_str(), egui::Atom::grow(), dot))
+        }
+        None => egui::Button::selectable(selected, (label.as_str(), egui::Atom::grow())),
+    };
     // Full width, so the whole row is a click, drag and drop target.
     let response = ui.add(
-        // The grow atom fills the space after the title, keeping it on the left.
-        egui::Button::selectable(tree.selected == Some(node.id.as_str()), (label.as_str(), egui::Atom::grow()))
+        button
             .min_size(egui::vec2(ui.available_width(), 0.0))
             .sense(egui::Sense::click_and_drag()),
     );

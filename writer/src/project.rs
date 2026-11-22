@@ -78,6 +78,61 @@ pub struct Node {
     pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Node>,
+    /// Synopsis, status, label and the rest, edited in the inspector.
+    #[serde(default, skip_serializing_if = "Meta::is_empty")]
+    pub meta: Meta,
+}
+
+/// What the inspector edits about an item. Everything is optional, and an
+/// item with none of it set writes nothing extra to the manifest.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Meta {
+    /// A few sentences on what happens: shown on cards and in the outliner.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub synopsis: String,
+    /// Index into the project's `statuses`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<usize>,
+    /// Index into the project's `labels`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<usize>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
+    /// Words to aim for. On the Manuscript folder, the whole book's target.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_words: Option<u32>,
+    /// Leave this out when compiling the manuscript.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub exclude_from_compile: bool,
+    /// Private notes about the item, never compiled.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub notes: String,
+}
+
+impl Meta {
+    fn is_empty(&self) -> bool {
+        *self == Meta::default()
+    }
+}
+
+/// A label: a name and a colour (an index into the app's label palette).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Label {
+    pub name: String,
+    pub color: u8,
+}
+
+/// Statuses a new or older project starts with.
+pub fn default_statuses() -> Vec<String> {
+    ["To do", "First draft", "Revised", "Done"].map(String::from).to_vec()
+}
+
+/// Labels a new project starts with; rename or remove them freely.
+fn starter_labels() -> Vec<Label> {
+    [("Main plot", 0), ("Subplot", 3), ("Idea", 5)]
+        .map(|(name, color)| Label { name: name.to_owned(), color })
+        .to_vec()
 }
 
 impl Node {
@@ -92,6 +147,7 @@ impl Node {
             role: Some(role),
             path: None,
             children: Vec::new(),
+            meta: Meta::default(),
         }
     }
 
@@ -110,6 +166,10 @@ pub struct Manifest {
     pub format: u32,
     pub title: String,
     pub binder: Vec<Node>,
+    #[serde(default = "default_statuses")]
+    pub statuses: Vec<String>,
+    #[serde(default)]
+    pub labels: Vec<Label>,
 }
 
 /// Where to put an item, relative to another one.
@@ -158,6 +218,8 @@ impl Project {
                 format: FORMAT,
                 title: title.trim().to_owned(),
                 binder: Role::ALL.into_iter().map(Node::role_folder).collect(),
+                statuses: default_statuses(),
+                labels: starter_labels(),
             },
         };
         project.add_document(&Place::Into(Role::Manuscript.folder().into()), "Untitled")?;
@@ -224,6 +286,11 @@ impl Project {
             .collect()
     }
 
+    /// The documents in an item, itself included: what its word count adds up.
+    pub fn documents_under(&self, id: &str) -> Vec<&Node> {
+        self.node(id).map(|n| n.subtree().into_iter().filter(|n| n.is_document()).collect()).unwrap_or_default()
+    }
+
     pub fn file_path(&self, id: &str) -> Option<PathBuf> {
         let rel = self.node(id)?.path.as_ref()?;
         Some(self.root.join(rel))
@@ -250,7 +317,7 @@ impl Project {
         } else {
             None
         };
-        let node = Node { id: self.new_id(), title, role: None, path, children: Vec::new() };
+        let node = Node { id: self.new_id(), title, role: None, path, children: Vec::new(), meta: Meta::default() };
         let id = node.id.clone();
         insert(&mut self.manifest.binder, place, node).expect("checked above");
         self.save()?;
@@ -357,6 +424,45 @@ impl Project {
         find_mut(&mut self.manifest.binder, id)
     }
 
+    // ----- metadata ----------------------------------------------------------
+    //
+    // These change the manifest in memory only: they happen while typing in
+    // the inspector, so the app saves them along with its regular autosave.
+
+    /// Replace an item's metadata. Returns whether anything changed. A
+    /// status or label that doesn't exist is dropped.
+    pub fn set_meta(&mut self, id: &str, mut meta: Meta) -> bool {
+        if meta.status.is_some_and(|i| i >= self.manifest.statuses.len()) {
+            meta.status = None;
+        }
+        if meta.label.is_some_and(|i| i >= self.manifest.labels.len()) {
+            meta.label = None;
+        }
+        match self.node_mut(id) {
+            Some(node) if node.meta != meta => {
+                node.meta = meta;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn add_label(&mut self, name: &str, color: u8) -> usize {
+        self.manifest.labels.push(Label { name: name.to_owned(), color });
+        self.manifest.labels.len() - 1
+    }
+
+    /// Remove a label; items that had it lose it, and the others keep theirs.
+    pub fn remove_label(&mut self, index: usize) {
+        if index >= self.manifest.labels.len() {
+            return;
+        }
+        self.manifest.labels.remove(index);
+        for top in &mut self.manifest.binder {
+            relabel(top, index);
+        }
+    }
+
     /// Refuse places that would break the binder's shape.
     fn check_place(&self, moving: Option<&str>, place: &Place) -> io::Result<()> {
         let target = self.node(place.target()).ok_or_else(|| invalid("That item no longer exists."))?;
@@ -444,6 +550,18 @@ pub fn slug(title: &str) -> String {
     if out.is_empty() { "untitled".to_owned() } else { out.to_owned() }
 }
 
+/// After label `removed` is deleted: drop it, and shift the later ones down.
+fn relabel(node: &mut Node, removed: usize) {
+    node.meta.label = match node.meta.label {
+        Some(i) if i == removed => None,
+        Some(i) if i > removed => Some(i - 1),
+        other => other,
+    };
+    for child in &mut node.children {
+        relabel(child, removed);
+    }
+}
+
 fn clean_title(title: &str) -> io::Result<String> {
     let title = title.trim();
     if title.is_empty() {
@@ -480,22 +598,23 @@ fn take(nodes: &mut Vec<Node>, id: &str) -> Option<Node> {
     nodes.iter_mut().find_map(|n| take(&mut n.children, id))
 }
 
-/// Put a node at `place`. Hands it back if the target isn't found.
-fn insert(nodes: &mut Vec<Node>, place: &Place, node: Node) -> Result<(), Node> {
+/// Put a node at `place`. Hands it back (boxed, as nodes are large) if
+/// the target isn't found.
+fn insert(nodes: &mut Vec<Node>, place: &Place, node: Node) -> Result<(), Box<Node>> {
     match place {
         Place::Into(target) => match find_mut(nodes, target) {
             Some(parent) => {
                 parent.children.push(node);
                 Ok(())
             }
-            None => Err(node),
+            None => Err(Box::new(node)),
         },
         Place::Before(target) => insert_beside(nodes, target, false, node),
         Place::After(target) => insert_beside(nodes, target, true, node),
     }
 }
 
-fn insert_beside(nodes: &mut Vec<Node>, target: &str, after: bool, node: Node) -> Result<(), Node> {
+fn insert_beside(nodes: &mut Vec<Node>, target: &str, after: bool, node: Node) -> Result<(), Box<Node>> {
     if let Some(i) = nodes.iter().position(|n| n.id == target) {
         nodes.insert(i + usize::from(after), node);
         return Ok(());
@@ -504,10 +623,10 @@ fn insert_beside(nodes: &mut Vec<Node>, target: &str, after: bool, node: Node) -
     for n in nodes.iter_mut() {
         match insert_beside(&mut n.children, target, after, node) {
             Ok(()) => return Ok(()),
-            Err(back) => node = back,
+            Err(back) => node = *back,
         }
     }
-    Err(node)
+    Err(Box::new(node))
 }
 
 #[cfg(test)]
@@ -679,6 +798,63 @@ mod tests {
         assert!(dir.0.join("notes/chapter.md").is_file());
         assert!(!dir.0.join("manuscript/chapter.md").exists());
         assert_eq!(fs::read_to_string(dir.0.join("notes/scene.md")).unwrap(), "other");
+    }
+
+    #[test]
+    fn metadata_round_trips_and_stays_out_of_the_way() {
+        let dir = TempDir::new("meta");
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        let id = p.add_document(&manuscript(), "Scene").unwrap();
+        let meta = Meta {
+            synopsis: "Mara arrives too late.".into(),
+            status: Some(1),
+            label: Some(0),
+            keywords: vec!["harbour".into()],
+            target_words: Some(2500),
+            exclude_from_compile: true,
+            notes: "Check the tide tables.".into(),
+        };
+        assert!(p.set_meta(&id, meta.clone()));
+        assert!(!p.set_meta(&id, meta.clone()), "no change the second time");
+        p.save().unwrap();
+        assert_eq!(Project::open(&dir.0).unwrap().node(&id).unwrap().meta, meta);
+
+        // Items without metadata write none.
+        let text = fs::read_to_string(dir.0.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(text.matches("meta:").count(), 1, "{text}");
+
+        // An unknown status or label is dropped rather than kept dangling.
+        p.set_meta(&id, Meta { status: Some(99), label: Some(99), ..Meta::default() });
+        assert_eq!(p.node(&id).unwrap().meta, Meta::default());
+    }
+
+    #[test]
+    fn older_projects_get_the_default_statuses() {
+        let dir = TempDir::new("statuses");
+        fs::create_dir_all(&dir.0).unwrap();
+        fs::write(dir.0.join(MANIFEST_FILE), r#"(format: 1, title: "Old", binder: [])"#).unwrap();
+        let p = Project::open(&dir.0).unwrap();
+        assert_eq!(p.manifest.statuses, default_statuses());
+        assert!(p.manifest.labels.is_empty());
+    }
+
+    #[test]
+    fn removing_a_label_updates_items() {
+        let dir = TempDir::new("labels");
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        let (a, b, c) = (
+            p.add_document(&manuscript(), "A").unwrap(),
+            p.add_document(&manuscript(), "B").unwrap(),
+            p.add_document(&manuscript(), "C").unwrap(),
+        );
+        for (id, label) in [(&a, 0), (&b, 1), (&c, 2)] {
+            p.set_meta(id, Meta { label: Some(label), ..Meta::default() });
+        }
+        p.remove_label(1);
+        assert_eq!(p.manifest.labels.len(), 2);
+        assert_eq!(p.node(&a).unwrap().meta.label, Some(0));
+        assert_eq!(p.node(&b).unwrap().meta.label, None);
+        assert_eq!(p.node(&c).unwrap().meta.label, Some(1), "shifted down");
     }
 
     #[test]

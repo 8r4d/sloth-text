@@ -256,7 +256,8 @@ pub fn disk_notice_bar(ui: &mut egui::Ui, id: Id, tab: &Tab) -> Option<NoticeCho
                 .inner_margin(Margin::symmetric(10, 6)),
         )
         .show(ui, |ui| {
-            ui.horizontal(|ui| match notice {
+            // Wraps, so the buttons stay reachable in a narrow window.
+            ui.horizontal_wrapped(|ui| match notice {
                 DiskNotice::Changed => {
                     ui.label(format!(
                         "\u{201c}{name}\u{201d} was changed by another program. \
