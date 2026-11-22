@@ -7,3 +7,5 @@ description = "Sloth Writer (working name): a long-form writing app built on slo
 [dependencies]
 sloth-core = { path = "../core" }
 eframe = { version = "0.37.0", features = ["persistence"] }
+ron = "0.12"
+serde = { version = "1.0.229", features = ["derive"] }

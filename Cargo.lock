@@ -3683,6 +3683,8 @@ name = "sloth-writer"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "ron",
+ "serde",
  "sloth-core",
 ]
 

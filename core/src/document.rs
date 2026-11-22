@@ -202,7 +202,9 @@ impl Document {
 
 /// Write a file so that a crash or full disk can never leave it half
 /// written: write a temporary file next to it, then swap it into place.
-fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// Public so other files an app keeps (such as a project manifest) get the
+/// same protection as documents.
+pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     // Write through symlinks to the real file, rather than replacing the link.
     let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));

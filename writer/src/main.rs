@@ -5,6 +5,8 @@
 //! proves the workspace split works. The design doc's Phase 1 (projects and
 //! the binder) starts here.
 
+mod project;
+
 use eframe::egui;
 use sloth_core::editor::{self, EditorSettings, Highlights};
 use sloth_core::tabs::Tabs;
