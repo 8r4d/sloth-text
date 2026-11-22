@@ -447,6 +447,38 @@ fn two_dashes_become_an_em_dash() {
     assert_eq!(current_text(&mut harness).as_deref(), Some("Wait\u{2014}what\u{2014} more\u{2014}ish <!--"));
 }
 
+#[test]
+fn the_right_click_menu_and_shortcuts_format_the_selection() {
+    let dir = TempDir::new("format");
+    let mut harness = harness(project(&dir, "a word here"));
+    harness.run_steps(2); // the editor takes focus
+    let tab = harness.state_mut().current().unwrap().id;
+    let ctx = harness.ctx.clone();
+    sloth_core::editor::set_selection(&ctx, tab, 2..6);
+
+    harness.get_by_label("Document text").click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label("Bold \u{2318}B").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a **word** here"));
+    assert_eq!(sloth_core::editor::selection(&ctx, tab), Some(4..8), "still the word");
+
+    // ⌘I on the same selection, ⌘B again to take the bold off.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::I);
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a ***word*** here"));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::I);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::B);
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a word here"));
+
+    harness.get_by_label("Document text").click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label("Heading").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("# a word here"));
+}
+
 // ----- inspector ---------------------------------------------------------------
 
 #[test]

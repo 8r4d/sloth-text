@@ -1,5 +1,6 @@
 //! Editing operations the text widget doesn't do itself: auto-indent,
-//! indenting and outdenting lines, bracket matching, and smart dashes.
+//! indenting and outdenting lines, bracket matching, smart dashes, and
+//! Markdown formatting (bold, italic, headings, quotes, notes, breaks).
 //!
 //! These are pure functions over the text and a selection (character
 //! indices, like the text cursor), so they're easy to test. Each returns the
@@ -216,6 +217,99 @@ pub fn in_html_comment(before: &str) -> bool {
     before.rfind("<!--").is_some_and(|open| !before[open + 4..].contains("-->"))
 }
 
+// ----- Markdown formatting --------------------------------------------------------
+
+/// Bold (`**`), italic (`*`) or a note (`<!-- `, ` -->`): wrap the selection
+/// in markers, or unwrap it if it's already wrapped (markers inside the
+/// selection or just around it). With nothing selected, the markers go in
+/// with the cursor between them. Spaces at the selection's edges stay
+/// outside the markers, since emphasis has to touch its words.
+pub fn toggle_wrap(text: &str, selection: Range<usize>, open: &str, close: &str) -> Edit {
+    let (start, end) = (char_to_byte(text, selection.start), char_to_byte(text, selection.end));
+    let chars = |s: &str| s.chars().count();
+    // Is `open` in this run of marker characters? With asterisks, `***` is
+    // bold and italic, `**` only bold: a lone `*` of a `**` isn't italic.
+    let has = |before: &str, after: &str| {
+        if open != close || open.is_empty() || !open.chars().all(|c| c == '*') {
+            return before.ends_with(open) && after.starts_with(close);
+        }
+        let run = before.len() - before.trim_end_matches('*').len();
+        let run = run.min(after.len() - after.trim_start_matches('*').len());
+        if open.len() == 1 { run % 2 == 1 } else { run >= 2 }
+    };
+    // Already wrapped: the markers are just outside the selection…
+    if start < end && has(&text[..start], &text[end..]) {
+        let mut out = String::with_capacity(text.len());
+        out.push_str(&text[..start - open.len()]);
+        out.push_str(&text[start..end]);
+        out.push_str(&text[end + close.len()..]);
+        let s = selection.start - chars(open);
+        return Edit { text: out, selection: s..s + (selection.end - selection.start) };
+    }
+    let picked = &text[start..end];
+    // …or inside it.
+    let star_run = |s: &str| s.len() - s.trim_start_matches('*').len();
+    let inside = picked.len() >= open.len() + close.len()
+        && picked.starts_with(open)
+        && picked.ends_with(close)
+        && (open != "*" || star_run(picked) % 2 == 1)
+        && (open != "**" || star_run(picked) >= 2);
+    if inside {
+        let inner = &picked[open.len()..picked.len() - close.len()];
+        let mut out = String::with_capacity(text.len());
+        out.push_str(&text[..start]);
+        out.push_str(inner);
+        out.push_str(&text[end..]);
+        return Edit { text: out, selection: selection.start..selection.start + chars(inner) };
+    }
+    if picked.is_empty() {
+        let mut edit = replace(text, selection.clone(), &format!("{open}{close}"));
+        let cursor = selection.start + chars(open);
+        edit.selection = cursor..cursor;
+        return edit;
+    }
+    // Wrap the words, leaving edge spaces outside.
+    let lead = picked.len() - picked.trim_start().len();
+    let trail = picked.len() - picked.trim_end().len();
+    let words = picked.trim();
+    let wrapped = format!("{}{open}{words}{close}{}", &picked[..lead], &picked[picked.len() - trail..]);
+    let mut edit = replace(text, selection.clone(), &wrapped);
+    let inner_start = selection.start + chars(&picked[..lead]) + chars(open);
+    edit.selection = inner_start..inner_start + chars(words);
+    edit
+}
+
+/// Headings (`# `) and quotes (`> `): put `prefix` at the start of every line
+/// the selection touches, or take it off if they all have it already.
+pub fn toggle_line_prefix(text: &str, selection: Range<usize>, prefix: &str) -> Edit {
+    let (start, end) = (char_to_byte(text, selection.start), char_to_byte(text, selection.end));
+    let first = line_start(text, start);
+    let last_end = text[end..].find('\n').map_or(text.len(), |i| end + i);
+    let block = &text[first..last_end];
+    let lines: Vec<&str> = block.split('\n').collect();
+    let all = lines.iter().all(|l| l.starts_with(prefix));
+    let changed: Vec<String> = lines
+        .iter()
+        .map(|l| if all { l[prefix.len()..].to_owned() } else if l.starts_with(prefix) { l.to_string() } else { format!("{prefix}{l}") })
+        .collect();
+    let new_block = changed.join("\n");
+    let mut out = String::with_capacity(text.len() + new_block.len());
+    out.push_str(&text[..first]);
+    out.push_str(&new_block);
+    out.push_str(&text[last_end..]);
+    // Select the lines as they now are.
+    let s = byte_to_char(text, first);
+    Edit { selection: s..s + new_block.chars().count(), text: out }
+}
+
+/// A scene break: a `#` on a line of its own, at the cursor.
+pub fn scene_break(text: &str, selection: Range<usize>) -> Edit {
+    let (start, end) = (char_to_byte(text, selection.start), char_to_byte(text, selection.end));
+    let before = if start == 0 || text[..start].ends_with('\n') { "" } else { "\n" };
+    let after = if text[end..].starts_with('\n') { "" } else { "\n" };
+    replace(text, selection, &format!("{before}#{after}"))
+}
+
 /// Words and characters, for the status bar.
 pub fn counts(text: &str) -> (usize, usize) {
     (text.split_whitespace().count(), text.chars().count())
@@ -341,5 +435,42 @@ mod tests {
         assert!(!in_html_comment("text <!-- a note --> more"));
         assert!(in_html_comment("<!-- one --> <!-- two"));
         assert!(!in_html_comment("no comment"));
+    }
+
+    #[test]
+    fn bold_and_italic_wrap_and_unwrap() {
+        let bold = |m: &str| show(&{ let (t, s) = parse(m); toggle_wrap(&t, s, "**", "**") });
+        assert_eq!(bold("a [word] here"), "a **[word]** here");
+        assert_eq!(bold("a **[word]** here"), "a [word] here", "markers around the selection");
+        assert_eq!(bold("a [**word**] here"), "a [word] here", "markers inside it");
+        assert_eq!(bold("a| here"), "a**|** here", "nothing selected: markers, cursor between");
+        assert_eq!(bold("a[ word ]here"), "a **[word]** here", "edge spaces stay outside");
+        let italic = |m: &str| show(&{ let (t, s) = parse(m); toggle_wrap(&t, s, "*", "*") });
+        assert_eq!(italic("[café] noir"), "*[café]* noir");
+        assert_eq!(italic("a **[word]** here"), "a ***[word]*** here", "bold isn't italic");
+        assert_eq!(italic("a [**word**] here"), "a *[**word**]* here");
+        assert_eq!(italic("a ***[word]*** here"), "a **[word]** here");
+        assert_eq!(bold("a ***[word]*** here"), "a *[word]* here");
+        let note = |m: &str| show(&{ let (t, s) = parse(m); toggle_wrap(&t, s, "<!-- ", " -->") });
+        assert_eq!(note("x [check this] y"), "x <!-- [check this] --> y");
+        assert_eq!(note("x <!-- [check this] --> y"), "x [check this] y");
+    }
+
+    #[test]
+    fn headings_and_quotes_toggle_on_whole_lines() {
+        let quote = |m: &str| show(&{ let (t, s) = parse(m); toggle_line_prefix(&t, s, "> ") });
+        assert_eq!(quote("one\ntw|o\nthree"), "one\n[> two]\nthree");
+        assert_eq!(quote("[one\ntwo]\nthree"), "[> one\n> two]\nthree");
+        assert_eq!(quote("[> one\n> two]"), "[one\ntwo]", "all quoted: unquote");
+        let heading = |m: &str| show(&{ let (t, s) = parse(m); toggle_line_prefix(&t, s, "# ") });
+        assert_eq!(heading("Part |Two"), "[# Part Two]");
+    }
+
+    #[test]
+    fn a_scene_break_gets_its_own_line() {
+        let brk = |m: &str| show(&{ let (t, s) = parse(m); scene_break(&t, s) });
+        assert_eq!(brk("end.|"), "end.\n#\n|");
+        assert_eq!(brk("end.\n|next"), "end.\n#\n|next");
+        assert_eq!(brk("|"), "#\n|");
     }
 }

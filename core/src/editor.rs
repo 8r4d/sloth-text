@@ -171,6 +171,98 @@ fn handle_editing_keys(ui: &egui::Ui, tab: TabId, text: &mut String, settings: &
     for _ in 0..newlines {
         apply_edit(ctx, tab, text, editing::newline);
     }
+    if settings.markdown {
+        let (bold, italic) = ui.input_mut(|i| {
+            (i.consume_key(Modifiers::COMMAND, Key::B), i.consume_key(Modifiers::COMMAND, Key::I))
+        });
+        if bold {
+            apply_format(ctx, tab, text, Format::Bold);
+        }
+        if italic {
+            apply_format(ctx, tab, text, Format::Italic);
+        }
+    }
+}
+
+/// The Markdown formatting the editor's right-click menu offers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Format {
+    Bold,
+    Italic,
+    Heading,
+    Quote,
+    Note,
+    SceneBreak,
+}
+
+impl Format {
+    const ALL: [Format; 6] = [Format::Bold, Format::Italic, Format::Heading, Format::Quote, Format::Note, Format::SceneBreak];
+
+    fn label(self) -> &'static str {
+        match self {
+            Format::Bold => "Bold",
+            Format::Italic => "Italic",
+            Format::Heading => "Heading",
+            Format::Quote => "Quote",
+            Format::Note => "Note (not compiled)",
+            Format::SceneBreak => "Scene Break",
+        }
+    }
+
+    fn shortcut(self) -> Option<&'static str> {
+        match self {
+            Format::Bold => Some("\u{2318}B"),
+            Format::Italic => Some("\u{2318}I"),
+            _ => None,
+        }
+    }
+}
+
+fn apply_format(ctx: &egui::Context, tab: TabId, text: &mut String, format: Format) {
+    match format {
+        Format::Bold => apply_edit(ctx, tab, text, |t, s| editing::toggle_wrap(t, s, "**", "**")),
+        Format::Italic => apply_edit(ctx, tab, text, |t, s| editing::toggle_wrap(t, s, "*", "*")),
+        Format::Heading => apply_edit(ctx, tab, text, |t, s| editing::toggle_line_prefix(t, s, "# ")),
+        Format::Quote => apply_edit(ctx, tab, text, |t, s| editing::toggle_line_prefix(t, s, "> ")),
+        Format::Note => apply_edit(ctx, tab, text, |t, s| editing::toggle_wrap(t, s, "<!-- ", " -->")),
+        Format::SceneBreak => apply_edit(ctx, tab, text, editing::scene_break),
+    }
+}
+
+/// Right-click in the editor: Markdown formatting for the selection (or
+/// the cursor's line).
+fn format_menu(response: &egui::Response, tab: TabId, text: &mut String) {
+    // Clicking the menu takes focus from the text, which drops its
+    // selection, so remember the selection the menu was opened on.
+    let opened_on = editor_id(tab).with("format-menu-selection");
+    if response.secondary_clicked() {
+        let picked = selection(&response.ctx, tab).unwrap_or(0..0);
+        response.ctx.data_mut(|d| d.insert_temp(opened_on, picked));
+    }
+    response.context_menu(|ui| {
+        let mut picked = None;
+        for format in Format::ALL {
+            if matches!(format, Format::Heading | Format::SceneBreak) {
+                ui.separator();
+            }
+            let mut button = egui::Button::new(format.label());
+            if let Some(keys) = format.shortcut() {
+                button = button.shortcut_text(keys);
+            }
+            if ui.add(button).clicked() {
+                picked = Some(format);
+            }
+        }
+        if let Some(format) = picked {
+            if let Some(range) = ui.ctx().data(|d| d.get_temp::<Range<usize>>(opened_on)) {
+                set_selection(ui.ctx(), tab, range);
+            }
+            apply_format(ui.ctx(), tab, text, format);
+            // Back to typing.
+            ui.ctx().memory_mut(|m| m.request_focus(editor_id(tab)));
+            ui.close();
+        }
+    });
 }
 
 /// The font the editor's text is set in: the fixed-width editor font, or
@@ -294,9 +386,24 @@ pub fn show(
 
                 // Fill the rest of the viewport so clicking below the text focuses it.
                 let min_height = ui.available_height();
+                // The text widget moves the cursor on any button's press;
+                // a right-click is for the formatting menu, so keep the
+                // selection it's meant to format.
+                let right_click = settings.markdown
+                    && ui.input(|i| {
+                        i.pointer.button_down(egui::PointerButton::Secondary)
+                            || i.pointer.button_released(egui::PointerButton::Secondary)
+                    });
+                let kept = right_click.then(|| selection(ui.ctx(), tab)).flatten();
                 let output = edit.min_size(Vec2::new(0.0, min_height)).show(ui);
                 // Name it for VoiceOver (there's no visible label).
                 let _ = egui::Response::clone(&output.response).accessible_name("Document text");
+                if let Some(kept) = kept {
+                    set_selection(ui.ctx(), tab, kept);
+                }
+                if settings.markdown {
+                    format_menu(&output.response, tab, text);
+                }
 
                 if let Some(cursor) = output.cursor_range {
                     info.line_col = Some(line_col(text, cursor.primary));
