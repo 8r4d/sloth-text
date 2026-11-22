@@ -80,35 +80,36 @@ pick Sloth under **Open with**, and click **Change All**.
 
 ## Code layout
 
-The repository is a Cargo workspace. The editor is the `sloth` crate in `sloth/`;
-shared code will move into a `core` crate as the workspace grows.
+The repository is a Cargo workspace with two crates: `sloth-core` in `core/`
+holds code meant to be shared with other apps (documents, the editor widget, find,
+tabs, themes), and the `sloth` app in `sloth/` builds the editor from it.
 
 | File | What's in it |
 |------|--------------|
 | `sloth/src/main.rs`     | Window setup and startup |
 | `sloth/src/app.rs`      | App and window state, command handling, menu bar, status bar, dialogs |
 | `sloth/src/commands.rs` | The `Command` enum: every action, its label, shortcut and menu placement |
-| `sloth/src/document.rs` | Loading, saving and unsaved-change tracking for one file |
-| `sloth/src/tabs.rs`     | The list of open documents and the tab bar |
-| `sloth/src/find.rs`     | Search/replace logic (unit-tested) and the find bar |
-| `sloth/src/search_results.rs` | The Find in All Tabs results panel |
-| `sloth/src/syntax.rs`   | Syntax highlighting (syntect), cached line by line |
-| `sloth/src/file_types.rs` | Save dialog formats and the default extension |
+| `core/src/document.rs` | Loading, saving and unsaved-change tracking for one file |
+| `core/src/tabs.rs`     | The list of open documents and the tab bar |
+| `core/src/find.rs`     | Search/replace logic (unit-tested) and the find bar |
+| `core/src/search_results.rs` | The Find in All Tabs results panel |
+| `core/src/syntax.rs`   | Syntax highlighting (syntect), cached line by line |
+| `core/src/file_types.rs` | Save dialog formats and the default extension |
 | `sloth/src/version.rs`, `sloth/build.rs` | Version, git commit and build date shown in About |
 | `sloth/src/settings.rs` | Everything saved between launches (theme, view options, recent files, open tabs) |
-| `sloth/src/macos_open.rs` | Receives files opened from Finder |
-| `sloth/src/macos_print.rs` | Printing through the macOS print dialog |
+| `core/src/macos_open.rs` | Receives files opened from Finder |
+| `core/src/macos_print.rs` | Printing through the macOS print dialog |
 | `sloth/src/help.rs`     | The Help window's pages |
 | `sloth/src/settings_window.rs` | The Settings window |
 | `scripts/make-icon.swift` | Draws the app icon (`sloth/icons/`); rerun after changing it |
-| `sloth/src/text_format.rs` | Encodings, byte-order marks and line endings (reading and writing) |
-| `sloth/src/recovery.rs` | Crash-recovery copies of unsaved documents |
-| `sloth/src/editing.rs`  | Auto-indent, indent/outdent and bracket matching (pure, unit-tested) |
-| `sloth/src/fonts.rs`    | Lists installed fixed-width fonts and installs the chosen one |
+| `core/src/text_format.rs` | Encodings, byte-order marks and line endings (reading and writing) |
+| `core/src/recovery.rs` | Crash-recovery copies of unsaved documents |
+| `core/src/editing.rs`  | Auto-indent, indent/outdent and bracket matching (pure, unit-tested) |
+| `core/src/fonts.rs`    | Lists installed fixed-width fonts and installs the chosen one |
 | `sloth/src/app_ui_tests.rs` | UI tests that run the app in memory (`cargo test`) |
 | `sloth/macos/document-types.plist` | File types declared in Sloth.app, so Finder offers it |
-| `sloth/src/editor.rs`   | The text area and line-number gutter |
-| `sloth/src/theme.rs`    | Colour themes: each one is a small palette of colours |
+| `core/src/editor.rs`   | The text area and line-number gutter |
+| `core/src/theme.rs`    | Colour themes: each one is a small palette of colours |
 | `sloth/src/native_menu.rs` | macOS menu bar, built from `commands::MENUS` (other platforms get an in-window menu) |
 
 ### Adding a feature

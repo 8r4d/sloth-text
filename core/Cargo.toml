@@ -1,0 +1,24 @@
+[package]
+name = "sloth-core"
+version = "1.0.0"
+edition = "2024"
+description = "Shared editor code for Sloth and Sloth Writer: documents, the text editor, find, themes, syntax highlighting, recovery"
+
+[dependencies]
+chardetng = "1.0.0"
+eframe = { version = "0.37.0", features = ["persistence"] }
+encoding_rs = "0.8.44"
+fontique = { version = "0.11.1", default-features = false, features = ["system"] }
+read-fonts = "0.41.0"
+regex = "1.13.2"
+ron = "0.12"
+serde = { version = "1.0.229", features = ["derive"] }
+syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSFont", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSText", "NSTextView", "NSView", "NSWindow"] }
+# Apple Events, used to receive files opened from Finder.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDictionary", "NSGeometry", "NSNotification", "NSString", "NSURL", "NSValue", "objc2-core-services"] }
+# Same major version eframe uses.
+winit = "0.30"

@@ -1,27 +1,20 @@
 mod app;
 mod commands;
-mod document;
-mod editing;
-mod editor;
-mod file_types;
-mod find;
-mod fonts;
 mod help;
 #[cfg(target_os = "macos")]
-mod macos_open;
-#[cfg(target_os = "macos")]
-mod macos_print;
-#[cfg(target_os = "macos")]
 mod native_menu;
-mod recovery;
-mod search_results;
 mod settings;
 mod settings_window;
-mod syntax;
-mod tabs;
-mod text_format;
-mod theme;
 mod version;
+
+// Shared modules, brought in at the crate root so `crate::document` and the
+// like keep working throughout the app.
+#[cfg(target_os = "macos")]
+use sloth_core::{macos_open, macos_print};
+use sloth_core::{
+    document, editing, editor, file_types, find, fonts, recovery, search_results, syntax, tabs,
+    text_format, theme,
+};
 
 use std::path::PathBuf;
 

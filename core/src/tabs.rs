@@ -50,7 +50,16 @@ impl Tabs {
         tabs.add(Document::new());
         tabs
     }
+}
 
+impl Default for Tabs {
+    /// Same as [`Tabs::new`]: one empty, untitled tab.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Tabs {
     pub fn active(&self) -> &Tab {
         &self.tabs[self.active]
     }

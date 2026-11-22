@@ -28,7 +28,8 @@ pub fn start_scan(ctx: &egui::Context) {
 }
 
 /// Run the font scan now (tests can't wait for the background thread).
-#[cfg(test)]
+/// Not `#[cfg(test)]`: the app's UI tests, in another crate, call it too.
+#[doc(hidden)]
 pub fn scan_for_tests() -> &'static [String] {
     let _ = FAMILIES.set(scan());
     families()

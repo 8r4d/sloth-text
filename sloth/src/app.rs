@@ -349,7 +349,7 @@ impl SlothApp {
     /// Create a window (it appears on the next frame) and return its
     /// viewport. With `tab`, the window starts with that tab.
     fn add_window(&mut self, tab: Option<tabs::Tab>) -> ViewportId {
-        let tabs = tab.map(Tabs::with_tab).unwrap_or_else(Tabs::new);
+        let tabs = tab.map(Tabs::with_tab).unwrap_or_default();
         self.next_window += 1;
         let id = ViewportId::from_hash_of(("sloth-window", self.next_window));
         // Cascade new windows a little down and to the right.

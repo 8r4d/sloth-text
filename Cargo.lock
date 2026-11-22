@@ -3644,19 +3644,34 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 name = "sloth"
 version = "1.0.0"
 dependencies = [
- "chardetng",
  "eframe",
  "egui_commonmark",
  "egui_kittest",
  "encoding_rs",
- "fontique",
  "muda",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "regex",
+ "rfd",
+ "ron",
+ "serde",
+ "sloth-core",
+ "winit",
+]
+
+[[package]]
+name = "sloth-core"
+version = "1.0.0"
+dependencies = [
+ "chardetng",
+ "eframe",
+ "encoding_rs",
+ "fontique",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "read-fonts",
  "regex",
- "rfd",
  "ron",
  "serde",
  "syntect",

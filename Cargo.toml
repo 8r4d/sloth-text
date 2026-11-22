@@ -1,5 +1,5 @@
 [workspace]
-members = ["sloth"]
+members = ["core", "sloth"]
 resolver = "3"
 
 # Profiles only take effect at the workspace root.
