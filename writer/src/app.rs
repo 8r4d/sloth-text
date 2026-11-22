@@ -83,6 +83,7 @@ impl WriterApp {
                 auto_indent: false,
                 highlight_current_line: false,
                 syntax_highlighting: false,
+                smart_dashes: true,
                 ..EditorSettings::default()
             },
             renaming: None,

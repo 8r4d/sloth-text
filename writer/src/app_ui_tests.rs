@@ -407,3 +407,39 @@ fn escape_closes_find() {
     assert!(!harness.state().find.visible);
     assert!(!harness.state().show_results);
 }
+
+// ----- typing --------------------------------------------------------------------
+
+#[test]
+fn two_dashes_become_an_em_dash() {
+    let dir = TempDir::new("dash");
+    let mut harness = harness(project(&dir, ""));
+    harness.run_steps(2); // the editor takes focus
+
+    // One keystroke per frame, as when typing.
+    for t in ["Wait", "-", "-", "what"] {
+        harness.event(egui::Event::Text(t.into()));
+        harness.run_steps(2);
+    }
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Wait\u{2014}what"));
+
+    // Both dashes arriving in one frame works too.
+    harness.event(egui::Event::Text("-".into()));
+    harness.event(egui::Event::Text("-".into()));
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Wait\u{2014}what\u{2014}"));
+
+    // Fast typing: every key in a single frame.
+    for c in " more--ish".chars() {
+        harness.event(egui::Event::Text(c.to_string()));
+    }
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Wait\u{2014}what\u{2014} more\u{2014}ish"));
+
+    // An HTML comment's opener is left alone.
+    for t in [" <!", "-", "-"] {
+        harness.event(egui::Event::Text(t.into()));
+        harness.run_steps(2);
+    }
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Wait\u{2014}what\u{2014} more\u{2014}ish <!--"));
+}

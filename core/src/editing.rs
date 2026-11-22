@@ -1,5 +1,5 @@
 //! Editing operations the text widget doesn't do itself: auto-indent,
-//! indenting and outdenting lines, and bracket matching.
+//! indenting and outdenting lines, bracket matching, and smart dashes.
 //!
 //! These are pure functions over the text and a selection (character
 //! indices, like the text cursor), so they're easy to test. Each returns the
@@ -203,6 +203,19 @@ pub fn matching_bracket(text: &str, cursor: usize) -> Option<(usize, usize)> {
     None
 }
 
+/// Smart dashes: should a `-` typed right after `tail` (the last few
+/// characters before the cursor) turn the `--` into an em dash? Not in the
+/// `<!--` that opens an HTML comment, nor anywhere inside one, so its closing
+/// `-->` stays as typed too.
+pub fn makes_em_dash(tail: &str, in_comment: bool) -> bool {
+    !in_comment && tail.ends_with('-') && !tail.ends_with("<!-")
+}
+
+/// Is the end of `before` inside an HTML comment (`<!--` not yet closed)?
+pub fn in_html_comment(before: &str) -> bool {
+    before.rfind("<!--").is_some_and(|open| !before[open + 4..].contains("-->"))
+}
+
 /// Words and characters, for the status bar.
 pub fn counts(text: &str) -> (usize, usize) {
     (text.split_whitespace().count(), text.chars().count())
@@ -309,5 +322,24 @@ mod tests {
     fn counts_words_and_characters() {
         assert_eq!(counts("héllo  big\nworld"), (3, 16));
         assert_eq!(counts(""), (0, 0));
+    }
+
+    #[test]
+    fn a_second_dash_makes_an_em_dash() {
+        assert!(makes_em_dash("Wait-", false));
+        assert!(makes_em_dash("-", false));
+        assert!(!makes_em_dash("Wait", false));
+        assert!(!makes_em_dash("", false));
+        assert!(!makes_em_dash("a\u{2014}", false), "after an em dash, a dash is just a dash");
+        assert!(!makes_em_dash("<!-", false), "an HTML comment's opener");
+        assert!(!makes_em_dash("e -", true), "inside a comment");
+    }
+
+    #[test]
+    fn knows_when_inside_an_html_comment() {
+        assert!(in_html_comment("text <!-- a note"));
+        assert!(!in_html_comment("text <!-- a note --> more"));
+        assert!(in_html_comment("<!-- one --> <!-- two"));
+        assert!(!in_html_comment("no comment"));
     }
 }

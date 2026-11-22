@@ -31,6 +31,8 @@ pub struct EditorSettings {
     pub syntax_highlighting: bool,
     /// Show a rendered preview beside Markdown documents.
     pub markdown_preview: bool,
+    /// Typing `--` makes an em dash (Sloth Writer; off in Sloth).
+    pub smart_dashes: bool,
 }
 
 impl EditorSettings {
@@ -57,6 +59,7 @@ impl Default for EditorSettings {
             highlight_current_line: true,
             syntax_highlighting: true,
             markdown_preview: false,
+            smart_dashes: false,
         }
     }
 }
@@ -201,6 +204,9 @@ pub fn show(
                 };
                 ui.add_space(6.0); // breathing room between gutter and text
 
+                if settings.smart_dashes {
+                    smart_dashes(ui, tab, text);
+                }
                 handle_editing_keys(ui, tab, text, settings);
                 // Placeholder for highlights drawn behind the text; filled in
                 // once we know where the cursor's row landed.
@@ -269,6 +275,106 @@ pub fn show(
         });
 
     info
+}
+
+/// Smart dashes: before the text widget sees this frame's typing, turn each
+/// `-` typed right after another `-` into Backspace + `—`. Rewriting the
+/// keystrokes (rather than fixing the text afterwards) works however many
+/// arrive in one frame, and undo sees what it would if typed that way.
+fn smart_dashes(ui: &egui::Ui, tab: TabId, text: &str) {
+    if !ui.memory(|m| m.has_focus(editor_id(tab))) {
+        return;
+    }
+    // What's before the cursor (or the selection typing will replace).
+    let start = selection(ui.ctx(), tab).map_or(0, |s| s.start);
+    let before = &text[..crate::find::char_to_byte(text, start)];
+    ui.ctx().input_mut(|i| {
+        let events = std::mem::take(&mut i.events);
+        i.events = dash_events(before, events);
+    });
+}
+
+/// The keystroke rewriting for [`smart_dashes`], given the text before the
+/// cursor. Separate so it can be tested without a window.
+fn dash_events(before: &str, events: Vec<egui::Event>) -> Vec<egui::Event> {
+    use egui::Event;
+    // The last few characters before the cursor, and whether that's inside
+    // an HTML comment, kept up to date as typing goes on.
+    let mut tail: String = before.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+    let mut in_comment = editing::in_html_comment(before);
+    let mut out = Vec::with_capacity(events.len());
+    for event in events {
+        match event {
+            Event::Text(typed) => {
+                let mut chunk = String::new();
+                for c in typed.chars() {
+                    if c == '-' && editing::makes_em_dash(&tail, in_comment) {
+                        if !chunk.is_empty() {
+                            out.push(Event::Text(std::mem::take(&mut chunk)));
+                        }
+                        out.push(Event::Key {
+                            key: Key::Backspace,
+                            physical_key: None,
+                            pressed: true,
+                            repeat: false,
+                            modifiers: Modifiers::NONE,
+                        });
+                        out.push(Event::Text("\u{2014}".to_owned()));
+                        tail.pop();
+                        tail.push('\u{2014}');
+                    } else {
+                        chunk.push(c);
+                        tail.push(c);
+                    }
+                    if tail.chars().count() > 4 {
+                        tail.remove(0);
+                    }
+                    if tail.ends_with("<!--") {
+                        in_comment = true;
+                    } else if tail.ends_with("-->") {
+                        in_comment = false;
+                    }
+                }
+                if !chunk.is_empty() {
+                    out.push(Event::Text(chunk));
+                }
+            }
+            // Anything that may move the cursor or change the text other than
+            // by typing: stop guessing what's before the cursor this frame.
+            Event::Key { key, pressed: true, modifiers, .. }
+                if modifiers.command
+                    || modifiers.ctrl
+                    || matches!(
+                        key,
+                        Key::ArrowLeft
+                            | Key::ArrowRight
+                            | Key::ArrowUp
+                            | Key::ArrowDown
+                            | Key::Home
+                            | Key::End
+                            | Key::PageUp
+                            | Key::PageDown
+                            | Key::Backspace
+                            | Key::Delete
+                            | Key::Enter
+                            | Key::Tab
+                    ) =>
+            {
+                tail.clear();
+                // Unknown spot: no more conversions until the next frame.
+                in_comment = true;
+                out.push(event);
+            }
+            Event::Paste(_) | Event::Cut | Event::PointerButton { pressed: true, .. } => {
+                tail.clear();
+                // Unknown spot: no more conversions until the next frame.
+                in_comment = true;
+                out.push(event);
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// The current-line band and matching-bracket boxes, drawn behind the text.
@@ -516,5 +622,62 @@ mod tests {
         assert_eq!(char_index_of(text, 2, 99), 6); // clamped to end of line
         assert_eq!(char_index_of(text, 3, 1), 7);
         assert_eq!(char_index_of(text, 99, 1), 8); // past the end
+    }
+
+    /// Typing as egui reports it: a key press, then its text.
+    fn typed(text: &str) -> Vec<egui::Event> {
+        text.chars().map(|c| egui::Event::Text(c.to_string())).collect()
+    }
+
+    /// Play events against `before` the way the text widget would, for
+    /// the subset dash_events produces: text, and Backspace.
+    fn play(before: &str, events: &[egui::Event]) -> String {
+        let mut text = before.to_owned();
+        for e in events {
+            match e {
+                egui::Event::Text(t) => text.push_str(t),
+                egui::Event::Key { key: Key::Backspace, pressed: true, .. } => {
+                    text.pop();
+                }
+                _ => {}
+            }
+        }
+        text
+    }
+
+    #[test]
+    fn smart_dashes_rewrite_typing() {
+        let cases = [
+            ("", "Wait--what", "Wait\u{2014}what"),
+            // The first dash was typed in an earlier frame.
+            ("Wait-", "-what", "Wait\u{2014}what"),
+            // A third dash stays a dash.
+            ("", "a---b", "a\u{2014}-b"),
+            // HTML comments (inline notes) are left exactly as typed...
+            ("", "<!-- a -- note -->", "<!-- a -- note -->"),
+            ("<!-- started in an earlier frame ", "-->", "<!-- started in an earlier frame -->"),
+            // ...and dashes work again after one closes.
+            ("", "<!-- n --> a--b", "<!-- n --> a\u{2014}b"),
+            ("", "one-two", "one-two"),
+        ];
+        for (before, typing, expected) in cases {
+            let events = dash_events(before, typed(typing));
+            assert_eq!(play(before, &events), expected, "{before:?} + {typing:?}");
+        }
+    }
+
+    #[test]
+    fn smart_dashes_stop_guessing_when_the_cursor_moves() {
+        let mut events = typed("-");
+        events.push(egui::Event::Key {
+            key: Key::ArrowLeft,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        });
+        events.extend(typed("-"));
+        let out = dash_events("", events);
+        assert!(!out.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Backspace, .. })));
     }
 }
