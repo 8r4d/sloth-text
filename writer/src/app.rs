@@ -94,6 +94,8 @@ pub struct WriterApp {
     folder_views: views::FolderViews,
     /// The Compile window is open (see compile_window.rs).
     compile_open: bool,
+    /// A preset's name as it's being typed, in the Compile window.
+    compile_preset_name: Option<String>,
 
     // Snapshots (see snapshots_ui.rs).
     /// The name typed for the next snapshot.
@@ -185,6 +187,7 @@ impl WriterApp {
             manifest_dirty: false,
             folder_views: views::FolderViews::default(),
             compile_open: false,
+            compile_preset_name: None,
             snapshot_name: String::new(),
             comparing: None,
             confirm_delete_snapshot: None,

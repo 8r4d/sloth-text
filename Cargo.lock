@@ -3960,6 +3960,7 @@ dependencies = [
  "sloth-core",
  "ureq",
  "winit",
+ "zip",
 ]
 
 [[package]]

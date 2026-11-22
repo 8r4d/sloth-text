@@ -689,12 +689,13 @@ fn compile_summarises_the_manuscript_and_writes_it() {
     // What Compile… writes once a place is chosen.
     let manuscript = harness.state().gather_manuscript().unwrap();
     let out = dir.0.join("Book.md");
-    super::compile_window::write_compiled(&manuscript, crate::compile::Format::Markdown, &out).unwrap();
+    let markdown = crate::compile::CompileSettings { format: crate::compile::Format::Markdown, ..Default::default() };
+    super::compile_window::write_compiled(&manuscript, &markdown, &out).unwrap();
     let md = fs::read_to_string(&out).unwrap();
     assert!(md.contains("# Untitled\n\nTyped *but* not saved yet.\n"), "{md}");
 
     let docx = dir.0.join("Book.docx");
-    super::compile_window::write_compiled(&manuscript, crate::compile::Format::Manuscript, &docx).unwrap();
+    super::compile_window::write_compiled(&manuscript, &crate::compile::CompileSettings::default(), &docx).unwrap();
     assert!(docx_rs::read_docx(&fs::read(&docx).unwrap()).unwrap().json().contains("not saved yet"));
 }
 
@@ -1218,4 +1219,35 @@ fn the_split_pane_picks_from_its_menu_and_wont_double_up() {
     harness.run_steps(2);
     // The scene that's already in the main editor.
     harness.get_by_label("This is open in the main editor.");
+}
+
+#[test]
+fn compile_presets_in_the_window() {
+    let dir = TempDir::new("compile-presets");
+    let mut harness = harness(project(&dir, "words"));
+    harness.state_mut().compile_open = true;
+    harness.run_steps(6);
+
+    // E-book, saved as "Beta readers".
+    harness.get_by_label("E-book (.epub)").click();
+    harness.run_steps(2);
+    harness.get_by_label("Save as Preset\u{2026}").click();
+    harness.run_steps(2);
+    harness.event(egui::Event::Text("Beta readers".into()));
+    harness.run_steps(1);
+    harness.get_by_label("Save").click();
+    harness.run_steps(2);
+    let compile = |h: &Harness<'static, WriterApp>| h.state().project.as_ref().unwrap().manifest.compile.clone();
+    assert_eq!(compile(&harness).presets.len(), 1);
+    assert_eq!(compile(&harness).presets[0].format, crate::compile::Format::Epub);
+
+    // Back to Word: the preset no longer matches ("Custom"); picking it restores.
+    harness.get_by_label("Word manuscript (.docx)").click();
+    harness.run_steps(2);
+    harness.get_all_by_value("Custom").next().unwrap().click();
+    harness.run_steps(2);
+    harness.get_by_label("Beta readers").click();
+    harness.run_steps(2);
+    assert_eq!(compile(&harness).format, crate::compile::Format::Epub);
+    assert!(harness.state().manifest_dirty, "kept with the project");
 }
