@@ -62,8 +62,14 @@ impl WordCache {
     }
 }
 
+/// Words as targets and compile count them: inline notes (`<!-- … -->`)
+/// aren't part of the manuscript, so they don't count.
 pub fn count_words(text: &str) -> usize {
-    text.split_whitespace().count()
+    if text.contains("<!--") {
+        crate::compile::strip_notes(text).split_whitespace().count()
+    } else {
+        text.split_whitespace().count()
+    }
 }
 
 impl WriterApp {
@@ -297,4 +303,16 @@ impl WriterApp {
 
 fn heading(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).small().weak());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::count_words;
+
+    #[test]
+    fn notes_dont_count_as_words() {
+        assert_eq!(count_words("one two three"), 3);
+        assert_eq!(count_words("one <!-- not these four words --> two"), 2);
+        assert_eq!(count_words("one <!-- an unfinished note"), 1);
+    }
 }

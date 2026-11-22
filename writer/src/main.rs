@@ -4,6 +4,7 @@
 
 mod app;
 mod binder;
+mod compile;
 mod project;
 
 use eframe::egui;

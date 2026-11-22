@@ -664,3 +664,36 @@ fn the_outline_edits_status_and_nests_by_dragging() {
     // Nested rows show in the outline too.
     assert_eq!(harness.get_all_by_label("📄 Letter").count(), 2);
 }
+
+// ----- compile -------------------------------------------------------------------
+
+#[test]
+fn compile_summarises_the_manuscript_and_writes_it() {
+    let dir = TempDir::new("compile");
+    let mut harness = harness(project(&dir, "Saved words here."));
+    // Unsaved edits are compiled too.
+    harness.state_mut().current().unwrap().doc.text = "Typed *but* not saved yet.".into();
+
+    harness.state_mut().compile_open = true;
+    // A few frames: the window sizes itself, then settles in the middle.
+    harness.run_steps(6);
+    harness.get_by_label_contains("1 chapter, 5 words");
+
+    // Choices are the project's, saved with it.
+    harness.get_by_label("Markdown (.md)").click();
+    harness.run_steps(2);
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.manifest.compile.format, crate::compile::Format::Markdown);
+    assert!(harness.state().manifest_dirty);
+
+    // What Compile… writes once a place is chosen.
+    let manuscript = harness.state().gather_manuscript().unwrap();
+    let out = dir.0.join("Book.md");
+    super::compile_window::write_compiled(&manuscript, crate::compile::Format::Markdown, &out).unwrap();
+    let md = fs::read_to_string(&out).unwrap();
+    assert!(md.contains("# Untitled\n\nTyped *but* not saved yet.\n"), "{md}");
+
+    let docx = dir.0.join("Book.docx");
+    super::compile_window::write_compiled(&manuscript, crate::compile::Format::Manuscript, &docx).unwrap();
+    assert!(docx_rs::read_docx(&fs::read(&docx).unwrap()).unwrap().json().contains("not saved yet"));
+}

@@ -14,6 +14,8 @@ use sloth_core::tabs::{self, DiskNotice, NoticeChoice, Tab, TabId, Tabs};
 
 use crate::binder::{self, BinderAction, Renaming};
 
+#[path = "compile_window.rs"]
+mod compile_window;
 #[path = "inspector.rs"]
 pub(crate) mod inspector;
 #[path = "search.rs"]
@@ -78,6 +80,8 @@ pub struct WriterApp {
     manifest_dirty: bool,
     /// Corkboard or outline, per folder (see views.rs).
     folder_views: views::FolderViews,
+    /// The Compile window is open (see compile_window.rs).
+    compile_open: bool,
 }
 
 impl WriterApp {
@@ -126,6 +130,7 @@ impl WriterApp {
             word_cache: inspector::WordCache::default(),
             manifest_dirty: false,
             folder_views: views::FolderViews::default(),
+            compile_open: false,
         };
         if let Some(root) = open {
             app.open_project(&root);
@@ -204,6 +209,7 @@ impl WriterApp {
         self.results_key = None;
         self.inspector_buffers = None;
         self.editing_labels = false;
+        self.compile_open = false;
     }
 
     // ----- documents ---------------------------------------------------------
@@ -476,6 +482,9 @@ impl WriterApp {
         if pressed(ctx, Modifiers::COMMAND, Key::O) {
             self.open_project_dialog();
         }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::E) {
+            self.compile_open = true;
+        }
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::I) {
             self.show_inspector = !self.show_inspector;
         }
@@ -569,6 +578,9 @@ impl WriterApp {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text("\u{2325}\u{2318}I");
+                    if ui.button("Compile\u{2026}").on_hover_text("\u{21e7}\u{2318}E").clicked() {
+                        self.compile_open = true;
+                    }
                     if ui.button("Close Project").clicked() {
                         self.close_project();
                     }
@@ -582,7 +594,7 @@ impl WriterApp {
         if self.status.as_ref().is_some_and(|(_, at)| now - at > STATUS_SECONDS) {
             self.status = None;
         }
-        let words = self.current().map(|t| t.doc.text.split_whitespace().count());
+        let words = self.current().map(|t| inspector::count_words(&t.doc.text));
         let status = self.status.as_ref().map(|(message, _)| message.clone());
         egui::Panel::bottom(egui::Id::unique("status")).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -727,6 +739,7 @@ impl eframe::App for WriterApp {
         self.editor_area(ui);
         self.empty_trash_dialog(&ctx);
         self.labels_window(&ctx);
+        self.compile_window(&ctx);
 
         if now - self.last_autosave >= AUTOSAVE_SECONDS {
             self.save_all();

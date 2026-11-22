@@ -170,6 +170,9 @@ pub struct Manifest {
     pub statuses: Vec<String>,
     #[serde(default)]
     pub labels: Vec<Label>,
+    /// Compile choices (author name, format), remembered for next time.
+    #[serde(default)]
+    pub compile: crate::compile::CompileSettings,
 }
 
 /// Where to put an item, relative to another one.
@@ -220,6 +223,7 @@ impl Project {
                 binder: Role::ALL.into_iter().map(Node::role_folder).collect(),
                 statuses: default_statuses(),
                 labels: starter_labels(),
+                compile: Default::default(),
             },
         };
         project.add_document(&Place::Into(Role::Manuscript.folder().into()), "Untitled")?;
