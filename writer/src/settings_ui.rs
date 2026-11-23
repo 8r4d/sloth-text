@@ -74,6 +74,8 @@ pub struct WriterSettings {
     /// The web helper's address (its token is in the Keychain).
     pub helper_url: String,
     pub theme: ThemeChoice,
+    /// A small moment when the day's goal is reached (see goal_ui.rs).
+    pub celebrate_goals: bool,
 }
 
 impl Default for WriterSettings {
@@ -98,6 +100,7 @@ impl Default for WriterSettings {
             auto_backup_folder: None,
             backup_folder: None,
             helper_url: String::new(),
+            celebrate_goals: true,
             theme: ThemeChoice::default(),
         }
     }
@@ -286,6 +289,8 @@ impl WriterApp {
                     });
                     ui.checkbox(&mut settings.spell_check, "Check spelling as you type")
                         .on_hover_text("Uses your Mac's spelling language and learned words. Right-click a word for suggestions.");
+                    ui.checkbox(&mut settings.celebrate_goals, "Celebrate reaching the day's goal")
+                        .on_hover_text("Once a day: the goal ring pulses, and the sloth says so.");
                     ui.add_space(4.0);
                     row(ui, "Typewriter", &mut |ui| {
                         egui::ComboBox::from_id_salt("typewriter").selected_text(settings.typewriter.label()).width(160.0).show_ui(ui, |ui| {

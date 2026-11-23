@@ -64,7 +64,7 @@ const TIPS: &[&str] = &[
     "Mobile Notes (in More\u{2026}) is a notepad for jotting on your phone: on the web it's first in each project, with a New Entry button that adds the date and time. On the Mac it opens beside what you're writing. Any document can be the notepad: tick Mobile notepad in its inspector. Notes added on both sides between syncs are all kept.",
     "The Canvas (\u{2325}\u{2318}C) puts every document on one surface, strung to the profiles it refers to, whatever the binder's order. Double-click it for a note of your own; drag from a card's pin to another card to tie a string between them (right-click the string to say what it means). Right-click a note to make it a document.",
     "Coming from Scrivener? Close the project and choose Import from Scrivener… on the start screen.",
-    "Click \"Today\" in the status bar for writing statistics and goals.",
+    "Click the goal ring (\"Today\") in the status bar for writing statistics, goals, and a calendar of the year's writing. Reaching the day's goal is celebrated once a day.",
     "Right-click an underlined word for spelling suggestions, Learn Spelling or Ignore Spelling.",
 ];
 
@@ -98,7 +98,7 @@ impl WriterApp {
 }
 
 /// The app icon, for the About page.
-fn icon_texture(ctx: &egui::Context) -> egui::TextureHandle {
+pub(super) fn icon_texture(ctx: &egui::Context) -> egui::TextureHandle {
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../icons/icon-512.png")).expect("icon is a valid PNG");
     let image = egui::ColorImage::from_rgba_unmultiplied([icon.width as usize, icon.height as usize], &icon.rgba);
     ctx.load_texture("writer-icon", image, egui::TextureOptions::LINEAR)

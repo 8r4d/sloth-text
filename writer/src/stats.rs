@@ -36,6 +36,9 @@ pub fn today() -> NaiveDate {
 pub struct Stats {
     /// Net words by day ("YYYY-MM-DD"). Negative when more was cut than written.
     pub days: BTreeMap<String, i64>,
+    /// The last day reaching the goal was celebrated, so it's only once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub celebrated: Option<String>,
 }
 
 impl Stats {
@@ -86,6 +89,31 @@ impl Stats {
             }
         }
         run
+    }
+
+    /// The most days in a row the goal was met (any words at all, without
+    /// a goal), ever.
+    pub fn longest_streak(&self, goal: Option<u32>) -> u32 {
+        let enough = goal.unwrap_or(1).max(1) as i64;
+        let mut met: Vec<NaiveDate> =
+            self.days.iter().filter(|(_, w)| **w >= enough).filter_map(|(day, _)| parse_date(day)).collect();
+        met.sort();
+        let (mut best, mut run, mut last): (u32, u32, Option<NaiveDate>) = (0, 0, None);
+        for day in met {
+            run = if last.and_then(|d| d.succ_opt()) == Some(day) { run + 1 } else { 1 };
+            best = best.max(run);
+            last = Some(day);
+        }
+        best
+    }
+
+    /// A year of days for the calendar, oldest first: from the Monday 52
+    /// weeks before this week's, to today.
+    pub fn year(&self, today: NaiveDate) -> Vec<(NaiveDate, u32)> {
+        use chrono::Datelike;
+        let monday = today - Days::new(today.weekday().num_days_from_monday() as u64);
+        let start = monday - Days::new(52 * 7);
+        start.iter_days().take_while(|d| *d <= today).map(|d| (d, self.written(d))).collect()
     }
 
     /// Days with any words written.
@@ -160,6 +188,26 @@ pub fn thousands(n: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn longest_streak_and_a_year_of_days() {
+        let d = |s: &str| parse_date(s).unwrap();
+        let mut st = Stats::default();
+        for (day, words) in [("2026-01-01", 500), ("2026-01-02", 800), ("2026-01-03", 900), ("2026-01-05", 1200), ("2026-01-06", -40)] {
+            st.add(d(day), words);
+        }
+        assert_eq!(st.longest_streak(None), 3);
+        assert_eq!(st.longest_streak(Some(800)), 2, "the goal met on the 2nd and 3rd");
+        assert_eq!(Stats::default().longest_streak(None), 0);
+
+        // Wednesday 7 January: from Monday 52 weeks before Monday 5 January.
+        let year = st.year(d("2026-01-07"));
+        assert_eq!(year.first().unwrap().0, d("2025-01-06"));
+        assert_eq!(year.last().unwrap().0, d("2026-01-07"));
+        assert_eq!(year.len(), 52 * 7 + 3);
+        assert!(year.contains(&(d("2026-01-05"), 1200)));
+        assert!(year.contains(&(d("2026-01-06"), 0)), "cutting shows as none");
+    }
 
     fn day(text: &str) -> NaiveDate {
         parse_date(text).unwrap()

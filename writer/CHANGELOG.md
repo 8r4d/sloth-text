@@ -2,6 +2,15 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.19.0
+
+Goals you can see.
+
+- A ring in the status bar fills as you write towards the day's goal, beside today's words (click it for Statistics).
+- Reaching the goal is celebrated, once a day: the ring pulses, and the sloth says so for a moment above it. Turn it off in Settings → Writing → Celebrate reaching the day's goal.
+- Statistics shows the whole year as a calendar: a square a day, shaded by the words written against the goal; hover one for its words. Under it, the longest run of days meeting the goal (or writing, without one).
+- Animations follow your Mac's Reduce motion setting (System Settings → Accessibility → Display).
+
 ## 1.18.0
 
 - Replace: Replace… in the find bar (⌘F) replaces the selected match and moves to the next, or Replace All in the document. Regular expressions can use `$1` in the replacement, as in Sloth.

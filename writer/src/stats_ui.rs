@@ -1,10 +1,11 @@
 //! Keeping the daily word tally, the status bar's "Today" figure, and the
 //! Statistics window: today against the goal, the streak, the last 30
-//! days, the manuscript against its target, words per chapter, and the
-//! goals themselves. See stats.rs for how words are counted.
+//! days, a year of days as a calendar, the manuscript against its target,
+//! words per chapter, and the goals themselves. See stats.rs for how words
+//! are counted, and goal_ui.rs for the status bar's goal ring.
 
 use chrono::NaiveDate;
-use eframe::egui::{self, RichText, Sense, Stroke, Vec2};
+use eframe::egui::{self, Pos2, RichText, Sense, Stroke, Vec2};
 
 use super::WriterApp;
 use super::inspector::count_words;
@@ -110,7 +111,7 @@ impl WriterApp {
         egui::Window::new("Statistics")
             .open(&mut open)
             .collapsible(false)
-            .default_width(460.0)
+            .default_width(520.0)
             .default_height((ctx.content_rect().height() * 0.85).min(600.0))
             .vscroll(true)
             .pivot(egui::Align2::CENTER_CENTER)
@@ -121,6 +122,11 @@ impl WriterApp {
                     today_section(ui, written, goal, stats.streak(today, goal));
                     ui.add_space(10.0);
                     chart(ui, &stats.recent(today, CHART_DAYS), goal);
+                    ui.add_space(14.0);
+                    calendar(ui, &stats.year(today), goal, today);
+                    let longest = stats.longest_streak(goal);
+                    let what = if goal.is_some() { "meeting the goal" } else { "writing" };
+                    ui.weak(format!("Longest run {what}: {} {}", thousands(longest), if longest == 1 { "day" } else { "days" }));
                     ui.add_space(10.0);
                     egui::Grid::new("stats-totals").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
                         ui.label("Manuscript");
@@ -193,6 +199,72 @@ fn today_section(ui: &mut egui::Ui, written: u32, goal: Option<u32>, streak: u32
         let done = (written as f32 / goal as f32).min(1.0);
         let text = if written >= goal { "Done for today".to_owned() } else { format!("{} to go", thousands(goal - written)) };
         ui.add(egui::ProgressBar::new(done).text(text));
+    }
+}
+
+/// Size of a day's square in the calendar, and the gap between them.
+const CELL: f32 = 7.0;
+const GAP: f32 = 2.0;
+
+/// A year of days as a calendar: a column a week (Monday at the top), each
+/// day shaded by its words against the goal (or, without one, against a
+/// good day's). Hover a day for its words.
+fn calendar(ui: &mut egui::Ui, days: &[(NaiveDate, u32)], goal: Option<u32>, today: NaiveDate) {
+    use chrono::Datelike;
+    ui.strong("This year");
+    ui.add_space(2.0);
+    // What counts as a full day: the goal, or the busier days' words.
+    let full = goal.unwrap_or_else(|| {
+        let mut written: Vec<u32> = days.iter().map(|d| d.1).filter(|&w| w > 0).collect();
+        written.sort_unstable();
+        written.get(written.len() * 3 / 4).copied().unwrap_or(500).max(1)
+    });
+    let weeks = days.len().div_ceil(7);
+    let step = CELL + GAP;
+    let left = 14.0; // for the weekday letters
+    let top = 14.0; // for the month names
+    let size = Vec2::new(left + weeks as f32 * step, top + 7.0 * step);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter_at(rect.expand(2.0));
+    let visuals = ui.visuals();
+    let accent = visuals.hyperlink_color;
+    let empty = visuals.weak_text_color().gamma_multiply(0.18);
+    let weak = visuals.weak_text_color();
+    let font = egui::FontId::proportional(9.0);
+    for (row, letter) in [(0, "M"), (2, "W"), (4, "F")] {
+        painter.text(rect.min + Vec2::new(0.0, top + row as f32 * step - 1.0), egui::Align2::LEFT_TOP, letter, font.clone(), weak);
+    }
+    let cell_at = |i: usize| rect.min + Vec2::new(left + (i / 7) as f32 * step, top + (i % 7) as f32 * step);
+    let mut last_month_label = None;
+    let mut hovered = None;
+    for (i, &(day, words)) in days.iter().enumerate() {
+        let at = cell_at(i);
+        // A month's name over the week its first day is in.
+        if day.day() == 1 || i == 0 {
+            let week = i / 7;
+            if last_month_label.is_none_or(|w: usize| week >= w + 3) {
+                let name = day.format("%b").to_string();
+                painter.text(Pos2::new(at.x, rect.top()), egui::Align2::LEFT_TOP, name, font.clone(), weak);
+                last_month_label = Some(week);
+            }
+        }
+        let square = egui::Rect::from_min_size(at, Vec2::splat(CELL));
+        let fill = if words == 0 {
+            empty
+        } else {
+            accent.gamma_multiply(0.3 + 0.7 * (words as f32 / full as f32).min(1.0))
+        };
+        painter.rect_filled(square, 1.5, fill);
+        if day == today {
+            painter.rect_stroke(square.expand(1.0), 2.0, Stroke::new(1.0, visuals.text_color()), egui::StrokeKind::Outside);
+        }
+        if response.hover_pos().is_some_and(|p| square.expand(GAP / 2.0).contains(p)) {
+            hovered = Some((day, words));
+        }
+    }
+    if let Some((day, words)) = hovered {
+        let what = if words == 1 { "word".to_owned() } else { "words".to_owned() };
+        response.on_hover_text_at_pointer(format!("{}: {} {what}", day.format("%a %-d %b %Y"), thousands(words)));
     }
 }
 

@@ -1573,6 +1573,58 @@ fn goals_set_in_the_statistics_window_show_in_the_status_bar() {
     harness.get_by_label("words today, of 1,000");
 }
 
+#[test]
+fn reaching_the_days_goal_is_celebrated_once() {
+    let dir = TempDir::new("celebrate");
+    let mut harness = harness(project(&dir, "Already here."));
+    harness.state_mut().project.as_mut().unwrap().manifest.goals.daily = Some(4);
+    harness.run_steps(2);
+    assert!(harness.state().celebration.is_none());
+
+    harness.event(egui::Event::Text(" Then the snow came.".into()));
+    harness.run_steps(2);
+    assert!(harness.state().celebration.is_some(), "the goal's reached");
+    harness.get_by_label("Today's goal reached");
+    harness.get_by_label("4 words. Well done.");
+    let today = crate::stats::key(crate::stats::today());
+    assert_eq!(harness.state().stats.celebrated.as_deref(), Some(today.as_str()));
+
+    // Not again today, even after more writing (or reopening: it's saved).
+    harness.state_mut().celebration = None;
+    harness.event(egui::Event::Text(" And more.".into()));
+    harness.run_steps(2);
+    assert!(harness.state().celebration.is_none());
+    harness.state_mut().save_all();
+    assert_eq!(crate::stats::Stats::load(&dir.0).celebrated.as_deref(), Some(today.as_str()));
+}
+
+#[test]
+fn celebrating_can_be_turned_off() {
+    let dir = TempDir::new("celebrate-off");
+    let mut harness = harness(project(&dir, ""));
+    harness.state_mut().settings.celebrate_goals = false;
+    harness.state_mut().project.as_mut().unwrap().manifest.goals.daily = Some(1);
+    harness.run_steps(2);
+    harness.event(egui::Event::Text("Snow.".into()));
+    harness.run_steps(2);
+    assert!(harness.state().celebration.is_none());
+    harness.get_by_label("Today: 1 / 1");
+}
+
+#[test]
+fn statistics_show_a_year_of_days() {
+    let dir = TempDir::new("calendar");
+    let mut harness = harness(project(&dir, "One two three."));
+    let day = |back: u64| crate::stats::today() - chrono::Days::new(back);
+    for back in [1, 2, 3, 10] {
+        harness.state_mut().stats.add(day(back), 300);
+    }
+    harness.state_mut().open_stats();
+    harness.run_steps(3);
+    harness.get_by_label("This year");
+    harness.get_by_label("Longest run writing: 3 days");
+}
+
 // ----- spelling ----------------------------------------------------------------
 
 #[test]

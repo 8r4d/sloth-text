@@ -22,6 +22,8 @@ mod profiles_ui;
 mod canvas_ui;
 #[path = "compile_window.rs"]
 mod compile_window;
+#[path = "goal_ui.rs"]
+mod goal_ui;
 #[path = "inspector.rs"]
 pub(crate) mod inspector;
 #[path = "projects_ui.rs"]
@@ -168,6 +170,8 @@ pub struct WriterApp {
     /// added to the day's tally.
     word_counts: HashMap<String, u32>,
     stats_open: bool,
+    /// The day's goal just reached, being celebrated (see goal_ui.rs).
+    celebration: Option<goal_ui::Celebration>,
     /// The Statistics window's goal fields as typed: daily, total, deadline.
     goal_fields: Option<[String; 3]>,
 
@@ -271,6 +275,7 @@ impl WriterApp {
             stats_dirty: false,
             word_counts: HashMap::new(),
             stats_open: false,
+            celebration: None,
             goal_fields: None,
         };
         app.apply_settings(&cc.egui_ctx);
@@ -1249,6 +1254,7 @@ impl WriterApp {
         });
         let status = self.status.as_ref().map(|(message, _)| message.clone());
         let today = self.today_summary();
+        let (written, goal) = self.today_goal();
         egui::Panel::bottom(egui::Id::unique("status")).show(ui, |ui| {
             ui.horizontal(|ui| {
                 let plural = |n: usize| if n == 1 { "word" } else { "words" };
@@ -1258,10 +1264,7 @@ impl WriterApp {
                     None => ui.label(""),
                 };
                 ui.separator();
-                let today = egui::Button::new(today).frame(false);
-                if ui.add(today).on_hover_text("Writing statistics and goals").clicked() {
-                    self.open_stats();
-                }
+                self.goal_ring(ui, &today, written, goal);
                 if let Some(message) = status {
                     ui.separator();
                     ui.label(message);
@@ -1507,6 +1510,8 @@ impl eframe::App for WriterApp {
             }
             self.main_view(ui);
         }
+        self.check_goal(now);
+        self.celebration_ui(&ctx);
         self.create_menu_ui(&ctx);
         self.empty_trash_dialog(&ctx);
         self.project_replace_dialog(&ctx);
