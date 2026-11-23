@@ -18,6 +18,8 @@ use crate::binder::{self, BinderAction, Renaming};
 mod about_ui;
 #[path = "profiles_ui.rs"]
 mod profiles_ui;
+#[path = "canvas_ui.rs"]
+mod canvas_ui;
 #[path = "compile_window.rs"]
 mod compile_window;
 #[path = "inspector.rs"]
@@ -114,6 +116,10 @@ pub struct WriterApp {
     manifest_dirty: bool,
     /// Corkboard or outline, per folder (see views.rs).
     folder_views: views::FolderViews,
+    /// The canvas is shown in place of the editor (see canvas_ui.rs).
+    canvas_open: bool,
+    /// The canvas, once it's been shown for this project.
+    canvas: Option<canvas_ui::CanvasState>,
     /// The Compile window is open (see compile_window.rs).
     compile_open: bool,
     /// A preset's name as it's being typed, in the Compile window.
@@ -238,6 +244,8 @@ impl WriterApp {
             word_cache: inspector::WordCache::default(),
             manifest_dirty: false,
             folder_views: views::FolderViews::default(),
+            canvas_open: false,
+            canvas: None,
             compile_open: false,
             compile_preset_name: None,
             snapshot_name: String::new(),
@@ -415,6 +423,8 @@ impl WriterApp {
         self.editing_sections = None;
         self.new_profile_folder = None;
         self.split = None;
+        self.canvas_open = false;
+        self.canvas = None;
         self.stats_open = false;
         self.goal_fields = None;
     }
@@ -487,6 +497,13 @@ impl WriterApp {
                 Ok(()) => self.manifest_dirty = false,
                 Err(e) => failed.push(format!("the project file ({e})")),
             }
+        }
+        // Cards moved, notes written and strings tied on the canvas.
+        if let Some(canvas) = self.canvas.as_mut()
+            && let Some(project) = &self.project
+            && let Err(e) = canvas.save(&project.root)
+        {
+            failed.push(format!("the canvas ({e})"));
         }
         // Words written since the last save count towards today.
         let edited: Vec<(String, String)> = self
@@ -1010,6 +1027,9 @@ impl WriterApp {
         if self.focus_mode && !esc_taken && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             self.set_focus_mode(ctx, false);
         }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::C) {
+            self.toggle_canvas();
+        }
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::B) {
             self.show_binder = !self.show_binder;
         }
@@ -1182,6 +1202,8 @@ impl WriterApp {
                     .on_hover_text("Back Up, Settings, Help, Close Project");
                     ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text("\u{2325}\u{2318}I");
                     ui.toggle_value(&mut self.split_open, "Split").on_hover_text("A second pane beside the editor (\u{2318}\\)");
+                    ui.toggle_value(&mut self.canvas_open, "Canvas")
+                        .on_hover_text("Every document on one surface, strung to what it refers to, with notes of your own (\u{2325}\u{2318}C)");
                     if ui.button("Focus").on_hover_text("Full screen, just the text (\u{2325}\u{2318}F; Esc to leave)").clicked() {
                         let ctx = ui.ctx().clone();
                         self.set_focus_mode(&ctx, true);
@@ -1340,8 +1362,12 @@ impl WriterApp {
         self.status_bar(ui);
         self.results_panel(ui);
         self.find_bar(ui);
-        self.notice_bar(ui);
-        self.editor_area(ui);
+        if self.canvas_open {
+            self.canvas_view(ui);
+        } else {
+            self.notice_bar(ui);
+            self.editor_area(ui);
+        }
     }
 
     fn set_focus_mode(&mut self, ctx: &egui::Context, on: bool) {

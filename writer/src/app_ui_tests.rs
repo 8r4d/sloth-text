@@ -1888,3 +1888,132 @@ fn focus_mode_needs_a_document() {
     assert!(!harness.state().focus_mode);
     assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m.contains("Choose a document")));
 }
+
+// ----- canvas --------------------------------------------------------------------------
+
+/// A project with a scene that refers to Alice, a second scene, and the
+/// canvas open with the binder and inspector out of the way.
+fn canvas_harness(dir: &TempDir) -> (Harness<'static, WriterApp>, String, String, String) {
+    let mut p = project(dir, "Then [[Alice]] arrived.");
+    let first = p.documents().into_iter().find(|n| n.title == "Untitled").unwrap().id.clone();
+    let alice = p.add_document(&Place::Into("characters".into()), "Alice").unwrap();
+    let second = p.add_document(&Place::Into("manuscript".into()), "Harbour").unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().show_binder = false;
+    harness.run_steps(2);
+    harness.get_by_label("Canvas").click();
+    harness.run_steps(3);
+    (harness, first, alice, second)
+}
+
+/// Where a point on the canvas is on screen.
+fn on_screen(harness: &Harness<'static, WriterApp>, at: [f32; 2]) -> egui::Pos2 {
+    harness.state().canvas.as_ref().unwrap().to_screen * egui::pos2(at[0], at[1])
+}
+
+fn canvas_place(harness: &Harness<'static, WriterApp>, id: &str) -> [f32; 2] {
+    harness.state().canvas.as_ref().unwrap().data().places[id]
+}
+
+#[test]
+fn the_canvas_shows_every_document_strung_to_what_it_refers_to() {
+    let dir = TempDir::new("canvas");
+    let (mut harness, first, alice, _) = canvas_harness(&dir);
+    assert!(harness.state().canvas_open);
+    for title in ["Untitled", "Harbour", "Alice"] {
+        harness.get_by_label(title);
+    }
+    let edges = harness.state().canvas.as_ref().unwrap().edges().to_vec();
+    assert_eq!(edges.len(), 1);
+    assert_eq!((edges[0].from.as_str(), edges[0].to.as_str(), edges[0].references), (first.as_str(), alice.as_str(), 1));
+
+    // ⌥⌘C puts it away, and the editor's back.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::C);
+    harness.run_steps(2);
+    assert!(!harness.state().canvas_open);
+    assert_eq!(harness.query_all_by_label("Harbour").count(), 0);
+}
+
+#[test]
+fn cards_move_freely_without_changing_the_binder() {
+    let dir = TempDir::new("canvas-drag");
+    let (mut harness, first, _, second) = canvas_harness(&dir);
+    let order = |h: &Harness<'static, WriterApp>| h.state().project.as_ref().unwrap().manifest.binder[0].children.iter().map(|n| n.id.clone()).collect::<Vec<_>>();
+    let before = order(&harness);
+    let [x, y] = canvas_place(&harness, &first);
+
+    let start = on_screen(&harness, [x + 100.0, y + 50.0]);
+    drag_points(&mut harness, start, start + egui::vec2(0.0, 150.0));
+    let [nx, ny] = canvas_place(&harness, &first);
+    let scale = harness.state().canvas.as_ref().unwrap().to_screen.scaling;
+    assert_eq!(nx, x);
+    assert!((ny - (y + 150.0 / scale)).abs() <= 12.0, "moved down, snapped to the dots: {y} → {ny}");
+    assert_eq!(ny % 24.0, 0.0);
+    assert_eq!(order(&harness), before, "the binder's order is untouched");
+
+    // Kept with the project.
+    harness.state_mut().save_all();
+    let saved = crate::canvas::Canvas::load(&dir.0);
+    assert_eq!(saved.places[&first], [nx, ny]);
+    assert!(saved.places.contains_key(&second));
+}
+
+#[test]
+fn a_pin_dragged_to_another_card_ties_a_string() {
+    let dir = TempDir::new("canvas-tie");
+    let (mut harness, first, _, second) = canvas_harness(&dir);
+    let [x, y] = canvas_place(&harness, &first);
+    let [x2, y2] = canvas_place(&harness, &second);
+    // The pin is at the middle of a card's top edge.
+    let pin = on_screen(&harness, [x + 100.0, y]);
+    let target = on_screen(&harness, [x2 + 100.0, y2 + 40.0]);
+    drag_points(&mut harness, pin, target);
+    let strings = harness.state().canvas.as_ref().unwrap().data().strings.clone();
+    assert_eq!(strings.len(), 1);
+    assert_eq!((strings[0].a.as_str(), strings[0].b.as_str()), (first.as_str(), second.as_str()));
+    assert_eq!(canvas_place(&harness, &first), [x, y], "the card itself stayed put");
+
+    // Tying it again unties it.
+    drag_points(&mut harness, pin, target);
+    assert!(harness.state().canvas.as_ref().unwrap().data().strings.is_empty());
+}
+
+#[test]
+fn double_clicking_the_canvas_makes_a_note_that_can_become_a_document() {
+    let dir = TempDir::new("canvas-note");
+    let (mut harness, ..) = canvas_harness(&dir);
+    // Long enough after clicking Canvas that this isn't a triple-click.
+    harness.run_steps(30);
+    // Well away from the cards: the bottom right of the canvas.
+    let pos = egui::pos2(940.0, 620.0);
+    harness.event(egui::Event::PointerMoved(pos));
+    harness.run_steps(1);
+    for _ in 0..2 {
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            harness.run_steps(1);
+        }
+    }
+    harness.run_steps(2);
+    let notes = harness.state().canvas.as_ref().unwrap().data().notes.clone();
+    assert_eq!(notes.len(), 1, "one note");
+    let note = notes[0].id.clone();
+
+    // It's ready to type in.
+    harness.event(egui::Event::Text("The ferry\nShe never sent the letter.".into()));
+    harness.run_steps(2);
+    assert_eq!(harness.state().canvas.as_ref().unwrap().data().notes[0].text, "The ferry\nShe never sent the letter.");
+    let place = canvas_place(&harness, &note);
+
+    harness.state_mut().note_to_document(&note);
+    harness.run_steps(2);
+    let app = harness.state();
+    let project = app.project.as_ref().unwrap();
+    let doc = project.node("notes").unwrap().children.last().unwrap();
+    assert_eq!(doc.title, "The ferry");
+    assert_eq!(fs::read_to_string(project.file_path(&doc.id).unwrap()).unwrap(), "She never sent the letter.");
+    let canvas = app.canvas.as_ref().unwrap().data();
+    assert!(canvas.notes.is_empty());
+    assert_eq!(canvas.places[&doc.id], place, "it stays where the note was");
+}

@@ -2,6 +2,18 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.13.0
+
+The Canvas: a place to think about the project as a whole, apart from the order it's in. Click Canvas in the toolbar (⌥⌘C).
+
+- Every document is a card on one surface you can pan around and zoom (pinch, or ⌘-scroll). Drag cards wherever you like: the binder's order doesn't change. Show… chooses which folders' documents are on it.
+- Documents are strung to the profiles they refer to, by `[[references]]` and by links made in the inspector; the more references, the heavier the string. Hover a string to see what it stands for.
+- Click a card to pick it (and show it in the inspector): its strings and neighbours stand out and the rest fades. Double-click to open it in the split pane.
+- Notes of your own: double-click the empty canvas, or New Note. Right-click a note to make it a document in Notes, its first line the title.
+- Strings end at the cards' edges, so they never cross the text. Tie strings by hand: drag from the pin on a card's top edge to another card (again to untie). Right-click a string to say what it means; click it and press Delete to untie it.
+- Where cards are, notes and strings are kept in the project's `.sloth` folder (and its backups), not the project file.
+- The corkboard has a faint grid of dots behind its cards.
+
 ## 1.12.1
 
 - Remove Blank Lines has a shortcut: ⇧⌘L.

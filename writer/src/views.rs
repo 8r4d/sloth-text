@@ -135,12 +135,40 @@ fn corkboard(
     dragging: Option<&str>,
     actions: &mut Vec<ViewAction>,
 ) {
+    dot_grid(ui, ui.max_rect().min, GRID_STEP, 1.0);
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(CARD_GAP);
         for item in items {
             card(ui, item, statuses, labels, dragging, actions);
         }
     });
+}
+
+/// Spacing of the board's dots.
+const GRID_STEP: f32 = 24.0;
+
+/// Faint dots behind the cards, a surface to put things on, `step` apart.
+/// Anchored at `origin` so they move with the cards, and only the ones in
+/// view are drawn. (The canvas passes a bigger step and radius when it's
+/// zoomed out, so they stay a dot apart on screen.)
+pub(super) fn dot_grid(ui: &egui::Ui, origin: egui::Pos2, step: f32, radius: f32) {
+    let view = ui.clip_rect();
+    let visuals = ui.visuals();
+    let alpha = if visuals.dark_mode { 0.22 } else { 0.28 };
+    let color = visuals.weak_text_color().gamma_multiply(alpha);
+    let painter = ui.painter();
+    // Half a step in from the corner, so no dot sits on a card's edge. The
+    // canvas has no corner: dots go up and left of it too.
+    let first = |o: f32, v: f32| o + step / 2.0 + ((v - o) / step).floor() * step;
+    let mut y = first(origin.y, view.top());
+    while y <= view.bottom() {
+        let mut x = first(origin.x, view.left());
+        while x <= view.right() {
+            painter.circle_filled(egui::pos2(x, y), radius, color);
+            x += step;
+        }
+        y += step;
+    }
 }
 
 /// Room kept at the bottom of a card for its status and words.
