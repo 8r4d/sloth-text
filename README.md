@@ -1,35 +1,38 @@
 # Sloth
 
-A small plain-text editor written in Rust, built mainly for macOS.
+Two Mac apps written in Rust, sharing one editor, and a small web service:
 
-## Running
+- **Sloth** (1.0): a small plain-text editor.
+- **Sloth Writer** (1.7): an app for writing long projects such as novels,
+  in the spirit of Scrivener. A project is a folder of plain Markdown files.
+- **The Writer helper** (`helper/`): a PHP service on ordinary web hosting
+  that lets you write chosen scenes in Safari on an iPad, synced with Writer.
 
-```sh
-cargo run --release                 # empty document
-cargo run --release -- notes.txt    # open (or create) a file
-```
+## Installing
 
-To build `Sloth.app` and install it in Applications:
+Both apps build into `.app` bundles with cargo-bundle:
 
 ```sh
 cargo install cargo-bundle --locked   # once
-scripts/install.sh
+scripts/install.sh                    # Sloth.app
+scripts/install-writer.sh             # Sloth Writer.app
+```
+
+To run them from the source instead:
+
+```sh
+cargo run --release                         # Sloth (an empty document)
+cargo run --release -- notes.txt            # Sloth, opening (or creating) a file
+cargo run --release -p sloth-writer         # Sloth Writer
 ```
 
 After installing, Sloth appears in Finder's **Open With** menu for text files.
 To make it the default for a type, select a file, choose **File → Get Info**,
 pick Sloth under **Open with**, and click **Change All**.
 
-Sloth Writer 1.0, the long-form writing app in `writer/`, installs the same
-way. Its features are listed in `writer/CHANGELOG.md` and in the app's Help
-window (⌘?). `helper/` holds its PHP sync service for writing on an iPad (see
-`helper/README.md`):
+## Sloth
 
-```sh
-scripts/install-writer.sh   # builds and installs "Sloth Writer.app"
-```
-
-## Features
+### Shortcuts
 
 | Action             | Shortcut |
 |--------------------|----------|
@@ -57,6 +60,8 @@ scripts/install-writer.sh   # builds and installs "Sloth Writer.app"
 | Markdown preview   | ⌥⌘P      |
 | Help (shortcut list) | ⇧⌘/ |
 | Settings           | ⌘,       |
+
+### Features
 
 - Tabs: open several files at once; each keeps its own cursor, undo history and scroll position
 - Find and replace with match highlighting, match case, whole-word and regex
@@ -87,19 +92,115 @@ scripts/install-writer.sh   # builds and installs "Sloth Writer.app"
 - Asks before discarding unsaved changes (closing a tab, quitting, closing the window)
 - A `•` in the title bar marks unsaved changes
 
+## Sloth Writer
+
+A project is an ordinary folder: each document is a Markdown file you can
+open in any other program, and `project.ron` holds the binder (the order and
+nesting of everything) and each item's details. Writer never writes over a
+change another program made, and saves itself every few seconds.
+
+### What it does
+
+**Organising**
+- A binder with Manuscript, Characters, Research, Notes and Trash folders.
+  Drag items to reorder and nest them, and hide the binder (⌥⌘B) when you
+  don't need it.
+- An inspector (⌥⌘I) for each item: synopsis, status and label (both
+  editable lists), keywords, a word target, and the scenes' characters and
+  places.
+- Corkboard and outline views of any folder.
+- Profile folders for characters, locations, objects, factions,
+  worldbuilding and themes, or non-fiction sources, people, concepts,
+  arguments, events and a glossary. Each profile is built from sections you
+  choose.
+
+**Writing**
+- Prose in a reading font, in a centred column.
+- Bold, italics and headings shown as you type. Formatting, Change Case and
+  Split at Cursor (⌘K) are in the right-click menu.
+- Two hyphens make an em dash, and spelling is checked with the Mac's own
+  spell checker.
+- Notes to yourself, either `<!-- in the text -->` or in a panel above it,
+  never compiled.
+- Split view (⌘\\) beside the editor, and Focus mode (⌥⌘F): full screen,
+  just the text, with typewriter scrolling.
+- Find in the document (⌘F) or the whole project (⇧⌘F).
+
+**Keeping track**
+- Words written today against a daily goal, a streak, a 30-day chart, and
+  progress towards a length and deadline (click "Today" in the status bar).
+- Snapshots of a document (⌘5), compared word by word and restored.
+
+**Keeping it safe**
+- Automatic backups, as dated zips, when a project closes and once a day,
+  keeping the newest ten. Back Up… (in the toolbar's More… menu) makes one
+  whenever you like.
+- Only one copy of Writer can have a project open at a time, so two Macs
+  sharing a project can't save over each other.
+- Emptying the Trash keeps what it removes as a zip in the Mac's Trash.
+
+**Getting work in and out**
+- Import from Scrivener… (on the start screen) brings a Scrivener 3 project
+  across. The `.scriv` is only read. An import report lists what couldn't
+  come across.
+- Compile (⇧⌘E) the Manuscript as a standard manuscript (.docx), an ePub
+  or Markdown, with saved presets.
+- Write chosen scenes on an iPad through the helper (below).
+
+The full list, release by release, is in [writer/CHANGELOG.md](writer/CHANGELOG.md),
+and the app's Help (⌘?) lists every shortcut.
+
+### Shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| Open project | ⌘O |
+| New document / folder | ⌘N / ⌥⌘N |
+| Save everything now | ⌘S |
+| Bold / italic | ⌘B / ⌘I |
+| Split at cursor | ⌘K |
+| Take a snapshot | ⌘5 |
+| Focus mode (Esc to leave) | ⌥⌘F |
+| Binder / inspector | ⌥⌘B / ⌥⌘I |
+| Split view | ⌘\\ (⌥-click an item to open it there) |
+| Find / find in project | ⌘F / ⇧⌘F |
+| Find next / previous | ⌘G / ⇧⌘G |
+| Compile | ⇧⌘E |
+| Settings / help | ⌘, / ⌘? |
+
+### Where things are kept
+
+- A project: its folder. Inside, `.sloth/` holds the sync record, writing
+  statistics and the lock that says which copy of Writer has it open.
+- Settings: macOS's usual place for the app's saved state. The iPad helper's
+  token is in the Keychain.
+- Automatic backups: `~/Library/Application Support/Sloth Writer/Backups`,
+  a folder per project (or another folder chosen in Settings).
+
+## The iPad helper
+
+`helper/` is a PHP service for shared web hosting (PHP and MySQL or
+MariaDB). Writer sends it the scenes marked "Available on iPad", and the
+helper's web page lets you write them in Safari, with their notes, word
+targets and today's goal. Edits from either side are kept: a save that would
+overwrite the other side's is refused and both are kept. Setting it up is in
+[helper/README.md](helper/README.md). Its secrets go in
+`helper/writer-config.php`, which git ignores.
+
 ## Code layout
 
-The repository is a Cargo workspace with three crates:
+The repository is a Cargo workspace with three crates, plus the helper:
 
 - `sloth-core` in `core/`: code shared by both apps (documents, the editor
-  widget, find, tabs, themes)
-- `sloth` in `sloth/`: this editor
-- `sloth-writer` in `writer/`: Sloth Writer (working name), a long-form writing
-  app in early development. For now it is a placeholder window; run it with
-  `cargo run -p sloth-writer`
+  widget, find, tabs, themes, Markdown styling, spell checking)
+- `sloth` in `sloth/`: the plain-text editor
+- `sloth-writer` in `writer/`: Sloth Writer
+- `helper/`: the iPad helper (PHP, with its web page in `helper/public/`)
 
 `cargo run` and `cargo test` at the root cover Sloth and core; add `--workspace`
 to include Writer.
+
+### Sloth and core
 
 | File | What's in it |
 |------|--------------|
@@ -129,6 +230,30 @@ to include Writer.
 | `core/src/editor.rs`   | The text area and line-number gutter |
 | `core/src/theme.rs`    | Colour themes: each one is a small palette of colours |
 | `sloth/src/native_menu.rs` | macOS menu bar, built from `commands::MENUS` (other platforms get an in-window menu) |
+| `core/src/markdown.rs` | Markdown styling as you type (Writer) |
+| `core/src/spell.rs`    | Spell checking with the macOS spell checker (Writer) |
+| `core/src/trash.rs`    | Moving files to the Mac's Trash |
+
+### Sloth Writer
+
+| File | What's in it |
+|------|--------------|
+| `writer/src/project.rs` | The project on disk: the binder, metadata, profile folders, statuses and labels |
+| `writer/src/app.rs` | The window: start screen, toolbar, editor area, saving, Focus mode |
+| `writer/src/binder.rs`, `views.rs` | The binder; the corkboard and outline views |
+| `writer/src/inspector.rs` | The inspector, the notes panel, and the Labels and Statuses windows |
+| `writer/src/profiles_ui.rs`, `character.rs` | Profiles (characters, locations…) and their sections |
+| `writer/src/search.rs`, `split_ui.rs` | Find in the document and the project; the split view |
+| `writer/src/snapshots.rs`, `snapshots_ui.rs` | Snapshots, and comparing them |
+| `writer/src/stats.rs`, `stats_ui.rs` | Words written each day, goals, and the Statistics window |
+| `writer/src/compile.rs`, `compile_window.rs` | Compile to .docx, ePub and Markdown |
+| `writer/src/backup.rs`, `lock.rs` | Backups (by hand and automatic); one copy of Writer per project |
+| `writer/src/scrivener.rs`, `rtf.rs` | Importing from Scrivener; its RTF to Markdown |
+| `writer/src/sync.rs`, `sync_ui.rs`, `keychain.rs` | Syncing with the iPad helper |
+| `writer/src/settings_ui.rs`, `about_ui.rs`, `projects_ui.rs` | Settings, Help and About, recent projects |
+| `writer/src/app_ui_tests.rs` | UI tests that run Writer in memory |
+| `helper/public/api.php` | The helper: accounts, tokens, scenes with versions and history |
+| `helper/public/app.js`, `style.css`, `index.php` | The helper's web page for the iPad |
 
 ### Adding a feature
 
@@ -150,6 +275,20 @@ crash-recovery copies to the `recovery` folder next to it.
 `cargo test` runs the unit tests and the UI tests. The UI tests use
 `egui_kittest` to drive the app in memory, so they don't open a window.
 
+### Testing
+
+```sh
+cargo test --workspace        # both apps and core
+helper/tests/run.sh           # the helper: its API, its web page in headless
+                              # Chrome, and Writer syncing with it
+```
+
+`helper/tests/run.sh` needs `php`, `mariadb` and `node` (`brew install php
+mariadb node`). It makes a throwaway database and server each time. If a copy of
+Scrivener's `Tutorial.scriv` is in the repository's folder (git ignores
+`.scriv` folders), `cargo test -p sloth-writer -- --ignored scriveners_tutorial`
+imports it as a check.
+
 To see what the editor looks like without opening it, render it to images:
 
 ```sh
@@ -158,16 +297,19 @@ SLOTH_PREVIEW_DIR=/tmp cargo test preview -- --ignored   # writes /tmp/editor*.p
 
 ## Versioning
 
-The version number is in `Cargo.toml` and follows semantic versioning. For a release:
+Each app has its own version, in its `Cargo.toml`, following semantic
+versioning: Sloth in `sloth/`, Writer in `writer/`. For a release:
 
-1. Bump `version` in `Cargo.toml`.
-2. Add a section to `CHANGELOG.md`. It appears in Help → Release Notes.
-3. Commit, then tag the commit: `git tag v0.2.0`.
+1. Bump `version` in the app's `Cargo.toml`.
+2. Add a section to its changelog (`sloth/CHANGELOG.md` or
+   `writer/CHANGELOG.md`). It appears in the app's Help → Release Notes.
+3. Commit, then tag the commit: `git tag v1.0.0` (Sloth) or
+   `git tag writer-v1.7.0` (Writer).
 
 The About window shows the version and the git commit it was built from.
 `+modified` means the build included uncommitted changes.
 
-## Large files
+## Large files (Sloth)
 
 Measured on an M-series Mac (release build), typing stays smooth up to about
 10 MB (around 25 ms a frame) and becomes sluggish around 50 MB (about 110 ms).
@@ -179,4 +321,4 @@ accessibility information for every line on each frame. To re-measure:
 cargo test --release perf_plain -- --ignored --nocapture
 ```
 
-See [ROADMAP.md](ROADMAP.md) for what's planned.
+[ROADMAP.md](ROADMAP.md) is the plan Sloth followed to 1.0.
