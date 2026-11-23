@@ -1315,7 +1315,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.4.0");
+    harness.get_by_label("1.5.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));

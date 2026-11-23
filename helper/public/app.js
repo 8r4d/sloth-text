@@ -117,6 +117,8 @@ const CLOSED = 'writer-closed';  // folded chapters, by project
 
 function render(html) {
   app.innerHTML = html;
+  // Which page is showing (for the tests, which wait for it).
+  app.dataset.shown = location.hash;
   window.scrollTo(0, 0);
 }
 

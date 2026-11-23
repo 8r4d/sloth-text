@@ -136,6 +136,17 @@ pub fn automatic(root: &Path, title: &str, backups: &Path, keep: usize, when: Wh
     Ok(Some(path))
 }
 
+/// A zip of these files, each under the name given (paths inside the zip).
+pub fn zip_files(files: &[(String, PathBuf)], to: &Path) -> io::Result<()> {
+    let mut zip = zip::ZipWriter::new(fs::File::create(to)?);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, source) in files {
+        zip.start_file(name.as_str(), options).map_err(io::Error::other)?;
+        zip.write_all(&fs::read(source)?)?;
+    }
+    zip.finish().map_err(io::Error::other)?.sync_all()
+}
+
 fn write_zip(root: &Path, top: &str, to: &Path) -> io::Result<()> {
     let mut zip = zip::ZipWriter::new(fs::File::create(to)?);
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);

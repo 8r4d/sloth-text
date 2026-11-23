@@ -2,6 +2,15 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.5.0
+
+Keeping your work safe.
+
+- Automatic backups: when a project closes (or Writer quits), and once a day while it's open, if anything changed. The newest ten are kept, in ~/Library/Application Support/Sloth Writer/Backups unless you choose another folder (Settings → Backups). Back Up… still makes one whenever you like, and those are never deleted.
+- One copy at a time: a project open in another copy of Writer (on another Mac sharing it, say) asks before opening it here too. If it's opened elsewhere anyway, this copy stops saving and says so, keeping anything typed since as snapshots.
+- Emptying the Trash keeps what it removes (each document under its title, with its snapshots) as one zip in your Mac's Trash, so it can still be got back.
+- Fixed: undo after Bold, Italic, Change Case or a spelling fix took back the typing just before it too. Each is now an undo step of its own.
+
 ## 1.4.0
 
 - A document's notes panel can be made taller or shorter: drag its bottom edge.

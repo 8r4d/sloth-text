@@ -14,7 +14,7 @@
 //! (or to the trash) moves its files too. Order and nesting live only in
 //! the manifest: reordering never renames a file.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::hash::{BuildHasher, Hasher};
 use std::io;
@@ -649,7 +649,23 @@ impl Project {
 
     /// Delete everything in the Trash for good, snapshots included. Returns
     /// the files removed, so open copies can be closed.
-    pub fn empty_trash(&mut self) -> io::Result<Vec<PathBuf>> {
+    ///
+    /// First, everything it removes (each document under its title, with
+    /// its snapshots) is zipped and handed to `keep`, which puts the zip
+    /// somewhere safe (the Mac's Trash). If that fails, nothing is removed.
+    pub fn empty_trash(&mut self, keep: &mut dyn FnMut(&Path) -> io::Result<()>) -> io::Result<Vec<PathBuf>> {
+        let trash = self.manifest.binder.iter().find(|n| n.role == Some(Role::Trash)).expect("repair keeps the trash");
+        if trash.children.is_empty() {
+            return Ok(Vec::new());
+        }
+        let zip = self.zip_of(&trash.children)?;
+        let kept = keep(&zip);
+        let _ = fs::remove_file(&zip);
+        if let Some(parent) = zip.parent() {
+            let _ = fs::remove_dir(parent);
+        }
+        kept?;
+
         let trash = self
             .manifest
             .binder
@@ -673,6 +689,47 @@ impl Project {
         }
         self.save()?;
         Ok(removed)
+    }
+
+    /// A zip of these items, for emptying the Trash: each document as
+    /// "Folder/Title.md", its snapshots in "Folder/Title (snapshots)/".
+    /// Made in a folder of its own under the temporary folder.
+    fn zip_of(&self, items: &[Node]) -> io::Result<PathBuf> {
+        fn gather(project: &Project, node: &Node, prefix: &str, files: &mut Vec<(String, PathBuf)>, used: &mut BTreeSet<String>) {
+            let clean: String = node.title.chars().map(|c| if matches!(c, '/' | ':' | '\\') { '-' } else { c }).collect();
+            let mut name = format!("{prefix}{clean}");
+            let mut n = 2;
+            while used.contains(&name) {
+                name = format!("{prefix}{clean} ({n})");
+                n += 1;
+            }
+            used.insert(name.clone());
+            if let Some(rel) = &node.path {
+                let path = project.root.join(rel);
+                if path.is_file() {
+                    files.push((format!("{name}.md"), path));
+                }
+            }
+            for snapshot in crate::snapshots::list(&project.root, &node.id) {
+                if let Some(file) = snapshot.path.file_name() {
+                    files.push((format!("{name} (snapshots)/{}", file.to_string_lossy()), snapshot.path.clone()));
+                }
+            }
+            for child in &node.children {
+                gather(project, child, &format!("{name}/"), files, used);
+            }
+        }
+        let mut files = Vec::new();
+        let mut used = BTreeSet::new();
+        for item in items {
+            gather(self, item, "", &mut files, &mut used);
+        }
+        let dir = std::env::temp_dir().join(format!("sloth-writer-emptied-{}", random_id(8)));
+        fs::create_dir_all(&dir)?;
+        let when = chrono::Local::now().format("%Y-%m-%d %H.%M");
+        let zip = dir.join(format!("{} \u{2014} emptied from the Trash {when}.zip", self.title().replace(['/', ':'], "-")));
+        crate::backup::zip_files(&files, &zip)?;
+        Ok(zip)
     }
 
     fn node_mut(&mut self, id: &str) -> Option<&mut Node> {
@@ -1328,7 +1385,27 @@ mod tests {
 
         crate::snapshots::take(&dir.0, &id, "an old version", "").unwrap();
 
-        let removed = p.empty_trash().unwrap();
+        // Something that can't keep the zip: nothing goes.
+        assert!(p.empty_trash(&mut |_| Err(io::Error::other("no room"))).is_err());
+        assert!(dir.0.join("trash/cut-scene.md").exists());
+        assert_eq!(p.role_of(&id), Some(Role::Trash));
+
+        // Kept: the zip has the document under its title, and its snapshot.
+        let mut names = Vec::new();
+        let removed = p
+            .empty_trash(&mut |zip| {
+                let mut archive = zip::ZipArchive::new(fs::File::open(zip)?).map_err(io::Error::other)?;
+                names = archive.file_names().map(String::from).collect();
+                let mut text = String::new();
+                io::Read::read_to_string(&mut archive.by_name("Cut scene.md").map_err(io::Error::other)?, &mut text)?;
+                assert_eq!(text, "");
+                Ok(())
+            })
+            .unwrap();
+        names.sort();
+        assert_eq!(names.len(), 2, "{names:?}");
+        assert!(names[0].starts_with("Cut scene (snapshots)/"), "{names:?}");
+        assert_eq!(names[1], "Cut scene.md");
         assert_eq!(removed, [dir.0.join("trash/cut-scene.md")]);
         assert!(crate::snapshots::list(&dir.0, &id).is_empty(), "snapshots go too");
         assert!(p.node(&id).is_none());

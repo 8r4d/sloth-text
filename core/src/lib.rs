@@ -20,3 +20,4 @@ pub mod syntax;
 pub mod tabs;
 pub mod text_format;
 pub mod theme;
+pub mod trash;

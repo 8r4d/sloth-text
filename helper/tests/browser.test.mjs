@@ -33,7 +33,11 @@ function localDay(d = new Date()) {
 
 /// Go to a page of the app. Only the address's # changes, which loads
 /// nothing, so this doesn't wait for a load the way goto does.
-const go = hash => page.eval(`location.hash = ${JSON.stringify(hash)}`);
+/// It then waits until that page is showing.
+async function go(hash) {
+  await page.eval(`location.hash = ${JSON.stringify(hash)}`);
+  await page.waitFor(`document.getElementById('app').dataset.shown === ${JSON.stringify(hash)}`, { what: `the page ${hash}` });
+}
 
 before(async () => {
   if (skip) return;

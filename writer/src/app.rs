@@ -877,7 +877,7 @@ impl WriterApp {
 
     fn empty_trash(&mut self) {
         let Some(project) = self.project.as_mut() else { return };
-        match project.empty_trash() {
+        match project.empty_trash(&mut keep_emptied) {
             Ok(removed) => {
                 for path in removed {
                     if let Some(tab) = self.docs.find_by_path(&path) {
@@ -1211,7 +1211,7 @@ impl WriterApp {
         }
         egui::Modal::new(egui::Id::unique("empty-trash")).show(ctx, |ui| {
             ui.heading("Empty the Trash?");
-            ui.label("Everything in the Trash will be deleted for good, including its files.");
+            ui.label("Everything in the Trash leaves the project, with its snapshots. It's kept as one zip file in your Mac's Trash, so it can still be got back from there until you empty that.");
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button("Empty Trash").clicked() {
@@ -1321,6 +1321,18 @@ impl eframe::App for WriterApp {
         eframe::set_value(storage, LAST_PROJECT_KEY, &root);
         eframe::set_value(storage, projects_ui::RECENT_KEY, &self.recent);
         eframe::set_value(storage, settings_ui::SETTINGS_KEY, &self.settings);
+    }
+}
+
+/// Where what's emptied from the Trash goes: the Mac's own Trash (in tests,
+/// a scratch folder, not the real one).
+fn keep_emptied(zip: &Path) -> io::Result<()> {
+    if cfg!(test) {
+        let dir = std::env::temp_dir().join(format!("sloth-writer-test-trash-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::copy(zip, dir.join(zip.file_name().unwrap_or_default())).map(|_| ())
+    } else {
+        sloth_core::trash::move_to_trash(zip)
     }
 }
 
