@@ -59,6 +59,7 @@ const TIPS: &[&str] = &[
     "Refer to a profile (a source, concept, theme or character) with [[its name]] where it comes up: typing [[ offers names (or makes a new one), hover to see it, \u{2318}-click to open it. Renaming a profile renames its references, and Compile can turn references to Sources into footnotes and a list of works cited. Like notes, references are left out of word counts and the compiled book, and each profile lists where it's referenced.",
     "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",
     "Double-click a binder item to rename it.",
+    "Mobile Notes (in More\u{2026}) is a notepad for jotting on your phone: on the web it's first in each project, with a New Entry button that adds the date and time. On the Mac it opens beside what you're writing. Any document can be the notepad: tick Mobile notepad in its inspector. Notes added on both sides between syncs are all kept.",
     "The Canvas (\u{2325}\u{2318}C) puts every document on one surface, strung to the profiles it refers to, whatever the binder's order. Double-click it for a note of your own; drag from a card's pin to another card to tie a string between them (right-click the string to say what it means). Right-click a note to make it a document.",
     "Coming from Scrivener? Close the project and choose Import from Scrivener… on the start screen.",
     "Click \"Today\" in the status bar for writing statistics and goals.",

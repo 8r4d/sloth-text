@@ -275,6 +275,10 @@ pub struct Manifest {
     /// What sort of writing this is: its icon on the start screen.
     #[serde(default, skip_serializing_if = "Kind::is_default")]
     pub kind: Kind,
+    /// The mobile notepad: the document jotted in on a phone, always on the
+    /// web (see `notepad`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notepad: Option<String>,
 }
 
 /// What sort of writing a project is, shown by its icon and colour on the
@@ -460,6 +464,7 @@ impl Project {
                 no_characters: false,
                 goals: Default::default(),
                 kind: Kind::default(),
+                notepad: None,
             },
         };
         project.repair();
@@ -1047,6 +1052,33 @@ impl Project {
             walk(std::slice::from_ref(top), "", false, &mut out);
         }
         out
+    }
+
+    /// The mobile notepad, if there is one: a document, outside the Trash.
+    /// It's on the web whether or not it's marked, at the top of the
+    /// project, for notes taken when out and about.
+    pub fn notepad(&self) -> Option<&Node> {
+        let id = self.manifest.notepad.as_deref()?;
+        self.node(id).filter(|n| n.is_document() && self.role_of(id) != Some(Role::Trash))
+    }
+
+    /// Make a document the notepad (there's one at most), or none.
+    pub fn set_notepad(&mut self, id: Option<&str>) {
+        self.manifest.notepad = id.map(str::to_owned);
+    }
+
+    /// The notepad, made if there isn't one: "Mobile Notes" in Notes,
+    /// holding `text`. Returns its id.
+    pub fn make_notepad(&mut self, text: &str) -> io::Result<String> {
+        if let Some(node) = self.notepad() {
+            return Ok(node.id.clone());
+        }
+        let id = self.add_document(&Place::Into(Role::Notes.folder().to_owned()), "Mobile Notes")?;
+        let path = self.file_path(&id).ok_or_else(|| io::Error::other("no file"))?;
+        sloth_core::document::write_atomically(&path, text.as_bytes())?;
+        self.set_notepad(Some(&id));
+        self.save()?;
+        Ok(id)
     }
 
     /// The project's id on the helper, made the first time it's needed.

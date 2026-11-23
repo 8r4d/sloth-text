@@ -42,11 +42,12 @@ pub fn show(
     labels: &[Label],
     kinds: &[ProfileKind],
     selected: Option<&str>,
+    notepad: Option<&str>,
     renaming: &mut Option<Renaming>,
 ) -> Vec<BinderAction> {
     let mut actions = Vec::new();
     let dragging = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).map(|d| d.0.clone());
-    let mut tree = Tree { labels, kinds, selected, renaming, dragging: dragging.as_deref(), actions: &mut actions };
+    let mut tree = Tree { labels, kinds, selected, notepad, renaming, dragging: dragging.as_deref(), actions: &mut actions };
     for node in binder {
         node_ui(ui, node, false, node.role, &mut tree);
     }
@@ -59,6 +60,8 @@ struct Tree<'a> {
     /// The project's profile kinds, to offer the rest as new folders.
     kinds: &'a [ProfileKind],
     selected: Option<&'a str>,
+    /// The mobile notepad, shown with its own icon.
+    notepad: Option<&'a str>,
     renaming: &'a mut Option<Renaming>,
     /// The item being dragged, if any.
     dragging: Option<&'a str>,
@@ -120,6 +123,7 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &m
         Some(Role::Characters) => "👥",
         Some(Role::Profile) => "🗂",
         Some(_) => "📚",
+        None if tree.notepad == Some(node.id.as_str()) => "📝",
         None if node.is_document() && top == Some(Role::Characters) => "👤",
         None if node.is_document() && top == Some(Role::Profile) => "📇",
         None if node.is_document() => "📄",

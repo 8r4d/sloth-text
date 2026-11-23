@@ -1179,6 +1179,11 @@ impl WriterApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Less often wanted: in a menu, so the toolbar fits.
                     ui.menu_button("More\u{2026}", |ui| {
+                        if ui.button("\u{1f4dd} Mobile Notes").on_hover_text("The notepad you jot in on your phone, beside what you're writing").clicked() {
+                            self.open_notepad();
+                            ui.close();
+                        }
+                        ui.separator();
                         if ui.button("Back Up\u{2026}").on_hover_text("Save a dated zip of the whole project somewhere else").clicked() {
                             let now = ui.input(|i| i.time);
                             self.back_up_dialog(now);
@@ -1199,7 +1204,7 @@ impl WriterApp {
                         }
                     })
                     .response
-                    .on_hover_text("Back Up, Settings, Help, Close Project");
+                    .on_hover_text("Mobile Notes, Back Up, Settings, Help, Close Project");
                     ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text("\u{2325}\u{2318}I");
                     ui.toggle_value(&mut self.split_open, "Split").on_hover_text("A second pane beside the editor (\u{2318}\\)");
                     ui.toggle_value(&mut self.canvas_open, "Canvas")
@@ -1349,7 +1354,8 @@ impl WriterApp {
                         let selected = self.selected.as_deref();
                         let labels = &project.manifest.labels;
                         let kinds = &project.manifest.profiles;
-                        actions = binder::show(ui, &project.manifest.binder, labels, kinds, selected, &mut self.renaming);
+                        let notepad = project.notepad().map(|n| n.id.as_str());
+                        actions = binder::show(ui, &project.manifest.binder, labels, kinds, selected, notepad, &mut self.renaming);
                     }
                 });
             });

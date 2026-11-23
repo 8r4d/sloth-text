@@ -238,15 +238,57 @@ async function showProjects() {
     <h1>Sloth Writer</h1>
     ${projects.length ? '' : `<p class="quiet">Nothing here yet. In Sloth Writer on your Mac, tick <em>Available on the web</em>
       in a chapter's inspector, and put this page's address and a token (from <a href="#/account">Account</a>) in its Settings.</p>`}
-    <ul class="list">
-      ${projects.map(p => `<li><a href="#/p/${encodeURIComponent(p.id)}"><strong>${esc(p.title)}</strong>
-        <span class="quiet">${p.scenes} ${p.scenes === 1 ? 'scene' : 'scenes'}</span></a></li>`).join('')}
+    <ul class="list projects">
+      ${projects.map(p => `<li><a class="project" href="#/p/${encodeURIComponent(p.id)}"><strong>${esc(p.title)}</strong>
+        <span class="quiet">${p.scenes} ${p.scenes === 1 ? 'scene' : 'scenes'}</span></a>
+        <a class="notepad-link" href="${notepadHref(p.id)}" title="Mobile Notes"
+          aria-label="Mobile Notes for ${esc(p.title)}">${PEN}</a></li>`).join('')}
     </ul>`);
+}
+
+// ----- the mobile notepad ------------------------------------------------------
+// One document per project, for jotting when out and about. On the helper it's
+// always the scene "notepad", whichever document it is on the Mac; it can be
+// started here before the Mac has one (the Mac makes one at its next sync).
+
+const NOTEPAD = 'notepad';
+// A pen, drawn in the text's colour (an emoji's look varies from phone to phone).
+const PEN = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor"
+  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20z"/>
+  <path d="M14 7.5l2.5 2.5"/></svg>`;
+const notepadHref = project => `#/p/${encodeURIComponent(project)}/s/${NOTEPAD}`;
+
+// The notepad is added to from both sides, so when both changed since `base`,
+// both sets of additions are kept, the Mac's first. (As Sloth Writer does:
+// see merge_additions in sync.rs.) With no shared start, the two are joined.
+function mergePad(base, macs, mine) {
+  const m = macs.trimEnd(), t = mine.trimEnd();
+  if (!t.trim() || m.includes(t.trim())) return macs;
+  if (!m.trim() || t.includes(m.trim())) return mine;
+  let start = (base || '').trimEnd();
+  if (!m.startsWith(start) || !t.startsWith(start)) {
+    // The lines they have in common at the start.
+    let i = 0;
+    while (i < m.length && m[i] === t[i]) i++;
+    const cut = m.slice(0, i).lastIndexOf('\n');
+    start = cut > 0 ? m.slice(0, cut).trimEnd() : '';
+  }
+  const added = s => s.slice(start.length).trim();
+  return `${start}${start ? '\n\n' : ''}${added(m)}\n\n${added(t)}\n`;
+}
+
+// "## Mon 23 Nov, 2:05 pm": a new entry's heading.
+function entryHeading(at = new Date()) {
+  const day = at.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  const time = at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return `## ${day.replace(/,/g, '')}, ${time}`;
 }
 
 async function showProject(project) {
   const [info, inbox] = await Promise.all([api('index', undefined, q(project)), api('inbox', undefined, q(project))]);
-  const { title, index } = info;
+  const { title } = info;
+  const notepad = info.index.find(s => s.id === NOTEPAD);
+  const index = info.index.filter(s => s.id !== NOTEPAD);
   const local = drafts();
   const hasDraft = s => Boolean(local[`${project}/${s.id}`]);
   const wordsOf = s => (hasDraft(s) ? words(local[`${project}/${s.id}`].text) : s.words || 0);
@@ -279,6 +321,8 @@ async function showProject(project) {
         ${todayHtml(today(project, info))}
       </p>
     </header>
+    <a class="notepad-row" href="${notepadHref(project)}"><span>📝 <strong>${esc(notepad?.title || 'Mobile Notes')}</strong></span>
+      <span class="quiet">${notepad ? plural(wordsOf(notepad), 'word', 'words') : 'Start a notepad'}</span></a>
     <div class="project-tools">
       ${lastScene ? `<a class="continue" href="${href(lastScene)}">Continue <strong>${esc(lastScene.title)}</strong></a>` : '<span></span>'}
       <a class="button" href="#/p/${encodeURIComponent(project)}/new">New Scene</a>
@@ -327,6 +371,7 @@ async function showProject(project) {
 
 async function showScene(project, sceneId) {
   const key = `${project}/${sceneId}`;
+  const isPad = sceneId === NOTEPAD;
   let info = { index: [] };
   let scene;
   try {
@@ -334,27 +379,37 @@ async function showScene(project, sceneId) {
     scene = await api('scene', undefined, q(project, sceneId));
   } catch (err) {
     if (!offline(err)) {
-      if (err.status === 404) {
+      // A notepad not started yet: it is when something's written.
+      if (err.status === 404 && isPad) {
+        scene = { text: '', version: 0 };
+      } else if (err.status === 404) {
         const known = info.index.find(s => s.id === sceneId);
         render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: 'Back' })}<h1>${esc(known?.title || 'Scene')}</h1>
           <p class="quiet">This scene hasn't reached the helper yet: Sloth Writer sends it at its next sync.</p>`);
         return;
+      } else {
+        throw err;
       }
-      throw err;
     }
   }
   const draft = drafts()[key];
   if (!scene && !draft) throw new TypeError('offline');
-  const at = info.index.findIndex(s => s.id === sceneId);
-  const entry = info.index[at] || {};
-  const [prev, next] = [info.index[at - 1], info.index[at + 1]];
-  store(LAST, { ...load(LAST, {}), [project]: sceneId });
+  const entry = info.index.find(s => s.id === sceneId) || {};
+  // The scenes before and after, in the binder's order (the notepad isn't one).
+  const scenes = info.index.filter(s => s.id !== NOTEPAD);
+  const at = scenes.findIndex(s => s.id === sceneId);
+  const [prev, next] = at < 0 ? [] : [scenes[at - 1], scenes[at + 1]];
+  if (!isPad) store(LAST, { ...load(LAST, {}), [project]: sceneId });
 
   // Where to start: the helper's text, unless this device has unsaved words.
   let base = scene ? scene.version : draft.base;
   let saved = scene ? scene.text : draft.text;
   let text = draft && (!scene || draft.base === scene.version || draft.text !== scene.text) ? draft.text : saved;
-  const title = entry.title || draft?.title || 'Scene';
+  // The notepad: words kept here from before the Mac's last change join its.
+  if (isPad && scene && draft && draft.base !== scene.version) {
+    text = mergePad(null, scene.text, draft.text);
+  }
+  const title = entry.title || draft?.title || (isPad ? 'Mobile Notes' : 'Scene');
   // Today's words when the page opened; what's typed here is added as it goes.
   const todayAtOpen = today(project, info);
   const sceneLink = s => `#/p/${encodeURIComponent(project)}/s/${encodeURIComponent(s.id)}`;
@@ -366,15 +421,16 @@ async function showScene(project, sceneId) {
         <span id="state" class="quiet"></span>
         <span id="count"></span>
         <span id="today"></span>
+        ${isPad ? '<button id="entry" class="entry">New Entry</button>' : ''}
         <button id="toggle">Preview</button>
       </div>
     </header>
     <div id="clash" class="clash" hidden></div>
-    <details id="notes-box" class="notes">
+    ${isPad ? '' : `<details id="notes-box" class="notes">
       <summary>Notes <span id="notes-glimpse" class="quiet"></span></summary>
       <textarea id="notes" readonly placeholder="Notes about this scene: not part of the book. They sync with Sloth Writer's notes."
         aria-label="Notes"></textarea>
-    </details>
+    </details>`}
     <textarea id="text" spellcheck="true" autocapitalize="sentences" aria-label="${esc(title)}"></textarea>
     <article id="preview" class="preview" hidden></article>
     <nav class="scene-nav">
@@ -395,6 +451,7 @@ async function showScene(project, sceneId) {
   const count = () => {
     const n = words(textarea.value);
     countEl.innerHTML = entry.target ? `${fmt(n)} / ${fmt(entry.target)} words${meter(n, entry.target)}` : plural(n, 'word', 'words');
+    if (isPad) return;  // notes, not the day's writing
     const typed = n - words(saved);
     todayEl.innerHTML = todayHtml({ ...todayAtOpen, words: Math.max(0, todayAtOpen.words + savedHere + typed) });
   };
@@ -415,8 +472,8 @@ async function showScene(project, sceneId) {
     show('Saving…');
     try {
       const r = await api('scene_put', { text: sending, base }, q(project, sceneId), { keepalive });
-      const change = words(sending) - words(saved);
-      noteWritten(project, change, r.savedAt);
+      const change = isPad ? 0 : words(sending) - words(saved);
+      if (!isPad) noteWritten(project, change, r.savedAt);
       savedHere += change;
       base = r.version;
       saved = sending;
@@ -428,7 +485,15 @@ async function showScene(project, sceneId) {
         schedule();
       }
     } catch (err) {
-      if (err.status === 409) {
+      if (err.status === 409 && isPad && err.data.current) {
+        // Added to on the Mac meanwhile: keep both, and send that.
+        const { text: macs, version } = err.data.current;
+        const merged = mergePad(saved, macs, textarea.value);
+        base = version;
+        saved = macs;
+        textarea.value = merged;
+        textarea.dispatchEvent(new Event('input'));
+      } else if (err.status === 409) {
         showClash(err.data.current);
       } else if (offline(err)) {
         show('Offline: kept on this device');
@@ -498,7 +563,21 @@ async function showScene(project, sceneId) {
     if (!showing) previewEl.innerHTML = preview(textarea.value);
   };
 
-  const notes = sceneNotes(project, sceneId, title);
+  const notes = isPad ? { save: async () => {} } : sceneNotes(project, sceneId, title);
+
+  if (isPad) {
+    // A new entry: the date and time as a heading, and the cursor under it.
+    document.getElementById('entry').onclick = () => {
+      const before = textarea.value.trimEnd();
+      textarea.value = `${before}${before ? '\n\n' : ''}${entryHeading()}\n`;
+      textarea.dispatchEvent(new Event('input'));
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      window.scrollTo(0, document.body.scrollHeight);
+    };
+    // Opened at the end, where the newest notes are.
+    window.scrollTo(0, document.body.scrollHeight);
+  }
 
   // Back online, or every so often: send what's waiting.
   const retry = () => {
@@ -525,7 +604,7 @@ async function showScene(project, sceneId) {
   if (text !== saved) {
     show('Not saved yet');
     // A draft from before the Mac's last change: that's a clash.
-    if (scene && draft && draft.base !== scene.version) showClash({ text: scene.text, version: scene.version });
+    if (!isPad && scene && draft && draft.base !== scene.version) showClash({ text: scene.text, version: scene.version });
     else schedule();
   } else {
     show('Saved');

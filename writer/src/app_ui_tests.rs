@@ -2017,3 +2017,53 @@ fn double_clicking_the_canvas_makes_a_note_that_can_become_a_document() {
     assert!(canvas.notes.is_empty());
     assert_eq!(canvas.places[&doc.id], place, "it stays where the note was");
 }
+
+// ----- the mobile notepad ------------------------------------------------------------
+
+#[test]
+fn mobile_notes_is_made_in_notes_once_and_opens_beside() {
+    let dir = TempDir::new("notepad");
+    let mut harness = harness(project(&dir, "The ferry had gone."));
+    harness.get_by_label("More…").click();
+    harness.run_steps(2);
+    harness.get_by_label("📝 Mobile Notes").click();
+    harness.run_steps(3);
+    let app = harness.state();
+    let project = app.project.as_ref().unwrap();
+    let pad = project.notepad().unwrap();
+    assert_eq!(pad.title, "Mobile Notes");
+    assert_eq!(project.role_of(&pad.id), Some(crate::project::Role::Notes));
+    assert_eq!(app.split.as_deref(), Some(pad.id.as_str()), "open beside what's being written");
+    assert!(app.split_open);
+    let pad = pad.id.clone();
+    harness.get_by_label("📝 Mobile Notes");
+
+    // Asking again opens the same one.
+    harness.state_mut().open_notepad();
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.notepad().unwrap().id, pad);
+    assert_eq!(project.node("notes").unwrap().children.len(), 1);
+}
+
+#[test]
+fn the_notepad_from_the_web_lands_in_its_document() {
+    use crate::sync::{Action, NOTEPAD, Outcome};
+    let dir = TempDir::new("notepad-sync");
+    let mut harness = harness(project(&dir, ""));
+    let root = dir.0.clone();
+
+    // Started on the web, with none here: one is made, holding it.
+    let outcome = Outcome { actions: vec![Action::NewNotepad { text: "Idea on the bus.".into() }], ..Default::default() };
+    harness.state_mut().finish_sync(&root, Ok(outcome), 0.0);
+    let pad = harness.state().project.as_ref().unwrap().notepad().unwrap().id.clone();
+    let path = harness.state().project.as_ref().unwrap().file_path(&pad).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "Idea on the bus.");
+
+    // Edits to `notepad` on the helper go to whichever document it is.
+    let outcome = Outcome {
+        actions: vec![Action::Replace { id: NOTEPAD.into(), was: "Idea on the bus.".into(), text: "Idea on the bus.\n\nAnother.".into() }],
+        ..Default::default()
+    };
+    harness.state_mut().finish_sync(&root, Ok(outcome), 0.0);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "Idea on the bus.\n\nAnother.");
+}

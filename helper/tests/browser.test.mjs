@@ -280,3 +280,50 @@ test('password managers see the account password, and Forgot Password works', { 
   assert.deepEqual(fields, [['username', 'username'], ['current', 'current-password'], ['password', 'new-password']]);
   assert.deepEqual(page.errors, [], 'no errors on the page');
 });
+
+test('the mobile notepad: on the project list, first in the project, started here with dated entries', { skip }, async () => {
+  await go('#/');
+  await page.waitFor(`document.querySelector('a.notepad-link')`, { what: 'the notepad link' });
+  assert.equal(await page.eval(`document.querySelector('a.notepad-link').getAttribute('href')`), `#/p/${project}/s/notepad`);
+  await snap('notepad-projects');
+
+  await go(`#/p/${project}`);
+  assert.match(await page.eval(`document.querySelector('.notepad-row').textContent`), /Mobile Notes\s+Start a notepad/);
+  assert.doesNotMatch(await page.eval(`document.querySelector('details.chapter').textContent`), /Mobile Notes/);
+  await snap('notepad-in-project');
+
+  // Not on the helper yet: it starts empty, and is made when written in.
+  await go(`#/p/${project}/s/notepad`);
+  await page.waitFor(`document.getElementById('text')`);
+  assert.equal(await page.eval(`document.querySelector('.scene-head h1').textContent`), 'Mobile Notes');
+  assert.equal(await page.eval(`document.getElementById('notes-box')`), null, 'no scene notes');
+  assert.equal(await page.eval(`document.querySelector('.scene-nav a')`), null, 'no previous or next scene');
+  await page.eval(`document.getElementById('entry').click()`);
+  assert.match(await page.eval(`document.getElementById('text').value`), /^## \w+ .+, .+\n$/, 'a dated heading (in this browser\'s way of writing dates)');
+  await typeAtEnd('The ferry timetable is wrong.');
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { what: 'the autosave', timeout: 8000 });
+  const saved = await onHelper('notepad');
+  assert.match(saved.text, /^## .+\nThe ferry timetable is wrong\.$/);
+  assert.equal(saved.version, 1);
+  // Notes aren't the day's writing.
+  assert.equal(await page.eval(`document.getElementById('today').textContent`), '');
+  await snap('notepad');
+
+  // A second entry goes below the first.
+  await page.eval(`document.getElementById('entry').click()`);
+  assert.match(await page.eval(`document.getElementById('text').value`), /wrong\.\n\n## .+\n$/);
+});
+
+test('the mobile notepad: added to on the Mac meanwhile, both are kept', { skip }, async () => {
+  await typeAtEnd('Second thought.');
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
+  const { text, version } = await onHelper('notepad');
+  await theMac.call('scene_put', { text: `${text}\n\nFrom the Mac: check the tides.`, base: version }, `&p=${project}&id=notepad`);
+
+  await typeAtEnd(' And the lighthouse.');
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { what: 'the merged save', timeout: 10000 });
+  assert.equal(await page.eval(`document.getElementById('clash').hidden`), true, 'no clash to sort out');
+  const merged = (await onHelper('notepad')).text;
+  assert.match(merged, /Second thought\.\n\nFrom the Mac: check the tides\.\n\nAnd the lighthouse\.\n?$/);
+  assert.equal(await page.eval(`document.getElementById('text').value`), merged);
+});

@@ -87,15 +87,23 @@ impl WriterApp {
         let statuses = project.manifest.statuses.clone();
         let mut index = Vec::new();
         let mut scenes = BTreeMap::new();
+        let text_of = |id: &str| match self.open.get(id).and_then(|&tab| self.docs.get(tab)) {
+            Some(tab) => Some(tab.doc.text.clone()),
+            None => project.file_path(id).map(std::fs::read_to_string).and_then(Result::ok),
+        };
+        // The mobile notepad: first, and always on the web, as `notepad`.
+        let notepad = project.notepad().map(|n| (n.id.clone(), n.title.clone()));
+        if let Some((id, title)) = &notepad
+            && let Some(text) = text_of(id)
+        {
+            index.push(json!({ "id": sync::NOTEPAD, "title": title, "notepad": true, "words": count_words(&text) }));
+            scenes.insert(sync::NOTEPAD.to_owned(), text);
+        }
         for (node, folder) in project.ipad_documents() {
-            let open = self.open.get(&node.id).and_then(|&tab| self.docs.get(tab));
-            let text = match open {
-                Some(tab) => tab.doc.text.clone(),
-                None => match project.file_path(&node.id).map(std::fs::read_to_string) {
-                    Some(Ok(text)) => text,
-                    _ => continue,
-                },
-            };
+            if notepad.as_ref().is_some_and(|(id, _)| *id == node.id) {
+                continue;
+            }
+            let Some(text) = text_of(&node.id) else { continue };
             index.push(json!({
                 "id": node.id,
                 "title": node.title,
@@ -138,17 +146,32 @@ impl WriterApp {
         };
         let mut clashed = Vec::new();
         let mut new_scenes = 0;
+        // The notepad is `notepad` on the helper, whichever document it is here.
+        let notepad = self.project.as_ref().and_then(|p| p.notepad()).map(|n| n.id.clone());
+        let local = |id: String| match &notepad {
+            Some(local) if id == sync::NOTEPAD => local.clone(),
+            _ => id,
+        };
         for action in std::mem::take(&mut outcome.actions) {
             match action {
-                Action::Replace { id, was, text } => self.take_ipad_text(root, &id, &was, &text),
+                Action::Replace { id, was, text } => self.take_ipad_text(root, &local(id), &was, &text),
                 // Notes changed on both: the Mac's stay, with the web editor's added.
                 Action::Snapshot { id, text, .. } if sync::notes_of(&id).is_some() => {
                     let scene = sync::notes_of(&id).expect("just checked").to_owned();
                     self.merge_ipad_notes(&scene, &text);
                 }
                 Action::Snapshot { id, text, name } => {
+                    let id = local(id);
                     let _ = snapshots::take(root, &id, &text, &name);
                     clashed.push(self.title_of(&id));
+                }
+                Action::NewNotepad { text } => {
+                    if let Some(project) = self.project.as_mut() {
+                        match project.make_notepad(&text) {
+                            Ok(_) => self.set_status("Mobile Notes, started on the web, are in Notes".to_owned(), now),
+                            Err(e) => self.error = Some(format!("Couldn't make the mobile notepad: {e}")),
+                        }
+                    }
                 }
                 Action::NewScene { inbox_id, title, text } => {
                     if self.add_ipad_scene(&title, &text) {
@@ -258,6 +281,31 @@ impl WriterApp {
         self.manifest_dirty = true;
         self.note_words(&id, text);
         true
+    }
+
+    /// "Mobile notepad", in the inspector: this is the document jotted in on
+    /// a phone (one per project).
+    pub(super) fn notepad_checkbox(&mut self, ui: &mut egui::Ui, id: &str) {
+        let Some(project) = self.project.as_mut() else { return };
+        let mut on = project.notepad().is_some_and(|n| n.id == id);
+        let hint = "For notes taken on your phone: on the web at the top of the project, with dated entries. One per project.";
+        if ui.checkbox(&mut on, "Mobile notepad").on_hover_text(hint).changed() {
+            project.set_notepad(on.then_some(id));
+            self.manifest_dirty = true;
+        }
+        if on {
+            ui.weak("On the web, at the top of the project.");
+        }
+    }
+
+    /// Open the mobile notepad in the split pane, making one in Notes if
+    /// there isn't one yet.
+    pub(super) fn open_notepad(&mut self) {
+        let Some(project) = self.project.as_mut() else { return };
+        match project.make_notepad("") {
+            Ok(id) => self.open_in_split(id),
+            Err(e) => self.error = Some(format!("Couldn't make the mobile notepad: {e}")),
+        }
     }
 
     /// The "Available on the web" checkbox, in the inspector.

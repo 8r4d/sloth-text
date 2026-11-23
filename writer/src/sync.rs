@@ -20,6 +20,13 @@
 //! (ids are letters and digits, so it can't be a real scene's), with the
 //! same versions and clash rules; see `notes_of`.
 //!
+//! The mobile notepad (see `Project::notepad`) is the scene `notepad` on
+//! the helper, whichever document it is here, so the web can start one
+//! before the Mac has it. It's added to from both sides, so when both
+//! changed, both sets of additions are kept (see `merge_additions`) rather
+//! than one going to a snapshot. If the web started it and the Mac has
+//! none, the Mac makes one (`Action::NewNotepad`).
+//!
 //! With the index goes the day's writing (words today, the day's goal, the
 //! manuscript's length and target), for the web to show.
 //!
@@ -88,6 +95,10 @@ pub struct Input {
     pub stats: Value,
 }
 
+/// The mobile notepad's id on the helper. Ids here are six letters and
+/// digits, so it can't be a real scene's.
+pub const NOTEPAD: &str = "notepad";
+
 /// The companion "scene" holding a scene's notes on the helper.
 pub fn notes_id(scene: &str) -> String {
     format!("{scene}-notes")
@@ -108,6 +119,8 @@ pub enum Action {
     Snapshot { id: String, text: String, name: String },
     /// A new scene written on the web.
     NewScene { inbox_id: i64, title: String, text: String },
+    /// The notepad was started on the web, and the Mac has none yet.
+    NewNotepad { text: String },
 }
 
 #[derive(Debug, Default)]
@@ -196,10 +209,7 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
                 Some(t) if t.text == *mine => {
                     out.state.scenes.insert(id.clone(), Synced { version: t.version, text: t.text.clone() });
                 }
-                Some(t) => {
-                    clash(&mut out, id, &t.text);
-                    send(remote, &project, &mut out, id, mine, t.version)?;
-                }
+                Some(t) => both_changed(remote, &project, &mut out, id, "", mine, t)?,
                 None => send(remote, &project, &mut out, id, mine, 0)?,
             },
             Some(last) => {
@@ -215,13 +225,19 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
                         out.state.scenes.insert(id.clone(), Synced { version: t.version, text: t.text.clone() });
                         out.received += 1;
                     }
-                    Some(t) => {
-                        clash(&mut out, id, &t.text);
-                        send(remote, &project, &mut out, id, mine, t.version)?;
-                    }
+                    Some(t) => both_changed(remote, &project, &mut out, id, &last.text, mine, t)?,
                 }
             }
         }
+    }
+
+    // Notes started on the web, with no notepad here yet. (Not recorded as
+    // synced: once the Mac has it, the next sync finds them the same.)
+    if !scenes.contains_key(NOTEPAD)
+        && let Some(t) = theirs.get(NOTEPAD)
+        && !t.text.trim().is_empty()
+    {
+        out.actions.push(Action::NewNotepad { text: t.text.clone() });
     }
 
     for item in remote.inbox(&project)? {
@@ -231,6 +247,52 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
     }
     out.state.seq = seq;
     Ok(out)
+}
+
+/// Both sides changed a scene since `base`. The notepad keeps both sides'
+/// additions; any other scene keeps the Mac's, with the web editor's as a
+/// snapshot.
+#[allow(clippy::too_many_arguments)]
+fn both_changed(
+    remote: &mut dyn Remote,
+    project: &str,
+    out: &mut Outcome,
+    id: &str,
+    base: &str,
+    mine: &str,
+    theirs: &Change,
+) -> Result<(), SyncError> {
+    let merged = if id == NOTEPAD { merge_additions(base, mine, &theirs.text) } else { None };
+    match merged {
+        Some(merged) => {
+            if merged != mine {
+                out.actions.push(Action::Replace { id: id.to_owned(), was: mine.to_owned(), text: merged.clone() });
+                out.received += 1;
+            }
+            send(remote, project, out, id, &merged, theirs.version)
+        }
+        None => {
+            clash(out, id, &theirs.text);
+            send(remote, project, out, id, mine, theirs.version)
+        }
+    }
+}
+
+/// A notepad added to on both sides since `base`: the base, then the
+/// Mac's additions, then the web's. `None` if either side changed more
+/// than its end (then it's an ordinary clash).
+pub fn merge_additions(base: &str, mine: &str, theirs: &str) -> Option<String> {
+    let (m, t) = (mine.trim_end(), theirs.trim_end());
+    if t.trim().is_empty() || m.contains(t.trim_start()) {
+        return Some(mine.to_owned());
+    }
+    if m.trim().is_empty() || t.contains(m.trim_start()) {
+        return Some(theirs.to_owned());
+    }
+    let base = base.trim_end();
+    let (mine_added, theirs_added) = (m.strip_prefix(base)?, t.strip_prefix(base)?);
+    let gap = if base.is_empty() { "" } else { "\n\n" };
+    Some(format!("{base}{gap}{}\n\n{}\n", mine_added.trim_start(), theirs_added.trim_start()))
 }
 
 /// Both sides changed a scene: the web editor's text is kept as a snapshot.
@@ -558,6 +620,46 @@ mod tests {
         assert!(out.actions.is_empty());
         assert!(helper.inbox[0].1, "collected");
         assert!(out.state.imported.is_empty());
+    }
+
+    #[test]
+    fn notepad_additions_from_both_sides_are_kept() {
+        let mut helper = Fake::default();
+        let start = "## Monday\nThe harbour at dawn.";
+        let state = run(&mut helper, input(&[(NOTEPAD, start)], SyncState::default())).unwrap().state;
+        helper.ipad_edit(NOTEPAD, &format!("{start}\n\n## Tuesday\nOn the train: the letter."));
+        let mine = format!("{start}\n\nAsk Tom about the ferry.");
+        let out = run(&mut helper, input(&[(NOTEPAD, &mine)], state)).unwrap();
+        let both = format!("{start}\n\nAsk Tom about the ferry.\n\n## Tuesday\nOn the train: the letter.\n");
+        assert_eq!(out.clashes, 0, "no snapshot");
+        assert_eq!(out.actions, [Action::Replace { id: NOTEPAD.into(), was: mine.clone(), text: both.clone() }]);
+        assert_eq!(helper.text(NOTEPAD), Some(both.as_str()));
+
+        // Next time, with that brought in: nothing to do.
+        let out = run(&mut helper, input(&[(NOTEPAD, &both)], out.state)).unwrap();
+        assert!(out.actions.is_empty() && out.sent == 0);
+    }
+
+    #[test]
+    fn merging_additions() {
+        assert_eq!(merge_additions("a", "a\nb", "a\nc").as_deref(), Some("a\n\nb\n\nc\n"));
+        assert_eq!(merge_additions("", "b", "c").as_deref(), Some("b\n\nc\n"), "both new");
+        assert_eq!(merge_additions("a", "a b", "a").as_deref(), Some("a b"), "only one side added");
+        assert_eq!(merge_additions("a", "x", "a c"), None, "the Mac's changed more than its end");
+    }
+
+    #[test]
+    fn a_notepad_started_on_the_web_comes_to_the_mac() {
+        let mut helper = Fake::default();
+        helper.ipad_edit(NOTEPAD, "Idea on the bus.");
+        let out = run(&mut helper, input(&[("a", "one")], SyncState::default())).unwrap();
+        assert!(out.actions.contains(&Action::NewNotepad { text: "Idea on the bus.".into() }));
+
+        // An empty one is left alone, and other scenes' rules are unchanged.
+        let mut helper = Fake::default();
+        helper.ipad_edit(NOTEPAD, "  ");
+        let out = run(&mut helper, input(&[], SyncState::default())).unwrap();
+        assert!(out.actions.is_empty());
     }
 
     #[test]

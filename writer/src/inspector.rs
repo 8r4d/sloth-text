@@ -246,6 +246,9 @@ impl WriterApp {
             });
             // (Outside the closure above: it needs the whole app.)
             ui.indent("ipad", |ui| self.ipad_checkbox(ui, &id, &mut meta));
+            if is_document && !is_profile {
+                ui.indent("notepad", |ui| self.notepad_checkbox(ui, &id));
+            }
 
             // A document's notes are above its text; anything else's are here.
             if !is_document || is_profile {

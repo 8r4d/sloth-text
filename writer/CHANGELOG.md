@@ -2,6 +2,15 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.14.0
+
+Mobile Notes: a notepad for jotting on your phone when you're out and about.
+
+- On the web, every project in the list has a pen button beside it that goes straight to its notes, and Mobile Notes is first in the project. New Entry adds the date and time as a heading, with the cursor under it; it opens at the end, where the newest notes are. Notes written there don't count as the day's writing.
+- On the Mac, More… → Mobile Notes opens it beside what you're writing, making it in Notes the first time. Or make any document the notepad: tick Mobile notepad in its inspector (one per project). It's on the web either way, and shows 📝 in the binder.
+- Start it on the phone before the Mac has one, and the Mac makes it at the next sync.
+- Added to on both the Mac and the phone between syncs: both sets of notes are kept, the Mac's then the phone's, rather than one going to a snapshot.
+
 ## 1.13.0
 
 The Canvas: a place to think about the project as a whole, apart from the order it's in. Click Canvas in the toolbar (⌥⌘C).

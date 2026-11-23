@@ -30,6 +30,12 @@ ul.list a { display: block; padding: 12px 2px; color: inherit; }
 ul.list strong { font-weight: 600; display: block; }
 ul.list .synopsis { display: block; font-size: 0.92em; }
 ul.list .quiet { font-size: 0.85em; }
+/* Projects: the project itself fills the row; its notepad is the pen beside it. */
+ul.projects li { display: flex; align-items: center; gap: 12px; }
+ul.projects a.project { flex: 1; min-width: 0; }
+ul.projects a.notepad-link { flex: none; display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; padding: 0;
+  border: 1px solid var(--line); border-radius: 10px; color: var(--accent); }
+ul.projects a.notepad-link:active, ul.projects a.notepad-link:hover { background: var(--tint); }
 
 /* The writing bar stays at the top while the page scrolls. */
 .scene-head { position: sticky; top: 0; background: var(--bg); padding: 4px 0 8px; border-bottom: 1px solid var(--line); z-index: 1; }
@@ -60,6 +66,13 @@ textarea { display: block; width: 100%; min-height: 60vh; margin-top: 16px; bord
 .figures > span { display: inline-flex; align-items: center; gap: 8px; }
 .project-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
 .continue { padding: 8px 12px; border-radius: 8px; background: var(--tint); }
+/* The notepad, first in a project. */
+.notepad-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 14px; margin-bottom: 14px;
+  border: 1px solid var(--line); border-radius: 8px; color: inherit; }
+.notepad-row strong { font-weight: 600; }
+.notepad-row:active, .notepad-row:hover { background: var(--tint); }
+.tools button.entry { margin-left: auto; }
+.tools button.entry + button { margin-left: 0; }
 #find { margin-bottom: 8px; }
 details.chapter { border-top: 1px solid var(--line); }
 details.chapter > summary { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 2px; cursor: pointer;
