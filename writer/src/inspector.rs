@@ -15,7 +15,7 @@ use eframe::egui::{self, Color32, RichText};
 
 use super::WriterApp;
 use crate::binder::BinderAction;
-use crate::project::Role;
+use crate::project::{Meta, Role};
 
 /// Label colours, by the index stored in the manifest. Mid tones, so they
 /// read on both light and dark backgrounds.
@@ -127,13 +127,16 @@ impl WriterApp {
             });
         }
 
-        // Title.
-        heading(ui, "Title");
+        // The title, and its words (against a target, if it has one).
         if role.is_some() {
-            ui.strong(&title);
+            ui.label(RichText::new(&title).size(16.0).strong());
         } else {
             let buffers = self.inspector_buffers.as_mut().expect("set above");
-            let field = ui.add(egui::TextEdit::singleline(&mut buffers.title).desired_width(f32::INFINITY));
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut buffers.title)
+                    .font(egui::FontId::proportional(16.0))
+                    .desired_width(f32::INFINITY),
+            );
             if field.lost_focus() {
                 let typed = buffers.title.clone();
                 if typed.trim() != title {
@@ -144,114 +147,119 @@ impl WriterApp {
                 buffers.title = title.clone();
             }
         }
-
-        // Words and target.
-        ui.add_space(10.0);
-        heading(ui, if role == Some(Role::Manuscript) { "Words in the manuscript" } else { "Words" });
         let words = self.words_under(&id);
-        match meta.target_words {
-            Some(target) if target > 0 => {
-                let fraction = (words as f32 / target as f32).min(1.0);
-                ui.add(egui::ProgressBar::new(fraction).text(format!("{words} of {target}")));
-            }
-            _ => {
-                ui.label(format!("{words}"));
-            }
-        }
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
-            let mut has_target = meta.target_words.is_some();
-            if ui.checkbox(&mut has_target, "Target").changed() {
-                meta.target_words = has_target.then_some(if role == Some(Role::Manuscript) { 80_000 } else { 2_000 });
-            }
-            if let Some(target) = &mut meta.target_words {
-                ui.add(egui::DragValue::new(target).speed(50).range(1..=10_000_000).suffix(" words"));
-            }
+            let what = if role == Some(Role::Manuscript) { "in the manuscript" } else { "" };
+            let count = format!("{} {}", crate::stats::thousands(words as u32), if words == 1 { "word" } else { "words" });
+            ui.label(if what.is_empty() { count } else { format!("{count} {what}") });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(target) = &mut meta.target_words {
+                    ui.add(egui::DragValue::new(target).speed(50).range(1..=10_000_000));
+                }
+                let mut has_target = meta.target_words.is_some();
+                if ui.checkbox(&mut has_target, "Target").changed() {
+                    meta.target_words = has_target.then_some(if role == Some(Role::Manuscript) { 80_000 } else { 2_000 });
+                }
+            });
         });
+        if let Some(target) = meta.target_words.filter(|&t| t > 0) {
+            let fraction = (words as f32 / target as f32).min(1.0);
+            ui.add(egui::ProgressBar::new(fraction).desired_height(6.0));
+        }
 
         if role.is_none() {
-            // Synopsis.
-            ui.add_space(10.0);
-            heading(ui, "Synopsis");
-            ui.add(
-                egui::TextEdit::multiline(&mut meta.synopsis)
-                    .hint_text("What happens here, in a sentence or two")
-                    .desired_rows(4)
-                    .desired_width(f32::INFINITY),
-            );
-
-            // Status and label.
-            ui.add_space(10.0);
-            egui::Grid::new("inspector-grid").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                ui.label("Status");
-                let shown = meta.status.and_then(|i| statuses.get(i)).map_or("None", String::as_str);
-                egui::ComboBox::from_id_salt("status").selected_text(shown).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut meta.status, None, "None");
-                    for (i, name) in statuses.iter().enumerate() {
-                        ui.selectable_value(&mut meta.status, Some(i), name);
-                    }
+            section(ui, "Synopsis", "synopsis", true, |ui| {
+                // Two lines to start; it grows with the text, then scrolls.
+                egui::ScrollArea::vertical().id_salt("synopsis-scroll").max_height(260.0).show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut meta.synopsis)
+                            .hint_text("What happens here, in a sentence or two")
+                            .desired_rows(2)
+                            .desired_width(f32::INFINITY),
+                    );
                 });
-                ui.end_row();
-
-                ui.label("Label");
-                let shown = match meta.label.and_then(|i| labels.get(i)) {
-                    Some(label) => RichText::new(format!("\u{25cf} {}", label.name)).color(label_color(label.color)),
-                    None => RichText::new("None"),
-                };
-                egui::ComboBox::from_id_salt("label").selected_text(shown).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut meta.label, None, "None");
-                    for (i, label) in labels.iter().enumerate() {
-                        let text = RichText::new(format!("\u{25cf} {}", label.name)).color(label_color(label.color));
-                        ui.selectable_value(&mut meta.label, Some(i), text);
-                    }
-                    ui.separator();
-                    if ui.button("Edit Labels\u{2026}").clicked() {
-                        self.editing_labels = true;
-                    }
-                });
-                ui.end_row();
             });
 
-            // Keywords.
-            ui.add_space(10.0);
-            heading(ui, "Keywords");
+            let editing_labels = &mut self.editing_labels;
             let buffers = self.inspector_buffers.as_mut().expect("set above");
-            let field = ui.add(
-                egui::TextEdit::singleline(&mut buffers.keywords)
-                    .hint_text("Separated by commas")
-                    .desired_width(f32::INFINITY),
-            );
-            if field.changed() {
-                meta.keywords = buffers
-                    .keywords
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|k| !k.is_empty())
-                    .map(str::to_owned)
-                    .collect();
-            }
+            section(ui, "Details", "details", true, |ui| {
+                egui::Grid::new("inspector-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                    ui.label("Status");
+                    let shown = meta.status.and_then(|i| statuses.get(i)).map_or("None", String::as_str);
+                    egui::ComboBox::from_id_salt("status").selected_text(shown).width(150.0).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut meta.status, None, "None");
+                        for (i, name) in statuses.iter().enumerate() {
+                            ui.selectable_value(&mut meta.status, Some(i), name);
+                        }
+                    });
+                    ui.end_row();
 
-            if in_manuscript {
-                ui.add_space(6.0);
-                let mut include = !meta.exclude_from_compile;
-                if ui.checkbox(&mut include, "Include when compiling").changed() {
-                    meta.exclude_from_compile = !include;
+                    ui.label("Label");
+                    let shown = match meta.label.and_then(|i| labels.get(i)) {
+                        Some(label) => RichText::new(format!("\u{25cf} {}", label.name)).color(label_color(label.color)),
+                        None => RichText::new("None"),
+                    };
+                    egui::ComboBox::from_id_salt("label").selected_text(shown).width(150.0).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut meta.label, None, "None");
+                        for (i, label) in labels.iter().enumerate() {
+                            let text = RichText::new(format!("\u{25cf} {}", label.name)).color(label_color(label.color));
+                            ui.selectable_value(&mut meta.label, Some(i), text);
+                        }
+                        ui.separator();
+                        if ui.button("Edit Labels\u{2026}").clicked() {
+                            *editing_labels = true;
+                        }
+                    });
+                    ui.end_row();
+
+                    ui.label("Keywords");
+                    let field = ui.add(
+                        egui::TextEdit::singleline(&mut buffers.keywords)
+                            .hint_text("Separated by commas")
+                            .desired_width(f32::INFINITY),
+                    );
+                    if field.changed() {
+                        meta.keywords = buffers
+                            .keywords
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|k| !k.is_empty())
+                            .map(str::to_owned)
+                            .collect();
+                    }
+                    ui.end_row();
+                });
+                ui.add_space(4.0);
+                if in_manuscript {
+                    let mut include = !meta.exclude_from_compile;
+                    if ui.checkbox(&mut include, "Include when compiling").changed() {
+                        meta.exclude_from_compile = !include;
+                    }
                 }
-            }
-            self.ipad_checkbox(ui, &id, &mut meta);
+            });
+            // (Outside the closure above: it needs the whole app.)
+            ui.indent("ipad", |ui| self.ipad_checkbox(ui, &id, &mut meta));
 
-            // Notes.
-            ui.add_space(10.0);
-            heading(ui, "Notes");
-            ui.add(
-                egui::TextEdit::multiline(&mut meta.notes)
-                    .hint_text("Anything to remember about it")
-                    .desired_rows(6)
-                    .desired_width(f32::INFINITY),
-            );
+            // A document's notes are above its text; anything else's are here.
+            if !is_document || is_profile {
+                section(ui, "Notes", "notes", true, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut meta.notes)
+                            .hint_text("Anything to remember about it")
+                            .desired_rows(4)
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+            }
 
             // Who and what appears here (not for the profiles themselves).
-            if !is_profile {
-                self.scene_profiles(ui, &mut meta);
+            if !is_profile && self.project.as_ref().is_some_and(|p| !p.manifest.profiles.is_empty()) {
+                ui.add_space(4.0);
+                egui::CollapsingHeader::new(RichText::new("In This Scene").strong())
+                    .id_salt("in-this-scene")
+                    .default_open(true)
+                    .show(ui, |ui| self.scene_profiles(ui, &mut meta));
             }
         }
 
@@ -313,8 +321,58 @@ impl WriterApp {
     }
 }
 
-fn heading(ui: &mut egui::Ui, text: &str) {
-    ui.label(RichText::new(text).small().weak());
+impl WriterApp {
+    /// A document's notes (never compiled), folded above its text in the
+    /// text's column; open when there are any.
+    pub(super) fn notes_panel(&mut self, ui: &mut egui::Ui, id: &str, column: Option<f32>) {
+        let Some(project) = &self.project else { return };
+        let Some(node) = project.node(id) else { return };
+        let mut notes = node.meta.notes.clone();
+        let width = column.map_or(ui.available_width(), |w| w.min(ui.available_width()));
+        let first_line = notes.lines().find(|l| !l.trim().is_empty()).unwrap_or("").to_owned();
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+            ui.vertical(|ui| {
+                ui.set_width(width);
+                let header = egui::CollapsingHeader::new(RichText::new("Notes").strong())
+                    .id_salt(("doc-notes", id))
+                    .default_open(!notes.trim().is_empty());
+                let shown = header.show(ui, |ui| {
+                    egui::ScrollArea::vertical().id_salt(("doc-notes-scroll", id)).max_height(180.0).show(ui, |ui| {
+                        changed = ui
+                            .add(
+                                egui::TextEdit::multiline(&mut notes)
+                                    .hint_text("Notes about this document: research, reminders, what to fix. Not part of the compiled book.")
+                                    .desired_rows(2)
+                                    .desired_width(f32::INFINITY),
+                            )
+                            .changed();
+                    });
+                });
+                // Folded: a glimpse of what's in them.
+                if shown.body_returned.is_none() && !first_line.is_empty() {
+                    let glimpse = egui::Label::new(RichText::new(&first_line).small().weak()).truncate();
+                    ui.add(glimpse);
+                }
+            });
+        });
+        ui.separator();
+        if changed
+            && let Some(project) = self.project.as_mut()
+        {
+            let meta = Meta { notes, ..project.node(id).map(|n| n.meta.clone()).unwrap_or_default() };
+            if project.set_meta(id, meta) {
+                self.manifest_dirty = true;
+            }
+        }
+    }
+}
+
+/// A part of the inspector that can be folded away (remembered by `id`).
+fn section(ui: &mut egui::Ui, title: &str, id: &str, open: bool, add: impl FnOnce(&mut egui::Ui)) {
+    ui.add_space(4.0);
+    egui::CollapsingHeader::new(RichText::new(title).strong()).id_salt(id).default_open(open).show(ui, add);
 }
 
 #[cfg(test)]

@@ -102,15 +102,29 @@ impl WriterApp {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_width(380.0)
+            .default_width(420.0)
             .pivot(egui::Align2::CENTER_CENTER)
             .default_pos(ctx.content_rect().center())
             .show(ctx, |ui| {
-                egui::Grid::new("writer-settings").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
-                    ui.label("Font");
+                // Every row's label in one column, every control in the next.
+                const LABEL_WIDTH: f32 = 96.0;
+                let row = |ui: &mut egui::Ui, label: &str, add: &mut dyn FnMut(&mut egui::Ui)| {
+                    ui.horizontal_top(|ui| {
+                        let layout = egui::Layout::left_to_right(egui::Align::Center);
+                        ui.allocate_ui_with_layout(egui::vec2(LABEL_WIDTH, 20.0), layout, |ui| {
+                            ui.set_min_width(LABEL_WIDTH);
+                            ui.label(label);
+                        });
+                        ui.vertical(|ui| add(ui));
+                    });
+                    ui.add_space(4.0);
+                };
+
+                group(ui, "Text");
+                row(ui, "Font", &mut |ui| {
                     let default_name = format!("Default ({})", fonts::default_prose_font().unwrap_or("built-in"));
                     let shown = settings.font.clone().unwrap_or_else(|| default_name.clone());
-                    egui::ComboBox::from_id_salt("prose-font").selected_text(shown).height(320.0).width(220.0).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("prose-font").selected_text(shown).height(320.0).width(240.0).show_ui(ui, |ui| {
                         ui.add(egui::TextEdit::singleline(filter).hint_text("Filter").desired_width(200.0));
                         ui.selectable_value(&mut settings.font, None, default_name);
                         let wanted = filter.to_lowercase();
@@ -122,71 +136,67 @@ impl WriterApp {
                             ui.selectable_value(&mut settings.font, Some(family.clone()), family);
                         }
                     });
-                    ui.end_row();
-
-                    ui.label("Size");
+                });
+                row(ui, "Size", &mut |ui| {
                     ui.add(egui::Slider::new(&mut settings.font_size, 12.0..=32.0).step_by(1.0).suffix(" pt"));
-                    ui.end_row();
-
-                    ui.label("Line spacing");
+                });
+                row(ui, "Line spacing", &mut |ui| {
                     ui.add(egui::Slider::new(&mut settings.line_spacing, 1.0..=2.2).step_by(0.05).suffix("\u{d7}"));
-                    ui.end_row();
-
-                    ui.label("Text width");
-                    ui.vertical(|ui| {
-                        let mut limited = settings.text_width.is_some();
-                        if ui.checkbox(&mut limited, "Keep lines to a comfortable length").changed() {
-                            settings.text_width = limited.then_some(680.0);
-                        }
-                        if let Some(width) = &mut settings.text_width {
-                            ui.add(egui::Slider::new(width, 400.0..=1200.0).step_by(20.0).suffix(" pt"));
-                        }
+                });
+                row(ui, "Line length", &mut |ui| {
+                    let mut limited = settings.text_width.is_some();
+                    if ui.checkbox(&mut limited, "Keep lines to a comfortable length").changed() {
+                        settings.text_width = limited.then_some(680.0);
+                    }
+                    if let Some(width) = &mut settings.text_width {
+                        ui.add(egui::Slider::new(width, 400.0..=1200.0).step_by(20.0).suffix(" pt"));
+                    }
+                });
+                // A sample in the chosen font, size and spacing.
+                egui::Frame::new()
+                    .fill(ui.visuals().extreme_bg_color)
+                    .corner_radius(6.0)
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        let font = FontId::new(settings.font_size, fonts::prose_family());
+                        let sample = "The snow came early that year\u{2014}three weeks before the first frost was due.";
+                        ui.add(egui::Label::new(RichText::new(sample).font(font).line_height(Some(
+                            settings.font_size * 1.2 * settings.line_spacing,
+                        ))));
                     });
-                    ui.end_row();
 
-                    ui.label("Theme");
-                    egui::ComboBox::from_id_salt("theme").selected_text(settings.theme.label()).show_ui(ui, |ui| {
+                group(ui, "Writing");
+                ui.checkbox(&mut settings.smart_dashes, "Two hyphens make an em dash (\u{2014})");
+                ui.checkbox(&mut settings.show_markdown, "Show *italics*, **bold** and headings as you type");
+                ui.checkbox(&mut settings.spell_check, "Check spelling as you type")
+                    .on_hover_text("Uses your Mac's spelling language and learned words. Right-click a word for suggestions.");
+
+                group(ui, "Appearance");
+                row(ui, "Theme", &mut |ui| {
+                    egui::ComboBox::from_id_salt("theme").selected_text(settings.theme.label()).width(160.0).show_ui(ui, |ui| {
                         for choice in theme::ALL {
                             ui.selectable_value(&mut settings.theme, *choice, choice.label());
                         }
                     });
-                    ui.end_row();
-
-                    ui.label("Typing");
-                    ui.vertical(|ui| {
-                        ui.checkbox(&mut settings.smart_dashes, "Two hyphens (--) make an em dash (\u{2014})");
-                        ui.checkbox(&mut settings.show_markdown, "Show *italics*, **bold** and headings as you type");
-                        ui.checkbox(&mut settings.spell_check, "Check spelling as you type")
-                            .on_hover_text("Uses your Mac's spelling language and learned words. Right-click a word for suggestions.");
-                    });
-                    ui.end_row();
-
-                    ui.label("iPad helper");
-                    ui.vertical(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut settings.helper_url)
-                                .hint_text("https://writer.example.com/")
-                                .desired_width(240.0),
-                        );
-                        let field = ui.add(
-                            egui::TextEdit::singleline(token).password(true).hint_text("Token").desired_width(240.0),
-                        );
-                        // Saved to the Keychain on leaving the field, not per keystroke.
-                        token_changed = field.lost_focus();
-                        ui.weak("Make a token on the helper's page, then paste it here.");
-                    });
-                    ui.end_row();
                 });
 
-                // A sample in the chosen font, size and spacing.
-                ui.add_space(10.0);
-                ui.separator();
-                let font = FontId::new(settings.font_size, fonts::prose_family());
-                let sample = "The snow came early that year\u{2014}three weeks before the first frost was due.";
-                ui.add(egui::Label::new(RichText::new(sample).font(font).line_height(Some(
-                    settings.font_size * 1.2 * settings.line_spacing,
-                ))));
+                group(ui, "iPad Helper");
+                row(ui, "Address", &mut |ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut settings.helper_url)
+                            .hint_text("https://writer.example.com/")
+                            .desired_width(260.0),
+                    );
+                });
+                row(ui, "Token", &mut |ui| {
+                    let field = ui.add(egui::TextEdit::singleline(token).password(true).hint_text("Paste it here").desired_width(260.0));
+                    // Saved to the Keychain on leaving the field, not per keystroke.
+                    token_changed = field.lost_focus();
+                    ui.weak("Make one on the helper's Account page.");
+                });
+
                 ui.add_space(6.0);
+                ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button("Restore Defaults").clicked() {
                         *settings = WriterSettings::default();
@@ -214,6 +224,17 @@ impl WriterApp {
             self.settings_open = false;
         }
     }
+}
+
+/// A heading for a group of settings.
+fn group(ui: &mut egui::Ui, title: &str) {
+    if title != "Text" {
+        ui.add_space(4.0);
+        ui.separator();
+    }
+    ui.add_space(2.0);
+    ui.label(RichText::new(title).size(15.0).strong());
+    ui.add_space(4.0);
 }
 
 #[cfg(test)]

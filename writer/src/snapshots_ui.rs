@@ -58,32 +58,34 @@ impl WriterApp {
         let list = snapshots::list(&project.root, doc_id);
         let now = ui.input(|i| i.time);
 
-        ui.add_space(10.0);
-        ui.label(RichText::new(format!("Snapshots ({})", list.len())).small().weak());
-        ui.horizontal(|ui| {
-            let field = ui.add(
-                egui::TextEdit::singleline(&mut self.snapshot_name)
-                    .hint_text("Name (optional)")
-                    .desired_width(ui.available_width() - 70.0),
-            );
-            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if ui.button("Take").on_hover_text("Take a snapshot (\u{2318}5)").clicked() || enter {
-                let name = std::mem::take(&mut self.snapshot_name);
-                self.take_snapshot(doc_id, &name, now);
-            }
-        });
-        for snapshot in list {
-            ui.horizontal(|ui| {
-                let label = if snapshot.name.is_empty() {
-                    snapshot.when()
-                } else {
-                    format!("{} \u{2014} {}", snapshot.when(), snapshot.name)
-                };
-                if ui.link(label).on_hover_text("Compare with the current text").clicked() {
-                    self.comparing = Some(Comparing { doc_id: doc_id.to_owned(), snapshot });
+        ui.add_space(4.0);
+        egui::CollapsingHeader::new(RichText::new(format!("Snapshots ({})", list.len())).strong())
+            .id_salt("snapshots")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let field = ui.add(
+                        egui::TextEdit::singleline(&mut self.snapshot_name)
+                            .hint_text("Name (optional)")
+                            .desired_width(ui.available_width() - 70.0),
+                    );
+                    let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if ui.button("Take").on_hover_text("Take a snapshot (\u{2318}5)").clicked() || enter {
+                        let name = std::mem::take(&mut self.snapshot_name);
+                        self.take_snapshot(doc_id, &name, now);
+                    }
+                });
+                for snapshot in list {
+                    let label = if snapshot.name.is_empty() {
+                        snapshot.when()
+                    } else {
+                        format!("{} \u{2014} {}", snapshot.when(), snapshot.name)
+                    };
+                    if ui.link(label).on_hover_text("Compare with the current text").clicked() {
+                        self.comparing = Some(Comparing { doc_id: doc_id.to_owned(), snapshot });
+                    }
                 }
             });
-        }
     }
 
     /// The Compare window: the snapshot against the current text, word by

@@ -2,6 +2,21 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.3.0
+
+- Split at Cursor (⌘K, or right-click): the text after the cursor moves into a new document just after this one, ready to name.
+- Change Case in the right-click menu: UPPERCASE, lowercase, Title Case and Sentence case.
+- A document's notes are now in a panel above its text (folded away when empty). They're still never compiled.
+- The inspector is tidier: the title with its words and target at the top, then Synopsis, Details, In This Scene and Snapshots, each of which folds away. The synopsis box starts small and grows with what you write.
+- Settings are grouped: Text (with the sample right under it), Writing, Appearance and iPad Helper.
+- Hide the binder with the Binder button or ⌥⌘B.
+- With text selected, the status bar shows its words too: "12 of 340 words".
+- Back Up…: the whole project as a dated zip file in a folder of your choice.
+- Non-fiction profile folders: Sources, People, Concepts, Arguments, Events and Glossary, beside the fiction ones.
+- The Characters folder can be removed once it's empty, and added back from New Profile Folder.
+- "Ongoing" status, after To do.
+- Fixed: a long synopsis no longer runs out of its card on the corkboard.
+
 ## 1.2.0
 
 - Spell checking as you type, with your Mac's spelling language and learned words: misspelled words get a red wavy underline (not the word you're still typing, and not in notes). Right-click one for suggestions, Learn Spelling or Ignore Spelling. Turn it off in Settings.

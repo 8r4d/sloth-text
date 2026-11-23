@@ -1031,6 +1031,11 @@ impl WriterApp {
                     self.profile_form(ui, id, kind);
                     return;
                 }
+                if let Some(id) = self.selected.clone()
+                    && self.current().is_some()
+                {
+                    self.notes_panel(ui, &id, settings.max_text_width);
+                }
                 match self.current() {
                     Some(tab) => {
                         if focus {

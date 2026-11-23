@@ -533,7 +533,7 @@ fn the_manuscript_counts_every_document_in_it() {
 
     harness.get_by_label("📚 Manuscript").click();
     harness.run_steps(3);
-    harness.get_by_label("Words in the manuscript");
+    harness.get_by_label("5 words in the manuscript");
     assert_eq!(harness.state_mut().words_under("manuscript"), 5);
 
     // Typing in an open document counts straight away.
@@ -1295,7 +1295,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.2.0");
+    harness.get_by_label("1.3.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
@@ -1410,7 +1410,7 @@ fn the_status_bar_counts_the_selection_too() {
     let dir = TempDir::new("selection-count");
     let mut harness = harness(project(&dir, "One two three"));
     harness.run_steps(2);
-    harness.get_by_label("3 words");
+    assert!(harness.query_all_by_label("3 words").count() >= 1, "in the status bar (and the inspector)");
     let tab = harness.state_mut().current().unwrap().id;
     let ctx = harness.ctx.clone();
     sloth_core::editor::set_selection(&ctx, tab, 0..7);
@@ -1468,4 +1468,23 @@ fn back_up_saves_first_and_remembers_the_folder() {
     assert_eq!(text, "Saved words. Unsaved ones.");
     assert_eq!(harness.state().settings.backup_folder.as_deref(), Some(out.0.to_string_lossy().as_ref()));
     assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m.starts_with("Backed up to")));
+}
+
+#[test]
+fn a_documents_notes_are_above_its_text() {
+    let dir = TempDir::new("doc-notes");
+    let mut harness = harness(project(&dir, "The ferry had gone."));
+    harness.run_steps(2);
+    // Folded while there are none; open it and write some.
+    harness.get_by_label("Notes").click();
+    harness.run_steps(2);
+    let field = harness.get_all_by_value("").find(|n| n.rect().left() > 240.0 && n.rect().right() < 730.0).unwrap();
+    field.focus();
+    field.type_text("Check the ferry times.");
+    harness.run_steps(2);
+    let id = harness.state().selected.clone().unwrap();
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.node(&id).unwrap().meta.notes, "Check the ferry times.");
+    assert!(harness.state().manifest_dirty);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("The ferry had gone."), "not in the text");
 }
