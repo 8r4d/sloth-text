@@ -8,6 +8,7 @@ mod binder;
 mod character;
 mod compile;
 mod keychain;
+mod lock;
 mod project;
 mod snapshots;
 mod stats;

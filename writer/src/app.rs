@@ -94,6 +94,12 @@ pub struct WriterApp {
     show_binder: bool,
     /// When the daily backup was last looked for (seconds, egui's clock).
     last_backup_check: f64,
+    // Another copy of Writer and this one (see lock.rs).
+    /// A project another copy has open, waiting for Open Anyway or Cancel.
+    pending_open: Option<(PathBuf, crate::lock::Lock)>,
+    /// Another copy opened this project meanwhile: nothing is saved here.
+    lock_lost: Option<crate::lock::Lock>,
+    last_lock_beat: f64,
     inspector_buffers: Option<inspector::Buffers>,
     editing_labels: bool,
     word_cache: inspector::WordCache,
@@ -206,6 +212,9 @@ impl WriterApp {
             show_inspector: true,
             show_binder: true,
             last_backup_check: 0.0,
+            pending_open: None,
+            lock_lost: None,
+            last_lock_beat: 0.0,
             inspector_buffers: None,
             editing_labels: false,
             word_cache: inspector::WordCache::default(),
@@ -276,6 +285,15 @@ impl WriterApp {
     }
 
     fn open_project(&mut self, root: &Path) {
+        // Open in another copy of Writer: ask first.
+        if let crate::lock::Holder::Other(lock) = crate::lock::holder(root) {
+            self.pending_open = Some((root.to_path_buf(), lock));
+            return;
+        }
+        self.open_project_anyway(root);
+    }
+
+    fn open_project_anyway(&mut self, root: &Path) {
         match Project::open(root) {
             Ok(project) => self.set_project(project),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -292,6 +310,10 @@ impl WriterApp {
         projects_ui::remember(&mut self.recent, &project.root);
         let first = first_document(&project.manifest.binder[0]);
         self.stats = crate::stats::Stats::load(&project.root);
+        if let Err(e) = crate::lock::take(&project.root) {
+            self.error = Some(format!("Couldn't mark the project as open here: {e}"));
+        }
+        self.lock_lost = None;
         self.project = Some(project);
         self.count_all_words();
         if let Some(id) = first {
@@ -301,7 +323,12 @@ impl WriterApp {
 
     fn close_project(&mut self) {
         self.save_all();
+        self.keep_unsaved_if_taken();
         self.auto_backup(crate::backup::When::Closing);
+        if let Some(project) = &self.project {
+            crate::lock::release(&project.root);
+        }
+        self.lock_lost = None;
         self.project = None;
         self.selected = None;
         self.docs = Tabs::new();
@@ -381,6 +408,10 @@ impl WriterApp {
     /// away those changes, so it waits for the person to choose a version
     /// in the notice above the editor.
     fn save_all(&mut self) {
+        // Another copy of Writer has the project now: write nothing over it.
+        if self.lock_lost.is_some() {
+            return;
+        }
         let mut failed = Vec::new();
         // Metadata edited in the inspector.
         if self.manifest_dirty
@@ -464,8 +495,14 @@ impl WriterApp {
     /// could lose words; that document is shown instead.
     fn before_close(&mut self) -> bool {
         self.save_all();
+        self.keep_unsaved_if_taken();
         self.auto_backup(crate::backup::When::Closing);
-        let Some(id) = self.unresolved_change() else { return true };
+        let Some(id) = self.unresolved_change() else {
+            if let Some(project) = &self.project {
+                crate::lock::release(&project.root);
+            }
+            return true;
+        };
         self.select(id);
         let name = self.current().map(|t| t.doc.display_name()).unwrap_or_default();
         self.error = Some(format!(
@@ -619,6 +656,97 @@ impl WriterApp {
                 self.set_status(format!("Backed up to {}", path.display()), now);
             }
             Err(e) => self.error = Some(format!("Couldn't back up the project: {e}")),
+        }
+    }
+
+    /// Closing a project another copy took over: what was typed here since
+    /// isn't saved over theirs, but kept as a snapshot of each document.
+    fn keep_unsaved_if_taken(&mut self) {
+        let (Some(lock), Some(project)) = (&self.lock_lost, &self.project) else { return };
+        let name = format!("written here while it was open on {}", lock.host);
+        for (id, &tab) in &self.open {
+            if let Some(tab) = self.docs.get(tab).filter(|t| t.doc.is_dirty()) {
+                let _ = crate::snapshots::take(&project.root, id, &tab.doc.text, &name);
+            }
+        }
+    }
+
+    /// Keep this copy's claim on the project fresh, and notice if another
+    /// copy has taken it.
+    fn lock_tick(&mut self, now: f64) {
+        if self.lock_lost.is_some() || now - self.last_lock_beat < crate::lock::BEAT_SECONDS {
+            return;
+        }
+        self.last_lock_beat = now;
+        let Some(project) = &self.project else { return };
+        if let Ok(Some(lock)) = crate::lock::beat(&project.root) {
+            self.lock_lost = Some(lock);
+        }
+    }
+
+    /// "Open Anyway?" for a project another copy of Writer has open.
+    fn open_anyway_dialog(&mut self, ctx: &egui::Context) {
+        let Some((root, lock)) = self.pending_open.clone() else { return };
+        let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let mut choice = None;
+        egui::Modal::new(egui::Id::unique("open-anyway")).show(ctx, |ui| {
+            ui.set_width(380.0);
+            ui.heading(format!("\u{201c}{name}\u{201d} is open on {}", lock.host));
+            ui.label(egui::RichText::new(crate::lock::since(&lock)).weak());
+            ui.add_space(6.0);
+            ui.label("Opening it here as well could mean one copy saves over the other's changes. Close it there first. If Writer quit unexpectedly there, it's safe to open it here.");
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    choice = Some(false);
+                }
+                if ui.button("Open Anyway").clicked() {
+                    choice = Some(true);
+                }
+            });
+        });
+        match choice {
+            Some(true) => {
+                self.pending_open = None;
+                self.open_project_anyway(&root);
+            }
+            Some(false) => self.pending_open = None,
+            None => {}
+        }
+    }
+
+    /// The bar saying another copy took the project, with what to do.
+    fn lock_lost_bar(&mut self, ui: &mut egui::Ui) {
+        let Some(lock) = self.lock_lost.clone() else { return };
+        let mut take_back = false;
+        let mut close = false;
+        egui::Panel::top(egui::Id::unique("lock-lost")).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(
+                    ui.visuals().error_fg_color,
+                    format!(
+                        "This project was opened on {} ({}). Writer has stopped saving here so the two copies don't overwrite each other.",
+                        lock.host,
+                        crate::lock::since(&lock)
+                    ),
+                );
+                if ui.button("Close It Here").on_hover_text("What you wrote here since is kept as snapshots").clicked() {
+                    close = true;
+                }
+                if ui.button("Take It Back").on_hover_text("Save here again (close it on the other Mac first)").clicked() {
+                    take_back = true;
+                }
+            });
+        });
+        if take_back
+            && let Some(project) = &self.project
+        {
+            let _ = crate::lock::take(&project.root);
+            self.lock_lost = None;
+            self.save_all();
+        }
+        if close {
+            self.close_project();
         }
     }
 
@@ -1121,6 +1249,9 @@ impl eframe::App for WriterApp {
         }
         self.update_title(&ctx);
         self.error_bar(ui);
+        self.lock_lost_bar(ui);
+        self.open_anyway_dialog(&ctx);
+        self.lock_tick(now);
 
         if self.project.is_none() {
             self.start_screen(ui);

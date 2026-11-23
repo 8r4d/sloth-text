@@ -1571,3 +1571,57 @@ fn closing_a_project_backs_it_up_automatically() {
     std::io::Read::read_to_string(&mut zip.by_name(&format!("{top}/manuscript/untitled.md")).unwrap(), &mut text).unwrap();
     assert_eq!(text, "Words. More.", "saved first, then backed up");
 }
+
+// ----- one copy of Writer per project ------------------------------------------------
+
+/// Mark a project as open in another copy of Writer, on "Studio iMac".
+fn opened_elsewhere(root: &std::path::Path) {
+    let now = chrono::Utc::now().timestamp();
+    let lock = crate::lock::Lock { owner: "another-copy".into(), host: "Studio iMac".into(), since: now, beat: now };
+    fs::create_dir_all(root.join(".sloth")).unwrap();
+    fs::write(root.join(".sloth").join(crate::lock::FILE_NAME), ron::to_string(&lock).unwrap()).unwrap();
+}
+
+#[test]
+fn opening_a_project_open_elsewhere_asks_first() {
+    let dir = TempDir::new("lock-open");
+    let other = TempDir::new("lock-open-other");
+    let mut harness = harness(project(&dir, "Here."));
+    drop(Project::create(&other.0, "Other").unwrap());
+    opened_elsewhere(&other.0);
+
+    harness.state_mut().open_project(&other.0);
+    harness.run_steps(2);
+    harness.get_by_label_contains("is open on Studio iMac");
+    assert_eq!(harness.state().project.as_ref().unwrap().root, dir.0, "not opened yet");
+    harness.get_by_label("Open Anyway").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().project.as_ref().unwrap().root, other.0);
+    assert_eq!(crate::lock::holder(&other.0), crate::lock::Holder::Us);
+    assert_eq!(crate::lock::holder(&dir.0), crate::lock::Holder::Nobody, "the first one was let go");
+}
+
+#[test]
+fn when_another_copy_takes_the_project_nothing_is_saved_over_it() {
+    let dir = TempDir::new("lock-lost");
+    let mut harness = harness(project(&dir, "Words."));
+    let id = harness.state().selected.clone().unwrap();
+    opened_elsewhere(&dir.0);
+    harness.state_mut().last_lock_beat = -100.0;
+    harness.run_steps(2);
+    harness.get_by_label_contains("This project was opened on Studio iMac");
+
+    // Typing here isn't saved over the other copy's file…
+    harness.state_mut().current().unwrap().doc.text.push_str(" Written here.");
+    harness.state_mut().last_autosave = -100.0;
+    harness.run_steps(2);
+    assert_eq!(fs::read_to_string(dir.0.join("manuscript/untitled.md")).unwrap(), "Words.");
+    // …and closing keeps it as a snapshot instead.
+    harness.get_by_label("Close It Here").click();
+    harness.run_steps(2);
+    let kept = crate::snapshots::list(&dir.0, &id);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].text().unwrap(), "Words. Written here.");
+    assert!(kept[0].name.contains("Studio iMac"));
+    assert!(matches!(crate::lock::holder(&dir.0), crate::lock::Holder::Other(_)), "their lock is left alone");
+}

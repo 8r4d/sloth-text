@@ -16,7 +16,9 @@ use zip::write::SimpleFileOptions;
 
 /// Files not worth keeping (the Finder's, and editors' leftovers).
 fn skip(name: &str) -> bool {
-    name == ".DS_Store" || name.ends_with('~') || name.starts_with("._")
+    // The lock says who has the project open: refreshed all the time, and
+    // meaningless in a backup.
+    name == ".DS_Store" || name.ends_with('~') || name.starts_with("._") || name == crate::lock::FILE_NAME
 }
 
 /// The backup's file name: "The Long Winter 2026-11-22 14.05.zip".

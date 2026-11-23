@@ -29,7 +29,9 @@ pub(super) struct Running {
 impl WriterApp {
     /// The helper is set up, and this project has scenes on the iPad.
     pub(super) fn sync_ready(&self) -> bool {
-        !self.settings.helper_url.trim().is_empty()
+        // Not while another copy of Writer has the project (see lock.rs).
+        self.lock_lost.is_none()
+            && !self.settings.helper_url.trim().is_empty()
             && !self.helper_token.trim().is_empty()
             && self.project.as_ref().is_some_and(|p| !p.ipad_documents().is_empty())
     }
