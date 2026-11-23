@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.22.1
+
+- Fixed: strings on the Canvas met a profile's pill (or a card's rounded corner) short of its edge, where the line left through a rounded end; they now meet the curve.
+
 ## 1.22.0
 
 Canvas and corkboard polish.

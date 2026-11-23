@@ -365,13 +365,15 @@ fn snap(p: Pos2) -> Pos2 {
 /// middle, as string does. It ends at the cards' edges, where a line
 /// between their middles crosses them, so it never runs under their text.
 fn string_between(from: Rect, to: Rect) -> [Pos2; 4] {
-    swaying_string(from, to, 0.0)
+    swaying_string((from, 0.0), (to, 0.0), 0.0)
 }
 
-/// As `string_between`, its sag stretched by `wobble` (a fraction, either
-/// way) as it swings and settles.
-fn swaying_string(from: Rect, to: Rect, wobble: f32) -> [Pos2; 4] {
-    let (a, b) = (edge_point(from, to.center()), edge_point(to, from.center()));
+/// As `string_between`, between cards with rounded corners (each a rect
+/// and its corner radius: a profile's pill is all corner at its ends), its
+/// sag stretched by `wobble` (a fraction, either way) as it swings and
+/// settles.
+fn swaying_string(from: (Rect, f32), to: (Rect, f32), wobble: f32) -> [Pos2; 4] {
+    let (a, b) = (rounded_edge_point(from.0, from.1, to.0.center()), rounded_edge_point(to.0, to.1, from.0.center()));
     let d = b - a;
     let sag = Vec2::new(0.0, (d.length() * 0.12).min(48.0) * (1.0 + wobble));
     [a, a + d / 3.0 + sag, a + d * 2.0 / 3.0 + sag, b]
@@ -406,6 +408,43 @@ fn edge_point(rect: Rect, toward: Pos2) -> Pos2 {
         .map(|(along, h)| h / along.abs())
         .fold(f32::INFINITY, f32::min);
     if t.is_finite() { c + d * t.min(1.0) } else { c }
+}
+
+/// As `edge_point`, for a rect with corners rounded by `radius`: a line
+/// leaving through a corner meets the curve, not the corner's empty point.
+fn rounded_edge_point(rect: Rect, radius: f32, toward: Pos2) -> Pos2 {
+    let square = edge_point(rect, toward);
+    let r = radius.min(rect.width() / 2.0).min(rect.height() / 2.0);
+    if r <= 0.0 {
+        return square;
+    }
+    // The corners' circles are centred on the rect shrunk by the radius.
+    let inner = rect.shrink(r);
+    let k = Pos2::new(square.x.clamp(inner.left(), inner.right()), square.y.clamp(inner.top(), inner.bottom()));
+    let in_corner = (square.x - k.x).abs() > f32::EPSILON && (square.y - k.y).abs() > f32::EPSILON;
+    if !in_corner {
+        return square;
+    }
+    // Where the line from the middle leaves that corner's circle.
+    let c = rect.center();
+    let d = toward - c;
+    let f = c - k;
+    let (a, b, cc) = (d.dot(d), 2.0 * f.dot(d), f.dot(f) - r * r);
+    let disc = b * b - 4.0 * a * cc;
+    if a <= f32::EPSILON || disc < 0.0 {
+        return square;
+    }
+    let t = ((-b + disc.sqrt()) / (2.0 * a)).clamp(0.0, 1.0);
+    c + d * t
+}
+
+/// How round a card's corners are: a pill's ends are half its height.
+fn corner_radius(card: &Card) -> f32 {
+    match card.kind {
+        Kind::Profile { .. } => card.rect.height() / 2.0,
+        Kind::Note => 4.0,
+        Kind::Document { .. } => 6.0,
+    }
 }
 
 fn point_on(p: &[Pos2; 4], t: f32) -> Pos2 {
@@ -466,6 +505,8 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     dot_grid(ui, Pos2::ZERO, step, 1.0 / scale);
 
     let rects: HashMap<&str, Rect> = cards.iter().map(|c| (c.id.as_str(), c.rect)).collect();
+    let corners: HashMap<&str, f32> = cards.iter().map(|c| (c.id.as_str(), corner_radius(c))).collect();
+    let shape = |id: &str, rect: &Rect| (*rect, corners.get(id).copied().unwrap_or(0.0));
     let focus = state.focus.clone().filter(|f| rects.contains_key(f.as_str()));
     let focus = focus.as_deref();
     let mut near: HashSet<String> = HashSet::new();
@@ -511,7 +552,7 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     let mut nearest = reach;
     for (i, edge) in state.edges.iter().enumerate() {
         let (Some(a), Some(b)) = (rects.get(edge.from.as_str()), rects.get(edge.to.as_str())) else { continue };
-        let points = swaying_string(*a, *b, wobble_of(&edge.from, &edge.to));
+        let points = swaying_string(shape(&edge.from, a), shape(&edge.to, b), wobble_of(&edge.from, &edge.to));
         let full = if focus.is_some() { 0.9 } else { 0.7 };
         let alpha = 0.12 + (full - 0.12) * glow_of(&edge.from, &edge.to);
         let width = (1.2 + (edge.references as f32).ln_1p() * 0.6).min(3.0);
@@ -529,7 +570,7 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     let mut tie_points = Vec::new();
     for (i, tie) in state.data.strings.iter().enumerate() {
         let (Some(a), Some(b)) = (rects.get(tie.a.as_str()), rects.get(tie.b.as_str())) else { continue };
-        let points = swaying_string(*a, *b, wobble_of(&tie.a, &tie.b));
+        let points = swaying_string(shape(&tie.a, a), shape(&tie.b, b), wobble_of(&tie.a, &tie.b));
         if let Some(p) = pointer.filter(|_| !over_card) {
             let d = distance_to(&points, p);
             if d < nearest_tie {
@@ -610,11 +651,7 @@ fn card_ui(
     let carry = ui.ctx().animate_bool_with_time(id.with("carry"), response.dragged(), time);
     let lift = 1.5 * hover + 2.5 * carry;
     let rect = card.rect.translate(Vec2::new(0.0, -lift));
-    let corner = match card.kind {
-        Kind::Profile { .. } => (rect.height() / 2.0) as u8,
-        Kind::Note => 4,
-        Kind::Document { .. } => 6,
-    };
+    let corner = corner_radius(card) as u8;
     let shadow = egui::epaint::Shadow {
         offset: [0, (2.0 + 3.0 * lift) as i8],
         blur: (6.0 + 5.0 * lift) as u8,
@@ -851,6 +888,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn strings_meet_rounded_ends() {
+        // A pill 170 × 44: its ends are half circles of radius 22.
+        let pill = Rect::from_min_size(Pos2::ZERO, Vec2::new(170.0, 44.0));
+        let r = 22.0;
+        let end_centre = Pos2::new(170.0 - r, 22.0);
+        // Out through the rounded end at an angle: on the curve, inside the
+        // rect's corner.
+        let p = rounded_edge_point(pill, r, Pos2::new(400.0, 80.0));
+        assert!((p.distance(end_centre) - r).abs() < 0.01, "on the curve: {p:?}");
+        assert!(p.x < 170.0 && p.y < 44.0, "inside the corner's empty point");
+        // Straight out of an end, or the flat top: as before.
+        assert_eq!(rounded_edge_point(pill, r, Pos2::new(500.0, 22.0)), Pos2::new(170.0, 22.0));
+        assert_eq!(rounded_edge_point(pill, r, Pos2::new(85.0, -300.0)), Pos2::new(85.0, 0.0));
+        // No rounding: the rect's own edge.
+        assert_eq!(rounded_edge_point(pill, 0.0, Pos2::new(400.0, 80.0)), edge_point(pill, Pos2::new(400.0, 80.0)));
+    }
+
+    #[test]
     fn a_string_swings_and_settles() {
         assert_eq!(swing(-0.1), 0.0);
         assert_eq!(swing(0.0), 0.0);
@@ -860,7 +915,7 @@ mod tests {
         assert_eq!(swing(SWAY_SECONDS), 0.0);
         // Swinging only changes the sag, not where it's tied.
         let (a, b) = (Rect::from_min_size(Pos2::ZERO, Vec2::splat(50.0)), Rect::from_min_size(Pos2::new(300.0, 0.0), Vec2::splat(50.0)));
-        let (still, swung) = (string_between(a, b), swaying_string(a, b, 0.4));
+        let (still, swung) = (string_between(a, b), swaying_string((a, 0.0), (b, 0.0), 0.4));
         assert_eq!((still[0], still[3]), (swung[0], swung[3]));
         assert!(swung[1].y > still[1].y);
     }
