@@ -119,7 +119,7 @@ impl WriterApp {
         let goal = c.goal;
         let window = ctx.content_rect();
         let anchor = c.ring.map_or(Pos2::new(window.left() + 12.0, window.bottom() - 36.0), |r| Pos2::new(r.left() - 8.0, r.top() - 10.0));
-        let icon = self.about_icon.get_or_insert_with(|| super::about_ui::icon_texture(ctx)).clone();
+        let icon = self.sloth(ctx, super::sloth_ui::Pose::Cheering);
         egui::Area::new(egui::Id::unique("goal-celebration"))
             .order(egui::Order::Foreground)
             .interactable(false)
@@ -129,7 +129,7 @@ impl WriterApp {
                 ui.set_opacity(opacity.clamp(0.0, 1.0));
                 egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.add(egui::Image::new(&icon).fit_to_exact_size(Vec2::splat(36.0)));
+                        ui.add(egui::Image::new(&icon).fit_to_exact_size(Vec2::splat(44.0)));
                         ui.vertical(|ui| {
                             ui.label(RichText::new("Today's goal reached").strong());
                             ui.label(RichText::new(format!("{} words. Well done.", thousands(goal))).weak());

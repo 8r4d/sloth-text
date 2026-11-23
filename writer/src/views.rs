@@ -61,7 +61,12 @@ impl WriterApp {
 
         let items = self.view_items(folder, mode == FolderView::Outline);
         if items.is_empty() {
-            ui.weak("This folder is empty. Add a document to it with \u{2318}N.");
+            let trash = self.project.as_ref().and_then(|p| p.node(folder)).is_some_and(|n| n.role == Some(crate::project::Role::Trash));
+            if trash {
+                self.empty_state(ui, super::sloth_ui::Pose::Asleep, "The Trash is empty", "What you move to the Trash waits here until you empty it.");
+            } else {
+                self.empty_state(ui, super::sloth_ui::Pose::Reading, "This folder is empty", "Add a document to it with \u{2318}N, or drag one here from the binder.");
+            }
             return;
         }
         let (statuses, labels) = match &self.project {

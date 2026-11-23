@@ -34,6 +34,8 @@ mod references_ui;
 mod search;
 #[path = "settings_ui.rs"]
 pub(crate) mod settings_ui;
+#[path = "sloth_ui.rs"]
+mod sloth_ui;
 #[path = "snapshots_ui.rs"]
 mod snapshots_ui;
 #[path = "stats_ui.rs"]
@@ -138,6 +140,8 @@ pub struct WriterApp {
 
     /// Projects opened lately, newest first (see projects_ui.rs).
     recent: Vec<PathBuf>,
+    /// What each recent project's tile shows, once worked out.
+    tile_facts: HashMap<PathBuf, Option<projects_ui::TileFacts>>,
     renaming_project: Option<projects_ui::Renaming>,
 
     // Characters (see character_ui.rs).
@@ -172,6 +176,8 @@ pub struct WriterApp {
     stats_open: bool,
     /// The day's goal just reached, being celebrated (see goal_ui.rs).
     celebration: Option<goal_ui::Celebration>,
+    /// The sloth's poses, once shown (see sloth_ui.rs).
+    sloth_art: sloth_ui::SlothArt,
     /// The Statistics window's goal fields as typed: daily, total, deadline.
     goal_fields: Option<[String; 3]>,
 
@@ -261,6 +267,7 @@ impl WriterApp {
             confirm_delete_snapshot: None,
             recent: cc.storage.and_then(|s| eframe::get_value(s, projects_ui::RECENT_KEY)).unwrap_or_default(),
             renaming_project: None,
+            tile_facts: HashMap::new(),
             profile_name: HashMap::new(),
             profile_sheet: HashMap::new(),
             backlinks: None,
@@ -276,6 +283,7 @@ impl WriterApp {
             word_counts: HashMap::new(),
             stats_open: false,
             celebration: None,
+            sloth_art: Default::default(),
             goal_fields: None,
         };
         app.apply_settings(&cc.egui_ctx);
@@ -436,6 +444,8 @@ impl WriterApp {
         self.canvas = None;
         self.stats_open = false;
         self.goal_fields = None;
+        // The project just closed is newly written in.
+        self.tile_facts.clear();
     }
 
     // ----- documents ---------------------------------------------------------
@@ -1118,8 +1128,13 @@ impl WriterApp {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(top);
-                ui.heading("Sloth Writer");
-                ui.weak(format!("Version {}", crate::version::VERSION));
+                // The sloth, and hello for the time of day.
+                let hour = chrono::Timelike::hour(&chrono::Local::now());
+                let (hello, pose) = sloth_ui::greeting(hour);
+                let sloth = self.sloth(ui.ctx(), pose);
+                ui.add(egui::Image::new(&sloth).fit_to_exact_size(egui::Vec2::splat(120.0)));
+                ui.heading(hello);
+                ui.weak(format!("Sloth Writer \u{b7} Version {}", crate::version::VERSION));
                 ui.add_space(16.0);
                 if ui.button("New Project…").clicked() {
                     self.new_project_dialog();
@@ -1337,7 +1352,7 @@ impl WriterApp {
                         self.suggestions_ui(ui, &doc, &info);
                     }
                     None => {
-                        ui.weak("Select a document in the binder.");
+                        self.empty_state(ui, sloth_ui::Pose::Reading, "Nothing open", "Choose a document in the binder, or start one with \u{2318}N.");
                     }
                 }
             });

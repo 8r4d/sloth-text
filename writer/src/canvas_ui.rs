@@ -153,6 +153,8 @@ impl WriterApp {
 
     /// The canvas, in place of the editor.
     pub(super) fn canvas_view(&mut self, ui: &mut egui::Ui) {
+        // For a blank canvas (see below).
+        let blank = self.sloth(ui.ctx(), super::sloth_ui::Pose::Reading);
         let Some(project) = &self.project else { return };
         let now = ui.input(|i| i.time);
         let mut state = self.canvas.take().unwrap_or_else(|| CanvasState::new(Canvas::load(&project.root)));
@@ -227,9 +229,15 @@ impl WriterApp {
                 state.view = fitted(&cards, ui.available_size());
             }
             let mut view = state.view;
+            // Where the canvas is on screen (the scene's own rects are in
+            // canvas units).
+            let on_screen = ui.available_rect_before_wrap();
             let scene = egui::Scene::new().zoom_range(0.2..=1.5).show(ui, &mut view, |ui| draw(ui, &mut state, &cards, &mut actions));
             state.view = view;
             background(ui, &mut state, &cards, &scene.response, &scene.inner);
+            if cards.is_empty() {
+                blank_canvas(ui, on_screen, &blank);
+            }
         });
         self.canvas = Some(state);
 
@@ -310,6 +318,24 @@ fn canvas_bar(ui: &mut egui::Ui, state: &mut CanvasState, folders: &[(String, St
             });
         });
     });
+}
+
+/// Nothing on the canvas (every folder hidden, say): the sloth and a hint,
+/// in the middle, not in the way of a double-click.
+fn blank_canvas(ui: &egui::Ui, area: Rect, sloth: &egui::TextureHandle) {
+    let painter = ui.painter();
+    let center = area.center();
+    let image = Rect::from_center_size(center - Vec2::new(0.0, 40.0), Vec2::splat(112.0));
+    painter.image(sloth.id(), image, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+    let visuals = ui.visuals();
+    painter.text(image.center_bottom() + Vec2::new(0.0, 16.0), egui::Align2::CENTER_TOP, "A blank canvas", FontId::proportional(16.0), visuals.strong_text_color());
+    painter.text(
+        image.center_bottom() + Vec2::new(0.0, 40.0),
+        egui::Align2::CENTER_TOP,
+        "Double-click anywhere for a note, or Show\u{2026} a folder\u{2019}s documents.",
+        FontId::proportional(13.0),
+        visuals.weak_text_color(),
+    );
 }
 
 /// A view of the canvas with every card in it, no closer than life size.

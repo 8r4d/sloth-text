@@ -75,6 +75,14 @@ impl WriterApp {
                         self.take_snapshot(doc_id, &name, now);
                     }
                 });
+                if list.is_empty() {
+                    // Short, so the inspector keeps its width.
+                    ui.horizontal(|ui| {
+                        let sloth = self.sloth(ui.ctx(), super::sloth_ui::Pose::Asleep);
+                        ui.add(egui::Image::new(&sloth).fit_to_exact_size(egui::Vec2::splat(28.0)));
+                        ui.weak("None yet").on_hover_text("Take one before a big change, to come back to.");
+                    });
+                }
                 for snapshot in list {
                     let label = if snapshot.name.is_empty() {
                         snapshot.when()

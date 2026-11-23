@@ -407,7 +407,7 @@ fn replace_one_at_a_time_or_all_in_the_open_document() {
     harness.get_by_label("Replace All").click();
     harness.run_steps(2);
     assert_eq!(current_text(&mut harness).as_deref(), Some("a cat and a hat and a bat"));
-    assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m == "Replaced 2 occurrences"));
+    assert_eq!(harness.state().status.as_ref().map(|(m, _)| m.as_str()), Some("Replaced 2 occurrences"));
 }
 
 #[test]
@@ -2231,4 +2231,52 @@ fn renaming_a_document_renames_the_links_to_it() {
     harness.state_mut().save_all();
     let path = harness.state().project.as_ref().unwrap().file_path(&first).unwrap();
     assert_eq!(fs::read_to_string(path).unwrap(), "She read [[The Unsent Letter|again]] twice.");
+}
+
+// ----- the sloth ----------------------------------------------------------------------
+
+#[test]
+fn empty_places_say_so_kindly() {
+    let dir = TempDir::new("empty-states");
+    let mut p = project(&dir, "");
+    let folder = p.add_folder(&Place::Into("manuscript".into()), "Part Two").unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().select(folder);
+    harness.run_steps(3);
+    harness.get_by_label("This folder is empty");
+
+    harness.state_mut().select("trash".into());
+    harness.run_steps(3);
+    harness.get_by_label("The Trash is empty");
+
+    harness.state_mut().selected = None;
+    harness.run_steps(3);
+    harness.get_by_label("Nothing open");
+
+    // A document with no snapshots yet.
+    let id = harness.state().project.as_ref().unwrap().documents()[0].id.clone();
+    harness.state_mut().select(id);
+    harness.run_steps(3);
+    harness.get_by_label("None yet");
+}
+
+#[test]
+fn the_start_screen_greets_and_tiles_show_progress() {
+    let dir = TempDir::new("start-screen");
+    let mut p = project(&dir, &"word ".repeat(250));
+    p.manifest.goals.total = Some(1000);
+    p.save().unwrap();
+    let mut log = crate::stats::Stats::default();
+    for back in 0..3u64 {
+        log.add(crate::stats::today() - chrono::Days::new(back), 100);
+    }
+    log.save(&dir.0).unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().close_project();
+    harness.run_steps(3);
+
+    let hour = chrono::Timelike::hour(&chrono::Local::now());
+    harness.get_by_label(super::sloth_ui::greeting(hour).0);
+    let facts = harness.state().tile_facts.get(&dir.0).cloned().flatten().unwrap();
+    assert_eq!(facts, super::projects_ui::TileFacts::for_test(250, Some(1000), Some(crate::stats::today()), 3));
 }

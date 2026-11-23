@@ -230,6 +230,7 @@ to include Writer.
 | `sloth/src/preview.rs` | The Markdown preview's sections, pictures and scrolling with the editor |
 | `scripts/make-icon.swift` | Draws the app icon (`sloth/icons/`); rerun after changing it |
 | `scripts/make-writer-icon.swift` | Draws Sloth Writer's icon (`writer/icons/`) |
+| `scripts/make-writer-sloth.swift` | Draws the icon's sloth on its own, reading, asleep and cheering (`writer/icons/sloth-*.png`), for the start screen, empty places and celebrations |
 | `core/src/text_format.rs` | Encodings, byte-order marks and line endings (reading and writing) |
 | `core/src/recovery.rs` | Crash-recovery copies of unsaved documents |
 | `core/src/editing.rs`  | Auto-indent, indent/outdent and bracket matching (pure, unit-tested) |

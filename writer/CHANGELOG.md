@@ -2,6 +2,14 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.20.0
+
+The sloth comes out to keep you company.
+
+- The start screen greets you for the time of day, with the sloth reading (or, late at night, asleep). Each recent project's tile shows its words, when you last wrote in it, your streak, and a bar towards its target.
+- Empty places say so kindly, with the sloth: nothing open, an empty folder, the empty Trash, a blank Canvas, and a document with no snapshots yet.
+- Reaching the day's goal: the sloth cheers.
+
 ## 1.19.0
 
 Goals you can see.

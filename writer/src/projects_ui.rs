@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use eframe::egui::{self, RichText};
 
 use super::WriterApp;
-use crate::project::{Kind, MANIFEST_FILE, Manifest};
+use crate::project::{Kind, MANIFEST_FILE, Manifest, Role};
+use crate::stats::{self, Stats};
 
 /// Where the recent projects are remembered between launches.
 pub(super) const RECENT_KEY: &str = "recent_projects";
@@ -35,6 +36,52 @@ pub(super) fn remember(recent: &mut Vec<PathBuf>, root: &Path) {
 fn title_of(root: &Path) -> Option<(String, Kind)> {
     let text = fs::read_to_string(root.join(MANIFEST_FILE)).ok()?;
     ron::from_str::<Manifest>(&text).ok().map(|m| (m.title, m.kind))
+}
+
+/// What a recent project's tile shows besides its name: its words, its
+/// target, when it was last written in, and its streak. Worked out once
+/// (it reads the project's files), and again after the project's closed.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct TileFacts {
+    words: u32,
+    target: Option<u32>,
+    last: Option<chrono::NaiveDate>,
+    streak: u32,
+}
+
+impl TileFacts {
+    #[cfg(test)]
+    pub(super) fn for_test(words: u32, target: Option<u32>, last: Option<chrono::NaiveDate>, streak: u32) -> Self {
+        Self { words, target, last, streak }
+    }
+}
+
+fn facts_of(root: &Path) -> Option<TileFacts> {
+    let manifest: Manifest = ron::from_str(&fs::read_to_string(root.join(MANIFEST_FILE)).ok()?).ok()?;
+    let manuscript = manifest.binder.iter().find(|n| n.role == Some(Role::Manuscript))?;
+    let words = manuscript
+        .subtree()
+        .into_iter()
+        .filter(|n| n.is_document())
+        .filter_map(|n| fs::read_to_string(root.join(n.path.as_ref()?)).ok())
+        .map(|text| super::inspector::count_words(&text) as u32)
+        .sum();
+    let log = Stats::load(root);
+    let last = log.days.iter().rev().find(|(_, w)| **w > 0).and_then(|(day, _)| stats::parse_date(day));
+    Some(TileFacts { words, target: manifest.goals.total.filter(|&t| t > 0), last, streak: log.streak(stats::today(), manifest.goals.daily) })
+}
+
+/// "today", "yesterday", "3 days ago", "2 weeks ago", "5 months ago".
+fn ago(day: chrono::NaiveDate, today: chrono::NaiveDate) -> String {
+    let days = (today - day).num_days().max(0);
+    match days {
+        0 => "today".to_owned(),
+        1 => "yesterday".to_owned(),
+        2..=13 => format!("{days} days ago"),
+        14..=59 => format!("{} weeks ago", days / 7),
+        60..=729 => format!("{} months ago", days / 30),
+        _ => format!("{} years ago", days / 365),
+    }
 }
 
 /// A kind's colour.
@@ -77,7 +124,7 @@ enum TileChoice {
 /// One recent project as a tile: its icon in its kind's colour, title,
 /// kind and folder. Click to open; right-click to change the icon or take
 /// it off the list. A project that's gone is dimmed, with Remove.
-fn recent_tile(ui: &mut egui::Ui, root: &Path) -> Option<TileChoice> {
+fn recent_tile(ui: &mut egui::Ui, root: &Path, facts: Option<&TileFacts>) -> Option<TileChoice> {
     let found = title_of(root);
     let available = found.is_some();
     let (name, kind) = found.unwrap_or_else(|| {
@@ -92,7 +139,10 @@ fn recent_tile(ui: &mut egui::Ui, root: &Path) -> Option<TileChoice> {
     // separate labels.
     let summary = if available { format!("{name}, {}, {place}", kind.name()) } else { format!("{name}, {place}") };
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, available, &summary));
-    let response = response.on_hover_text(root.display().to_string());
+    let response = response.on_hover_text(match facts.and_then(|f| f.target.map(|t| (f.words, t))) {
+        Some((words, target)) => format!("{}\n{} of {} words", root.display(), stats::thousands(words), stats::thousands(target)),
+        None => root.display().to_string(),
+    });
 
     let mut choice = None;
     if response.clicked() {
@@ -131,11 +181,33 @@ fn recent_tile(ui: &mut egui::Ui, root: &Path) -> Option<TileChoice> {
         let strong = ui.visuals().strong_text_color().gamma_multiply(fade);
         let weak = ui.visuals().weak_text_color().gamma_multiply(fade);
         let title = line(&name, 15.0, strong);
-        let detail = if available { format!("{} \u{b7} {place}", kind.name()) } else { place.clone() };
+        let detail = match facts {
+            Some(f) if available && f.words > 0 => format!("{} \u{b7} {} words", kind.name(), stats::thousands(f.words)),
+            _ if available => format!("{} \u{b7} {place}", kind.name()),
+            _ => place.clone(),
+        };
         let detail = line(&detail, 11.0, weak);
         let detail_top = inner.bottom() - detail.size().y;
         painter.galley(egui::pos2(inner.left(), detail_top - 2.0 - title.size().y), title, strong);
         painter.galley(egui::pos2(inner.left(), detail_top), detail, weak);
+        if let Some(f) = facts.filter(|_| available) {
+            // When it was last written in, and the streak, at the top right.
+            let small = |text: &str| ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), egui::FontId::proportional(10.5), weak));
+            let mut y = inner.top();
+            for text in [f.last.map(|d| ago(d, stats::today())), (f.streak >= 2).then(|| format!("{} days in a row", f.streak))].into_iter().flatten() {
+                let galley = small(&text);
+                let height = galley.size().y;
+                painter.galley(egui::pos2(inner.right() - galley.size().x, y), galley, weak);
+                y += height + 1.0;
+            }
+            // Towards its target: a thin bar along the bottom edge.
+            if let Some(target) = f.target {
+                let bar = egui::Rect::from_min_max(egui::pos2(rect.left() + 10.0, rect.bottom() - 5.0), egui::pos2(rect.right() - 10.0, rect.bottom() - 3.0));
+                painter.rect_filled(bar, 1.0, color.gamma_multiply(0.18));
+                let done = (f.words as f32 / target as f32).clamp(0.0, 1.0);
+                painter.rect_filled(egui::Rect::from_min_size(bar.min, egui::vec2(bar.width() * done, bar.height())), 1.0, color.gamma_multiply(0.85));
+            }
+        }
     }
 
     // A project that's gone can't be opened, but can be taken off the list.
@@ -187,7 +259,8 @@ impl WriterApp {
                 let width = row.len() as f32 * (TILE.x + gap) - gap;
                 ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
                 for root in row {
-                    match recent_tile(ui, root) {
+                    let facts = self.tile_facts.entry(root.clone()).or_insert_with(|| facts_of(root)).as_ref();
+                    match recent_tile(ui, root, facts) {
                         Some(TileChoice::Open) => open = Some(root.clone()),
                         Some(TileChoice::Forget) => forget = Some(root.clone()),
                         Some(TileChoice::Kind(kind)) => new_kind = Some((root.clone(), kind)),
@@ -301,5 +374,18 @@ impl WriterApp {
         if let Some(id) = selected.filter(|id| self.project.as_ref().is_some_and(|p| p.node(id).is_some())) {
             self.select(id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn how_long_ago() {
+        let today = stats::parse_date("2026-11-23").unwrap();
+        let day = |back: u64| today - chrono::Days::new(back);
+        let said: Vec<String> = [0, 1, 5, 20, 90, 800].map(|b| ago(day(b), today)).to_vec();
+        assert_eq!(said, ["today", "yesterday", "5 days ago", "2 weeks ago", "3 months ago", "2 years ago"]);
     }
 }
