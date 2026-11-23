@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.8.0
+
+- Paragraph spacing (Settings → Text → Paragraphs): extra space after each paragraph, from none to two lines, so a Return looks like a paragraph break. Blank lines you type get none, so they don't double up. The text itself doesn't change.
+
 ## 1.7.0
 
 - Focus mode (⌥⌘F, or Focus in the toolbar): full screen, just the text in its column, with a faint line of today's figures at the bottom. Esc leaves it.

@@ -41,6 +41,8 @@ pub struct WriterSettings {
     pub font_size: f32,
     /// Line height as a multiple of the font's usual one.
     pub line_spacing: f32,
+    /// Extra space after each paragraph, in lines (0 for none).
+    pub paragraph_spacing: f32,
     /// The widest lines get, in points; `None` for the full width.
     pub text_width: Option<f32>,
     /// Typing `--` makes an em dash.
@@ -73,6 +75,7 @@ impl Default for WriterSettings {
             font: None,
             font_size: 18.0,
             line_spacing: 1.3,
+            paragraph_spacing: 0.0,
             text_width: Some(680.0),
             smart_dashes: true,
             show_markdown: true,
@@ -108,6 +111,7 @@ impl WriterSettings {
             smart_dashes: self.smart_dashes,
             prose: true,
             line_spacing: self.line_spacing,
+            paragraph_spacing: self.paragraph_spacing,
             max_text_width: self.text_width,
             markdown: self.show_markdown,
             spell_check: self.spell_check,
@@ -196,7 +200,15 @@ impl WriterApp {
                     row(ui, "Line spacing", &mut |ui| {
                         ui.add(egui::Slider::new(&mut settings.line_spacing, 1.0..=2.2).step_by(0.05).suffix("\u{d7}"));
                     });
-                    row(ui, "Line length", &mut |ui| {
+                    row(ui, "Paragraphs", &mut |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut settings.paragraph_spacing, 0.0..=2.0)
+                            .step_by(0.1)
+                            .custom_formatter(|v, _| if v == 0.0 { "No space".into() } else { format!("{v:.1} line") }),
+                    )
+                    .on_hover_text("Extra space after each paragraph (each line you end with Return)");
+                });
+                row(ui, "Line length", &mut |ui| {
                         let mut limited = settings.text_width.is_some();
                         if ui.checkbox(&mut limited, "Keep lines to a comfortable length").changed() {
                             settings.text_width = limited.then_some(680.0);
@@ -212,10 +224,12 @@ impl WriterApp {
                         .inner_margin(egui::Margin::symmetric(12, 8))
                         .show(ui, |ui| {
                             let font = FontId::new(settings.font_size, fonts::prose_family());
-                            let sample = "The snow came early that year\u{2014}three weeks before the first frost was due.";
-                            ui.add(egui::Label::new(RichText::new(sample).font(font).line_height(Some(
-                                settings.font_size * 1.2 * settings.line_spacing,
-                            ))));
+                            let height = settings.font_size * 1.2 * settings.line_spacing;
+                            let sample = |text: &str| RichText::new(text.to_owned()).font(font.clone()).line_height(Some(height));
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            ui.add(egui::Label::new(sample("The snow came early that year\u{2014}three weeks before the first frost was due.")));
+                            ui.add_space(settings.paragraph_spacing * height);
+                            ui.add(egui::Label::new(sample("By morning the harbour had frozen.")));
                         });
 
                     group(ui, "Writing");

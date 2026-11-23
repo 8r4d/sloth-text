@@ -55,6 +55,9 @@ pub struct EditorSettings {
     /// Typewriter scrolling: keep the line being typed in the middle of
     /// the editor (with room below the text to let the last line get there).
     pub typewriter: bool,
+    /// Extra space after each paragraph (each line of the text), as a
+    /// fraction of a line: 0 for none. Blank lines get none.
+    pub paragraph_spacing: f32,
 }
 
 impl EditorSettings {
@@ -89,6 +92,7 @@ impl Default for EditorSettings {
             spell_check: false,
             split_menu: false,
             typewriter: false,
+            paragraph_spacing: 0.0,
         }
     }
 }
@@ -281,6 +285,26 @@ fn misspellings(text: &str, cursor: Option<usize>) -> Vec<Range<usize>> {
         found.retain(|r| !(r.start <= at && at <= r.end));
     }
     found
+}
+
+/// Paragraph spacing: move each paragraph's rows down by `gap` for every
+/// paragraph above it (blank lines don't count). The text widget clicks,
+/// selects and draws from these same row positions, so all stays in step.
+fn space_paragraphs(galley: std::sync::Arc<egui::Galley>, gap: f32) -> std::sync::Arc<egui::Galley> {
+    if gap <= 0.0 || galley.rows.len() < 2 {
+        return galley;
+    }
+    let mut spaced = (*galley).clone();
+    let mut offset = 0.0;
+    for row in &mut spaced.rows {
+        row.pos.y += offset;
+        if row.ends_with_newline && !row.row.glyphs.is_empty() {
+            offset += gap;
+        }
+    }
+    spaced.rect.max.y += offset;
+    spaced.mesh_bounds.max.y += offset;
+    std::sync::Arc::new(spaced)
 }
 
 /// A red wavy line under each misspelled word (byte ranges).
@@ -556,6 +580,8 @@ pub fn show(
                 // Custom layouter: controls wrapping (infinite width = no wrap)
                 // and paints search-match backgrounds.
                 let wrap = settings.word_wrap;
+                let paragraph_gap = settings.paragraph_spacing.max(0.0)
+                    * line_height.unwrap_or_else(|| ui.fonts_mut(|f| f.row_height(&font)));
                 let layout_font = font.clone();
                 let faces = settings.markdown.then(|| Faces::find(ui, &font));
 
@@ -580,7 +606,7 @@ pub fn show(
                             faces.as_ref(),
                         );
                         job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
-                        ui.fonts_mut(|f| f.layout_job(job))
+                        space_paragraphs(ui.fonts_mut(|f| f.layout_job(job)), paragraph_gap)
                     };
                 let edit = edit.layouter(&mut layouter);
 
@@ -1146,5 +1172,33 @@ mod tests {
             .map(|s| (&text[s.byte_range.start.0..s.byte_range.end.0], s.format.italics, s.format.color != Color32::WHITE))
             .collect();
         assert_eq!(pieces, [("a ", false, false), ("*", false, true), ("b", true, false), ("*", false, true), (" c", false, false)]);
+    }
+
+    #[test]
+    fn paragraphs_get_space_after_them_but_blank_lines_dont() {
+        let ctx = egui::Context::default();
+        let mut laid_out = None;
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            laid_out = Some(ui.fonts_mut(|f| {
+                f.layout_job(LayoutJob::simple("One\nTwo\n\nThree".into(), FontId::proportional(14.0), Color32::WHITE, f32::INFINITY))
+            }));
+        });
+        output.textures_delta.clear();
+        let galley = laid_out.unwrap();
+        let tops = |g: &egui::Galley| g.rows.iter().map(|r| r.pos.y).collect::<Vec<_>>();
+        let before = tops(&galley);
+        let height = galley.rect.height();
+        let spaced = space_paragraphs(galley, 10.0);
+        let after = tops(&spaced);
+        // One, Two, (blank), Three: 10 more after One, 10 more after Two,
+        // nothing more after the blank line.
+        assert_eq!(after[0], before[0]);
+        assert_eq!(after[1], before[1] + 10.0);
+        assert_eq!(after[2], before[2] + 20.0);
+        assert_eq!(after[3], before[3] + 20.0);
+        assert_eq!(spaced.rect.height(), height + 20.0);
+        // The cursor finds the spaced rows: the start of "Three".
+        let pos = spaced.pos_from_cursor(CCursor::new(9));
+        assert_eq!(pos.top(), after[3]);
     }
 }
