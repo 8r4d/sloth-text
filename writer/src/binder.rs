@@ -174,18 +174,27 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &m
         // At the top level: profile folders to add (and this one to remove).
         if node.role.is_some() {
             ui.menu_button("New Profile Folder", |ui| {
-                for preset in profile_presets().into_iter().filter(|p| !kinds.iter().any(|k| k.id == p.id)) {
-                    if ui.button(&preset.name).clicked() {
-                        actions.push(BinderAction::AddProfileFolder(Some(preset)));
-                        ui.close();
+                let unused: Vec<_> = profile_presets().into_iter().filter(|(p, _)| !kinds.iter().any(|k| k.id == p.id)).collect();
+                for (heading, fiction) in [("Fiction", true), ("Non-fiction", false)] {
+                    let group: Vec<_> = unused.iter().filter(|(_, f)| *f == fiction).collect();
+                    if group.is_empty() {
+                        continue;
                     }
+                    ui.label(egui::RichText::new(heading).small().weak());
+                    for (preset, _) in group {
+                        if ui.button(&preset.name).clicked() {
+                            actions.push(BinderAction::AddProfileFolder(Some(preset.clone())));
+                            ui.close();
+                        }
+                    }
+                    ui.separator();
                 }
                 if ui.button("Custom\u{2026}").clicked() {
                     actions.push(BinderAction::AddProfileFolder(None));
                     ui.close();
                 }
             });
-            if node.role == Some(Role::Profile) {
+            if matches!(node.role, Some(Role::Profile | Role::Characters)) {
                 let empty = node.children.is_empty();
                 if ui.add_enabled(empty, egui::Button::new("Remove Folder")).on_disabled_hover_text("Only an empty folder can be removed").clicked() {
                     actions.push(BinderAction::RemoveProfileFolder(node.id.clone()));

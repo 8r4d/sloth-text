@@ -146,8 +146,11 @@ pub struct Label {
 
 /// Statuses a new or older project starts with.
 pub fn default_statuses() -> Vec<String> {
-    ["To do", "First draft", "Revised", "Done"].map(String::from).to_vec()
+    ["To do", "Ongoing", "First draft", "Revised", "Done"].map(String::from).to_vec()
 }
+
+/// The statuses before Ongoing was added.
+const STATUSES_BEFORE_ONGOING: [&str; 4] = ["To do", "First draft", "Revised", "Done"];
 
 /// Characteristics a character profile can have sections for; a project
 /// starts with these and can change them.
@@ -176,9 +179,30 @@ fn kind(id: &str, name: &str, item: &str, sections: &[&str]) -> ProfileKind {
     ProfileKind { id: id.into(), name: name.into(), item: item.into(), sections: sections.iter().map(|s| s.to_string()).collect() }
 }
 
-/// The kinds a project can add, ready to use (Characters every project has).
-pub fn profile_presets() -> Vec<ProfileKind> {
+/// The kinds a project can add, ready to use: for fiction, then for
+/// non-fiction (the bool says which).
+pub fn profile_presets() -> Vec<(ProfileKind, bool)> {
+    let fiction = fiction_presets().into_iter().map(|k| (k, true));
+    let non_fiction = non_fiction_presets().into_iter().map(|k| (k, false));
+    fiction.chain(non_fiction).collect()
+}
+
+fn non_fiction_presets() -> Vec<ProfileKind> {
     vec![
+        kind("sources", "Sources", "Source", &["Citation", "Summary", "Key points", "Quotes", "Where I use it"]),
+        kind("people", "People", "Person", &["Who they are", "Background", "Contact", "Interview notes", "Quotes"]),
+        kind("concepts", "Concepts", "Concept", &["Definition", "Explanation", "Examples", "Related ideas"]),
+        kind("arguments", "Arguments", "Argument", &["Claim", "Evidence", "Counterpoints", "Response"]),
+        kind("events", "Events", "Event", &["When", "What happened", "Who was involved", "Significance"]),
+        kind("glossary", "Glossary", "Term", &["Definition", "Usage", "Notes"]),
+    ]
+}
+
+fn fiction_presets() -> Vec<ProfileKind> {
+    let characteristics = default_characteristics();
+    let characteristics: Vec<&str> = characteristics.iter().map(String::as_str).collect();
+    vec![
+        kind(CHARACTERS, "Characters", "Character", &characteristics),
         kind("locations", "Locations", "Location", &["Description", "Sights and sounds", "History", "Who lives there", "Significance"]),
         kind("objects", "Objects", "Object", &["Description", "Origin", "Who has it", "Significance"]),
         kind("factions", "Factions", "Faction", &["Members", "Goals", "Rivalries", "History"]),
@@ -242,6 +266,9 @@ pub struct Manifest {
     /// The project's id on the iPad helper, made when it's first synced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_id: Option<String>,
+    /// The Characters folder was removed (it's there unless it was).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_characters: bool,
     /// Word goals: a day's, the manuscript's, a deadline (see stats.rs).
     #[serde(default, skip_serializing_if = "crate::stats::Goals::is_empty")]
     pub goals: crate::stats::Goals,
@@ -299,6 +326,7 @@ impl Project {
                 profiles: Vec::new(),
                 compile: Default::default(),
                 sync_id: None,
+                no_characters: false,
                 goals: Default::default(),
             },
         };
@@ -323,6 +351,9 @@ impl Project {
     /// rest of the code can rely on all four being there.
     fn repair(&mut self) {
         for role in Role::ALL {
+            if role == Role::Characters && self.manifest.no_characters {
+                continue;
+            }
             if !self.manifest.binder.iter().any(|n| n.role == Some(role)) {
                 self.manifest.binder.push(Node::role_folder(role));
             }
@@ -330,7 +361,7 @@ impl Project {
         }
         // Characters is a profile kind every project has; an older project's
         // characteristics become its sections.
-        if !self.manifest.profiles.iter().any(|k| k.id == CHARACTERS) {
+        if !self.manifest.no_characters && !self.manifest.profiles.iter().any(|k| k.id == CHARACTERS) {
             let sections = std::mem::take(&mut self.manifest.characteristics);
             let sections = if sections.is_empty() { default_characteristics() } else { sections };
             self.manifest.profiles.insert(0, ProfileKind { id: CHARACTERS.into(), name: "Characters".into(), item: "Character".into(), sections });
@@ -349,6 +380,17 @@ impl Project {
                 });
             }
             let _ = fs::create_dir_all(self.root.join(&kind.id));
+        }
+        // Ongoing joined the statuses after To do: renumber what's after it.
+        if self.manifest.statuses == STATUSES_BEFORE_ONGOING {
+            fn shift(node: &mut Node) {
+                if let Some(i) = node.meta.status.as_mut().filter(|i| **i >= 1) {
+                    *i += 1;
+                }
+                node.children.iter_mut().for_each(shift);
+            }
+            self.manifest.binder.iter_mut().for_each(shift);
+            self.manifest.statuses = default_statuses();
         }
         // A scene's characters, from before profile folders.
         fn move_links(node: &mut Node) {
@@ -446,6 +488,14 @@ impl Project {
     /// the top of the binder, after the other profile folders. Its id is made
     /// unique if needed.
     pub fn add_profile_folder(&mut self, mut kind: ProfileKind) -> io::Result<String> {
+        // Characters back again, as the folder it always was.
+        if kind.id == CHARACTERS && self.manifest.no_characters {
+            self.manifest.no_characters = false;
+            self.manifest.profiles.insert(0, kind);
+            self.repair();
+            self.save()?;
+            return Ok(CHARACTERS.to_owned());
+        }
         kind.name = clean_title(&kind.name)?;
         let taken = |id: &str| self.manifest.binder.iter().any(|n| n.id == id) || self.root.join(id).is_file();
         let base = slug(&kind.name);
@@ -462,17 +512,23 @@ impl Project {
 
     /// Remove an empty profile folder (not Characters) and its kind.
     pub fn remove_profile_folder(&mut self, kind: &str) -> io::Result<()> {
-        if kind == CHARACTERS {
-            return Err(invalid("Every project keeps its Characters folder."));
-        }
-        let folder = self.manifest.binder.iter().find(|n| n.id == kind && n.role == Some(Role::Profile));
+        let folder = self.manifest.binder.iter().find(|n| n.id == kind && matches!(n.role, Some(Role::Profile | Role::Characters)));
         match folder {
             None => return Err(invalid("That folder no longer exists.")),
             Some(f) if !f.children.is_empty() => return Err(invalid("Move or delete what's in it first.")),
             Some(_) => {}
         }
+        if kind == CHARACTERS {
+            self.manifest.no_characters = true;
+        }
         self.manifest.binder.retain(|n| n.id != kind);
         self.manifest.profiles.retain(|k| k.id != kind);
+        // Scenes no longer list any of them.
+        fn unlink(node: &mut Node, kind: &str) {
+            node.meta.links.remove(kind);
+            node.children.iter_mut().for_each(|c| unlink(c, kind));
+        }
+        self.manifest.binder.iter_mut().for_each(|n| unlink(n, kind));
         let _ = fs::remove_dir(self.root.join(kind)); // only if empty
         self.save()
     }
@@ -1100,6 +1156,24 @@ mod tests {
     }
 
     #[test]
+    fn ongoing_joins_the_statuses_without_changing_anyones() {
+        let dir = TempDir::new("ongoing");
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        let scene = p.manifest.binder[0].children[0].id.clone();
+        // As an older project had it: "Revised".
+        p.manifest.statuses = STATUSES_BEFORE_ONGOING.map(String::from).to_vec();
+        p.set_meta(&scene, Meta { status: Some(2), ..Meta::default() });
+        p.save().unwrap();
+        let p = Project::open(&dir.0).unwrap();
+        assert_eq!(p.manifest.statuses[1], "Ongoing");
+        let status = p.node(&scene).unwrap().meta.status.unwrap();
+        assert_eq!(p.manifest.statuses[status], "Revised");
+        // And only once.
+        p.save().unwrap();
+        assert_eq!(Project::open(&dir.0).unwrap().node(&scene).unwrap().meta.status, Some(status));
+    }
+
+    #[test]
     fn older_projects_get_the_default_statuses() {
         let dir = TempDir::new("statuses");
         fs::create_dir_all(&dir.0).unwrap();
@@ -1175,12 +1249,43 @@ mod tests {
     }
 
     #[test]
+    fn the_characters_folder_can_go_and_come_back() {
+        let dir = TempDir::new("no-characters");
+        let mut p = Project::create(&dir.0, "Essays").unwrap();
+        let person = p.add_document(&Place::Into(CHARACTERS.into()), "Mara").unwrap();
+        assert!(p.remove_profile_folder(CHARACTERS).is_err(), "not while it has someone in it");
+        p.trash(&person).unwrap();
+        p.remove_profile_folder(CHARACTERS).unwrap();
+        assert!(p.profile_kind(CHARACTERS).is_none());
+        assert!(!p.manifest.binder.iter().any(|n| n.role == Some(Role::Characters)));
+        // Opening the project doesn't bring it back.
+        let mut p = Project::open(&dir.0).unwrap();
+        assert!(!p.manifest.binder.iter().any(|n| n.role == Some(Role::Characters)));
+        // It's in the presets again, and comes back as it was.
+        let preset = profile_presets().into_iter().map(|(k, _)| k).find(|k| k.id == CHARACTERS).unwrap();
+        assert_eq!(p.add_profile_folder(preset).unwrap(), CHARACTERS);
+        let p = Project::open(&dir.0).unwrap();
+        assert!(p.manifest.binder.iter().any(|n| n.role == Some(Role::Characters)));
+        assert_eq!(p.profile_kind(CHARACTERS).unwrap().sections, default_characteristics());
+    }
+
+    #[test]
+    fn there_are_presets_for_non_fiction() {
+        let presets = profile_presets();
+        assert!(presets.iter().any(|(k, fiction)| k.id == "sources" && !fiction));
+        assert!(presets.iter().any(|(k, fiction)| k.id == CHARACTERS && *fiction));
+        let mut ids: Vec<_> = presets.iter().map(|(k, _)| k.id.clone()).collect();
+        ids.dedup();
+        assert_eq!(ids.len(), presets.len());
+    }
+
+    #[test]
     fn profile_folders_come_and_go() {
         let dir = TempDir::new("profiles");
         let mut p = Project::create(&dir.0, "Book").unwrap();
         assert_eq!(p.manifest.profiles.iter().map(|k| k.id.as_str()).collect::<Vec<_>>(), ["characters"]);
 
-        let locations = profile_presets().into_iter().find(|k| k.id == "locations").unwrap();
+        let locations = profile_presets().into_iter().map(|(k, _)| k).find(|k| k.id == "locations").unwrap();
         let id = p.add_profile_folder(locations).unwrap();
         assert_eq!(id, "locations");
         // At the top, after Characters.
@@ -1208,7 +1313,6 @@ mod tests {
         p.remove_profile_folder("locations").unwrap();
         assert!(p.profile_kind("locations").is_none());
         assert!(!titles(&p.manifest.binder).contains(&"Locations") || p.profile_kind("locations-2").is_some());
-        assert!(p.remove_profile_folder(CHARACTERS).is_err());
         assert_eq!(Project::open(&dir.0).unwrap().manifest, p.manifest);
     }
 

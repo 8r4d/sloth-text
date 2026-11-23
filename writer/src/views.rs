@@ -143,6 +143,9 @@ fn corkboard(
     });
 }
 
+/// Room kept at the bottom of a card for its status and words.
+const FOOTER_HEIGHT: f32 = 16.0;
+
 fn card(
     ui: &mut egui::Ui,
     item: &Item,
@@ -174,15 +177,26 @@ fn card(
         ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
         let icon = if item.is_document { "\u{1F4C4}" } else { "\u{1F4C1}" };
         ui.add(egui::Label::new(RichText::new(format!("{icon} {}", item.title)).strong()).truncate().selectable(false));
+        // Nothing drawn past the card's edge…
+        ui.set_clip_rect(rect.intersect(ui.clip_rect()));
         let mut synopsis = item.meta.synopsis.clone();
-        let field = ui.add(
-            egui::TextEdit::multiline(&mut synopsis)
-                .id_salt(("card-synopsis", &item.id))
-                .hint_text("Synopsis")
-                .frame(egui::Frame::NONE)
-                .desired_rows(4)
-                .desired_width(f32::INFINITY),
-        );
+        // …and a long synopsis scrolls inside the card, above the footer.
+        let room = (ui.available_height() - FOOTER_HEIGHT).max(20.0);
+        let field = egui::ScrollArea::vertical()
+            .id_salt(("card-synopsis-scroll", &item.id))
+            .max_height(room)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut synopsis)
+                        .id_salt(("card-synopsis", &item.id))
+                        .hint_text("Synopsis")
+                        .frame(egui::Frame::NONE)
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY),
+                )
+            })
+            .inner;
         if field.changed() {
             actions.push(ViewAction::Meta(item.id.clone(), Meta { synopsis, ..item.meta.clone() }));
         }

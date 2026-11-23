@@ -497,7 +497,7 @@ fn inspector_edits_are_saved_with_autosave() {
 
     harness.state_mut().last_autosave = -100.0;
     harness.run_steps(1);
-    assert!(manifest().contains("status: Some(1)"), "{}", manifest());
+    assert!(manifest().contains("status: Some(2)"), "{}", manifest());
     assert!(!harness.state().manifest_dirty);
 }
 
@@ -684,7 +684,7 @@ fn the_outline_edits_status_and_nests_by_dragging() {
     harness.get_by_label("Revised").click();
     harness.run_steps(2);
     let project = harness.state().project.as_ref().unwrap();
-    assert_eq!(project.node(&scenes[0]).unwrap().meta.status, Some(2));
+    assert_eq!(project.node(&scenes[0]).unwrap().meta.status, Some(3));
 
     // Letter onto the middle of Arrival's row: inside it.
     let start = in_view(&harness, "📄 Letter").rect().center();
