@@ -109,10 +109,29 @@ function today(project, info) {
   return { words: Math.max(0, mac + here), goal: info.stats?.goal || null };
 }
 
+/// A ring filling towards a goal (`done` of `of`), as in Sloth Writer's
+/// status bar; a dot in the middle once it's met.
+function ring(done, of) {
+  const r = 6, round = 2 * Math.PI * r;
+  const part = Math.min(1, of ? done / of : 0);
+  // (No spaces between the tags: they'd count as the figure's text.)
+  return '<svg class="ring" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">'
+    + `<circle cx="8" cy="8" r="${r}" class="ring-track"/>`
+    + `<circle cx="8" cy="8" r="${r}" class="ring-fill" stroke-dasharray="${(part * round).toFixed(2)} ${round.toFixed(2)}"/>`
+    + (part >= 1 ? '<circle cx="8" cy="8" r="2" class="ring-done"/>' : '')
+    + '</svg>';
+}
+
 function todayHtml({ words: done, goal }) {
   return goal
-    ? `<span class="today">Today ${fmt(done)} / ${fmt(goal)}${meter(done, goal)}</span>`
+    ? `<span class="today">${ring(done, goal)}Today ${fmt(done)} / ${fmt(goal)}</span>`
     : `<span class="today">Today ${plural(done, 'word', 'words')}</span>`;
+}
+
+/// "12 days in a row", from the Mac's last sync (nothing under two).
+function streakHtml(info) {
+  const days = info.stats?.streak || 0;
+  return days >= 2 ? `<span class="streak">${fmt(days)} days in a row</span>` : '';
 }
 
 const LAST = 'writer-last';      // the scene last opened, by project
@@ -227,7 +246,8 @@ function preview(text) {
 const EDITOR = 'writer-editor';  // 'paragraphs' or 'plain', on this device
 const LOOK = 'writer-look';      // Sloth Writer's paragraph spacing and indent, as last synced
 
-const usesParagraphs = () => load(EDITOR, 'plain') === 'paragraphs';
+// The paragraph editor, unless this device chose the plain box.
+const usesParagraphs = () => load(EDITOR, 'paragraphs') === 'paragraphs';
 
 // ----- colours ---------------------------------------------------------------------
 //
@@ -269,12 +289,51 @@ function writingArea({ label, placeholder = '' }) {
     : `<textarea ${attrs} placeholder="${esc(placeholder)}"></textarea>`;
 }
 
+/// Wrap the selection in Markdown's emphasis (`**` bold, `*` italic), or
+/// take it off if it's there already. (A text area's own setRangeText
+/// doesn't say it changed the text, so this does.)
+function emphasis(el, mark) {
+  const value = el.value;
+  const [start, end] = [el.selectionStart, el.selectionEnd];
+  const n = mark.length;
+  const wrapped = value.slice(start - n, start) === mark && value.slice(end, end + n) === mark
+    // `*` inside `**`: that's bold, not italic.
+    && !(n === 1 && value[start - 2] === '*' && value[end + 1] === '*');
+  if (wrapped) {
+    el.setRangeText(value.slice(start, end), start - n, end + n);
+    el.setSelectionRange(start - n, end - n);
+  } else {
+    el.setRangeText(`${mark}${value.slice(start, end)}${mark}`, start, end);
+    el.setSelectionRange(start + n, end + n);
+  }
+  if (el.tagName === 'TEXTAREA') el.dispatchEvent(new Event('input'));
+}
+
+/// ⌘B and ⌘I (and an iPad keyboard's B and I) write Markdown's ** and *.
+/// The paragraph editor hears them as the browser's own "format bold"
+/// edit (as the iPad's B and I buttons are); a text area, as the keys.
+function markdownKeys(el) {
+  el.addEventListener('keydown', e => {
+    if (el.tagName !== 'TEXTAREA' || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+    const mark = { b: '**', i: '*' }[e.key.toLowerCase()];
+    if (!mark) return;
+    e.preventDefault();
+    emphasis(el, mark);
+  });
+  el.addEventListener('beforeinput', e => {
+    const mark = { formatBold: '**', formatItalic: '*' }[e.inputType];
+    // After the browser's done with this edit (which it's told not to make).
+    if (mark) setTimeout(() => emphasis(el, mark));
+  });
+}
+
 /// Ready the writing area made by `writingArea`, holding `text`.
 function setUpWriting(el, text) {
   if (el.tagName === 'TEXTAREA') {
     el.value = text;
     emDashes(el);
     autoGrow(el);
+    markdownKeys(el);
     return el;
   }
   paragraphEditor(el);
@@ -283,6 +342,7 @@ function setUpWriting(el, text) {
   el.style.setProperty('--paragraph-space', String(Math.max(0, Number(look.spacing) || 0)));
   el.style.setProperty('--first-indent', `${Math.max(0, Number(look.indent) || 0)}em`);
   emDashes(el);
+  markdownKeys(el);
   return el;
 }
 
@@ -318,21 +378,84 @@ function readLines(root) {
   return lines;
 }
 
-/// Is the editor in its tidy shape: only <p>s, each holding text (and at most
-/// a closing <br>)?
+/// The elements the editor's own styling uses inside a paragraph.
+const STYLING = /^(SPAN|STRONG|EM)$/;
+
+/// Is the editor in its tidy shape: only <p>s, each holding text (perhaps
+/// in the editor's styling), and at most a closing <br>?
 function tidy(root) {
   if (!root.firstChild) return false;
+  const inline = node => [...node.childNodes].every(k =>
+    (k.nodeType === Node.TEXT_NODE && !k.data.includes('\n')) || (STYLING.test(k.nodeName) && inline(k)));
   for (const p of root.childNodes) {
     if (p.nodeName !== 'P') return false;
     const kids = [...p.childNodes];
     for (let i = 0; i < kids.length; i++) {
       const k = kids[i];
       if (k.nodeType === Node.TEXT_NODE && !k.data.includes('\n')) continue;
+      if (STYLING.test(k.nodeName) && inline(k)) continue;
       if (k.nodeName === 'BR' && i === kids.length - 1) continue;
       return false;
     }
   }
   return true;
+}
+
+// ----- styling as you type -----------------------------------------------------------
+//
+// As in Sloth Writer, the text shows what its Markdown does (bold, italics,
+// headings, quotes, scene breaks), with the marks kept, faintly; notes,
+// references and comments are quieter. A paragraph is restyled when the
+// cursor's left it, never while it's being typed in (so nothing moves under
+// the cursor, or under autocorrect and dictation).
+
+const EMPHASIS = /(\*\*\*|\*\*|\*)(\S(?:.*?\S)?)\1/g;
+const ASIDES = /(<!--[\s\S]*?-->|\[\[[^\]\n]*\]\]|\{>>[\s\S]*?<<\}|\{==|==\})/g;
+
+/// Bold and italics in a stretch of a line, as HTML (the marks kept).
+function emphasisHtml(text) {
+  let out = '', from = 0;
+  for (const m of text.matchAll(EMPHASIS)) {
+    const [whole, mark, inner] = m;
+    const [open, close] = mark.length === 3 ? ['<strong><em>', '</em></strong>'] : mark.length === 2 ? ['<strong>', '</strong>'] : ['<em>', '</em>'];
+    out += esc(text.slice(from, m.index)) + `<span class="mk">${mark}</span>${open}${esc(inner)}${close}<span class="mk">${mark}</span>`;
+    from = m.index + whole.length;
+  }
+  return out + esc(text.slice(from));
+}
+
+/// A line as the editor shows it: its kind (for the paragraph's class) and
+/// its HTML, every character of it still there.
+function styleLine(line) {
+  const trimmed = line.trim();
+  if (/^(#|(\*\s*){3,}|(-\s*){3,})$/.test(trimmed)) return { kind: 'brk', html: `<span class="mk">${esc(line)}</span>` };
+  let kind = '', lead = '', rest = line;
+  const heading = line.match(/^(\s*#{1,6}\s+)(.*)$/);
+  const quote = line.match(/^(\s*>\s?)(.*)$/);
+  if (heading) [kind, lead, rest] = ['h', heading[1], heading[2]];
+  else if (quote) [kind, lead, rest] = ['q', quote[1], quote[2]];
+  let html = lead ? `<span class="mk">${esc(lead)}</span>` : '';
+  let from = 0;
+  for (const m of rest.matchAll(ASIDES)) {
+    html += emphasisHtml(rest.slice(from, m.index)) + `<span class="aside">${esc(m[0])}</span>`;
+    from = m.index + m[0].length;
+  }
+  return { kind, html: html + emphasisHtml(rest.slice(from)) };
+}
+
+/// Show a paragraph styled, if its text has changed since it last was.
+function styleParagraph(p) {
+  const text = p.textContent;
+  if (p.dataset.styled === text) return;
+  p.dataset.styled = text;
+  if (!text) {
+    p.replaceChildren(document.createElement('br'));
+    p.className = '';
+    return;
+  }
+  const { kind, html } = styleLine(text);
+  p.innerHTML = html;
+  p.className = kind;
 }
 
 function paragraphEditor(el) {
@@ -349,8 +472,8 @@ function paragraphEditor(el) {
   const build = value => {
     el.replaceChildren(...value.split('\n').map(line => {
       const p = document.createElement('p');
-      if (line) p.textContent = line;
-      else p.append(document.createElement('br'));
+      p.textContent = line;
+      styleParagraph(p);
       return p;
     }));
     el.toggleAttribute('data-empty', value === '');
@@ -372,12 +495,13 @@ function paragraphEditor(el) {
     for (const [i, p] of paragraphs.entries()) {
       const length = p.textContent.length;
       if (left <= length || i === paragraphs.length - 1) {
-        const target = Math.min(left, length);
-        // Into its text, if it has any (it may be split into several nodes).
-        for (const t of p.childNodes) {
-          if (t.nodeType !== Node.TEXT_NODE) continue;
+        let target = Math.min(left, length);
+        // Into its text, if it has any (it may be split into several
+        // nodes, and into the styling's).
+        const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        for (let t = walker.nextNode(); t; t = walker.nextNode()) {
           if (target <= t.data.length) return [t, target];
-          left -= t.data.length;
+          target -= t.data.length;
         }
         return [p, 0];
       }
@@ -438,6 +562,37 @@ function paragraphEditor(el) {
       if (at !== null) select(at);
     }
     el.toggleAttribute('data-empty', el.textContent === '' && el.children.length <= 1);
+    // Typed on the end of a mark (after a closing **, say), the words went
+    // into it, and would show faint: this paragraph is restyled at once,
+    // the cursor kept where it is.
+    const r = selection();
+    const here = r && [...el.children].find(p => p.contains(r.endContainer));
+    const strayed = mk => !/^(\*{1,3}|\s*#{1,6}\s+|\s*>\s?|[#*\-\s]+)$/.test(mk.textContent);
+    if (here && !composing && [...here.querySelectorAll('.mk')].some(strayed)) {
+      const at = range()[1];
+      delete here.dataset.styled;
+      styleParagraph(here);
+      select(at);
+    }
+    restyle();
+  });
+
+  // Every paragraph but the cursor's shows its styling, brought up to date
+  // when the cursor leaves it (and not mid-word for dictation or an input
+  // method: they compose in place).
+  let composing = false;
+  el.addEventListener('compositionstart', () => { composing = true; });
+  el.addEventListener('compositionend', () => { composing = false; restyle(); });
+  const restyle = () => {
+    if (composing) return;
+    const r = selection();
+    const here = r && [...el.children].find(p => p.contains(r.startContainer) || p.contains(r.endContainer));
+    for (const p of el.children) {
+      if (p !== here) styleParagraph(p);
+    }
+  };
+  document.addEventListener('selectionchange', () => {
+    if (el.isConnected) restyle();
   });
   return el;
 }
@@ -554,6 +709,7 @@ async function showProject(project) {
       <p class="figures">
         ${stats.total != null ? `<span>${fmt(stats.total)}${stats.target ? ` of ${fmt(stats.target)}` : ''} words${stats.target ? meter(stats.total, stats.target) : ''}</span>` : ''}
         ${todayHtml(today(project, info))}
+        ${streakHtml(info)}
       </p>
     </header>
     <a class="notepad-row" href="${notepadHref(project)}"><span>📝 <strong>${esc(notepad?.title || 'Mobile Notes')}</strong></span>

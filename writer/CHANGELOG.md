@@ -2,6 +2,15 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.27.0
+
+Writing on the web.
+
+- The paragraph editor is now the one every device gets (Account → Writing on this device still has the plain box, for a device that wants it).
+- ⌘B and ⌘I, and an iPad keyboard's B and I buttons, wrap the selection in `**` or `*` (and take them off again), in either editor.
+- The web editor shows what its Markdown does, as Writer does: bold, italics, headings, quotes and scene breaks, the marks faint, notes and comments quieter. A paragraph is restyled once you've moved out of it, so nothing shifts while you type, dictate or autocorrect.
+- Each project shows the day's goal as a ring, as in Writer's status bar, and your streak ("5 days in a row"), sent with each sync.
+
 ## 1.26.1
 
 - Fixed: with a folder as Slothenings, opening one of its documents in the split pane (or the folder in the split pane beside one of its documents) made two editors of the same text, which clashed. The split pane now says it's open in the main editor, as it does for the open document.

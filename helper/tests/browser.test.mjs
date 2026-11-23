@@ -334,6 +334,14 @@ test('the mobile notepad: added to on the Mac meanwhile, both are kept', { skip 
 
 // ----- the paragraph editor ---------------------------------------------------------
 
+/// ⌘ and a letter, as a keyboard would.
+async function command(letter) {
+  const code = `Key${letter.toUpperCase()}`;
+  const keyCode = letter.toUpperCase().charCodeAt(0);
+  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: letter, code, windowsVirtualKeyCode: keyCode, modifiers: 4 });
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: letter, code, windowsVirtualKeyCode: keyCode, modifiers: 4 });
+}
+
 /// Press a key, as a keyboard would.
 async function press(key, code, keyCode, text) {
   await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode, text });
@@ -379,7 +387,7 @@ test('paragraphs: Return starts one, typing keeps plain spaces, and it all saves
   assert.equal((await onHelper('ice')).text, value);
 });
 
-test('paragraphs: pasting brings plain text, and nothing can be made bold', { skip: paragraphsOnly }, async () => {
+test('paragraphs: pasting brings plain text, and and ⌘B writes Markdown', { skip: paragraphsOnly }, async () => {
   await page.eval(`(() => {
     const t = document.getElementById('text');
     t.focus();
@@ -393,10 +401,13 @@ test('paragraphs: pasting brings plain text, and nothing can be made bold', { sk
   assert.equal(await page.eval(`document.querySelector('#text b, #text strong, #text span, #text div')`), null, 'no formatting');
   assert.equal(await page.eval(`[...document.getElementById('text').children].every(c => c.tagName === 'P')`), true);
 
+  // ⌘B writes Markdown (and the browser's own bold is never used).
   await page.eval(`(() => { const t = document.getElementById('text'); t.setSelectionRange(0, 3); })()`);
-  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'b', code: 'KeyB', windowsVirtualKeyCode: 66, modifiers: 4 });
-  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'b', code: 'KeyB', windowsVirtualKeyCode: 66, modifiers: 4 });
-  assert.equal(await page.eval(`document.querySelector('#text b, #text strong')`), null);
+  await command('b');
+  await page.waitFor(`document.getElementById('text').value.startsWith('**The**')`, { what: '**The**' });
+  assert.equal(await page.eval(`document.querySelector('#text b')`), null);
+  await command('b');
+  await page.waitFor(`document.getElementById('text').value.startsWith('The harbour')`, { what: 'off again' });
   await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
 });
 
@@ -456,4 +467,84 @@ test("colours: the page wears Sloth Writer's theme, or this device's own", { ski
   }, `&p=${project}`);
   await go(`#/p/${project}`);
   await page.waitFor(`getComputedStyle(document.body).backgroundColor === 'rgb(246, 241, 231)'`, { what: 'the device colours' });
+});
+
+// ----- Markdown on the web: shortcuts, styling, the goal ring ------------------------------
+
+const valueNow = () => page.eval(`document.getElementById('text').value`);
+
+/// Give the scene "arrival" known words, and open it.
+async function openArrival(text) {
+  const { version } = await onHelper('arrival');
+  await theMac.call('scene_put', { text, base: version }, `&p=${project}&id=arrival`);
+  // Earlier tests leave words of theirs on this device.
+  await page.eval(`localStorage.removeItem('writer-drafts')`);
+  await go(`#/p/${project}`);
+  await go(`#/p/${project}/s/arrival`);
+  await page.waitFor(`document.getElementById('text')?.value === ${JSON.stringify(text)}`, { what: 'the scene' });
+}
+
+test('the paragraph editor is the one a device gets unless it chose the plain box', { skip }, async () => {
+  await page.eval(`localStorage.removeItem('writer-editor')`);
+  await openArrival('The harbour froze.');
+  assert.equal(await page.eval(`document.getElementById('text').tagName`), 'DIV');
+  await page.eval(`localStorage.setItem('writer-editor', ${JSON.stringify(JSON.stringify(EDITOR))})`);
+});
+
+test('⌘B and ⌘I write Markdown, and take it off again', { skip }, async () => {
+  await openArrival('The harbour froze.');
+  await page.eval(`(() => { const t = document.getElementById('text'); t.focus(); t.setSelectionRange(4, 11); })()`);
+  await command('b');
+  await page.waitFor(`document.getElementById('text').value === 'The **harbour** froze.'`, { what: 'bold' });
+  await command('b');
+  await page.waitFor(`document.getElementById('text').value === 'The harbour froze.'`, { what: 'off again' });
+  await command('i');
+  await page.waitFor(`document.getElementById('text').value === 'The *harbour* froze.'`, { what: 'italic' });
+  await command('i');
+  await page.waitFor(`document.getElementById('text').value === 'The harbour froze.'`, { what: 'off again' });
+  // An iPad keyboard's I button.
+  if (EDITOR === 'paragraphs') {
+    await page.eval(`document.getElementById('text').dispatchEvent(new InputEvent('beforeinput', { inputType: 'formatItalic', bubbles: true, cancelable: true }))`);
+    await page.waitFor(`document.getElementById('text').value === 'The *harbour* froze.'`, { what: 'the I button' });
+  }
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
+});
+
+test('paragraphs show their Markdown once the cursor has left them', { skip: paragraphsOnly }, async () => {
+  // A heading and some emphasis at the end; then the cursor goes elsewhere.
+  await page.eval(`(() => { const t = document.getElementById('text'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); })()`);
+  const before = await valueNow();
+  await press('Enter', 'Enter', 13, '\r');
+  await typeAtEnd('## Spring');
+  await press('Enter', 'Enter', 13, '\r');
+  await typeAtEnd('The ice went out **all at once**, and *quietly*.');
+  await page.eval(`document.getElementById('text').setSelectionRange(0, 0)`);
+  await page.waitFor(`document.querySelector('#text strong')`, { what: 'bold, styled' });
+  const shown = await page.eval(`(() => {
+    const ps = [...document.querySelectorAll('#text p')];
+    return { heading: ps.at(-2).className, strong: ps.at(-1).querySelector('strong').textContent, em: ps.at(-1).querySelector('em').textContent,
+             marks: [...ps.at(-1).querySelectorAll('.mk')].map(m => m.textContent) };
+  })()`);
+  assert.deepEqual(shown, { heading: 'h', strong: 'all at once', em: 'quietly', marks: ['**', '**', '*', '*'] });
+  assert.equal(await valueNow(), `${before}\n## Spring\nThe ice went out **all at once**, and *quietly*.`, 'the text itself unchanged');
+  await snap('styled');
+
+  // Typing on after a closing mark doesn't come out faint.
+  await typeAtEnd(' Then it was gone.');
+  const faint = await page.eval(`[...document.querySelectorAll('#text .mk')].some(m => m.textContent.includes('gone'))`);
+  assert.equal(faint, false);
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
+});
+
+test("the day's goal as a ring, and the streak", { skip }, async () => {
+  await theMac.call('index_put', {
+    title: 'The Long Winter',
+    index: [{ id: 'ice', title: 'Ice', chapter: 'Chapter 2', words: 9 }],
+    stats: { date: localDay(), today: 120, goal: 500, total: 9, target: null, deadline: null, streak: 5 },
+  }, `&p=${project}`);
+  await go(`#/`);
+  await go(`#/p/${project}`);
+  await page.waitFor(`document.querySelector('.figures .ring')`, { what: 'the ring' });
+  assert.match(await page.eval(`document.querySelector('.figures').textContent`), /Today \d+ \/ 500\s*5 days in a row/);
+  await snap('ring');
 });

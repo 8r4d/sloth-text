@@ -57,6 +57,12 @@ textarea { display: block; width: 100%; min-height: 60vh; margin-top: 16px; bord
   font-size: 1.1em; line-height: 1.65; }
 .writing p { margin: 0 0 calc(var(--paragraph-space, 0) * 1.65em); text-indent: var(--first-indent, 0); }
 .writing p:has(> br:only-child) { margin-bottom: 0; }
+/* Its Markdown, shown: the marks faint, headings and quotes as in Sloth Writer. */
+.writing .mk { opacity: 0.35; }
+.writing .aside { color: var(--quiet); font-size: 0.85em; }
+.writing p.h { font-weight: 600; font-size: 1.2em; text-indent: 0; }
+.writing p.q { color: var(--quiet); padding-left: 1.2em; text-indent: 0; }
+.writing p.brk { text-align: center; text-indent: 0; }
 .writing[data-empty]::before { content: attr(data-placeholder); position: absolute; color: var(--quiet); pointer-events: none; }
 #title + .writing { border-top: 1px solid var(--line); padding-top: 12px; }
 label.check { display: flex; align-items: center; gap: 10px; font-size: 1em; color: inherit; }
@@ -77,6 +83,12 @@ label.check input { width: auto; margin: 0; }
 .project-head h1 { margin-bottom: 4px; }
 .figures { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0 0 14px; color: var(--quiet); font-size: 0.9em; }
 .figures > span { display: inline-flex; align-items: center; gap: 8px; }
+/* The day's goal as a ring, as in Sloth Writer's status bar. */
+.ring { flex: none; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 2.2; }
+.ring .ring-track { stroke: var(--line); }
+.ring .ring-fill { stroke: var(--accent); stroke-linecap: round; }
+.ring .ring-done { fill: var(--accent); stroke: none; }
 .project-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
 .continue { padding: 8px 12px; border-radius: 8px; background: var(--tint); }
 /* The notepad, first in a project. */

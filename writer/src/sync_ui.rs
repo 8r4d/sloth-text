@@ -76,6 +76,8 @@ impl WriterApp {
             "date": crate::stats::key(today),
             "today": written,
             "goal": goals.today(total, written, today),
+            // Days in a row meeting the goal (or writing at all), for the web.
+            "streak": self.stats.streak(today, goals.today(total, written, today)),
             "total": total,
             "target": goals.total,
             "deadline": goals.deadline,
