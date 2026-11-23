@@ -2067,3 +2067,53 @@ fn the_notepad_from_the_web_lands_in_its_document() {
     harness.state_mut().finish_sync(&root, Ok(outcome), 0.0);
     assert_eq!(fs::read_to_string(&path).unwrap(), "Idea on the bus.\n\nAnother.");
 }
+
+// ----- links between documents --------------------------------------------------------
+
+/// A project whose first document links to a second, "The Letter".
+fn linked_project(dir: &TempDir) -> (Project, String, String) {
+    let mut p = project(dir, "She read [[the letter|again]] twice.");
+    let first = p.documents().into_iter().find(|n| n.title == "Untitled").unwrap().id.clone();
+    let letter = p.add_document(&Place::Into("manuscript".into()), "The Letter").unwrap();
+    fs::write(p.file_path(&letter).unwrap(), "Dear Mara,").unwrap();
+    (p, first, letter)
+}
+
+#[test]
+fn a_documents_links_show_both_ways_in_the_inspector() {
+    let dir = TempDir::new("doc-links");
+    let (p, first, letter) = linked_project(&dir);
+    let mut harness = harness(p);
+    harness.run_steps(2);
+    harness.get_by_label("Links");
+    harness.get_by_label("[[The Letter]]").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().split.as_deref(), Some(letter.as_str()), "opened beside");
+
+    // From the letter: where it's linked from, which goes there.
+    harness.state_mut().select(letter.clone());
+    harness.run_steps(3);
+    harness.get_by_label("Linked from");
+    harness.get_by_label("Untitled").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().selected.as_deref(), Some(first.as_str()));
+
+    // And on the Canvas, a string between them.
+    harness.state_mut().canvas_open = true;
+    harness.run_steps(3);
+    let edges = harness.state().canvas.as_ref().unwrap().edges().to_vec();
+    assert!(edges.iter().any(|e| e.from == first && e.to == letter && e.references == 1));
+}
+
+#[test]
+fn renaming_a_document_renames_the_links_to_it() {
+    let dir = TempDir::new("doc-links-rename");
+    let (p, first, letter) = linked_project(&dir);
+    let mut harness = harness(p);
+    harness.state_mut().apply(BinderAction::FinishRename { id: letter, title: "The Unsent Letter".into() });
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("She read [[The Unsent Letter|again]] twice."));
+    harness.state_mut().save_all();
+    let path = harness.state().project.as_ref().unwrap().file_path(&first).unwrap();
+    assert_eq!(fs::read_to_string(path).unwrap(), "She read [[The Unsent Letter|again]] twice.");
+}

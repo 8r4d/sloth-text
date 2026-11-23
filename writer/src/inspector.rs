@@ -278,10 +278,41 @@ impl WriterApp {
             }
         }
 
+        // Links to and from other documents (a profile has its own
+        // Referenced in, in its form).
+        let mut link_pick = None;
+        if is_document && !is_profile {
+            ui.add_space(4.0);
+            let now = ui.input(|i| i.time);
+            let to: Vec<(String, String)> = self
+                .referenced_by(&id)
+                .into_iter()
+                .filter(|t| t.is_document() && t.id != id)
+                .filter_map(|t| Some((t.id.clone(), self.project.as_ref()?.node(&t.id)?.title.clone())))
+                .collect();
+            let target = crate::references::Target { kind: crate::references::DOCUMENT.to_owned(), id: id.clone() };
+            let from = self.backlinks(now, &target);
+            link_pick = egui::CollapsingHeader::new(RichText::new("Links").strong())
+                .id_salt("links")
+                .default_open(true)
+                .show(ui, |ui| Self::links_section(ui, &to, &from))
+                .body_returned
+                .flatten();
+        }
+
         if let Some(project) = self.project.as_mut()
             && project.set_meta(&id, meta)
         {
             self.manifest_dirty = true;
+        }
+        match link_pick {
+            Some(super::references_ui::LinkPick::Open(doc)) => self.open_in_split(doc),
+            Some(super::references_ui::LinkPick::From(link)) => {
+                let ctx = ui.ctx().clone();
+                self.go_to_backlink(&ctx, &link);
+                return;
+            }
+            None => {}
         }
 
         if is_document {

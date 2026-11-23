@@ -57,6 +57,7 @@ const TIPS: &[&str] = &[
     "Write notes to yourself <!-- like this -->: they're left out of word counts and the compiled book.",
     "A line with only # on it is a scene break.",
     "Refer to a profile (a source, concept, theme or character) with [[its name]] where it comes up: typing [[ offers names (or makes a new one), hover to see it, \u{2318}-click to open it. Renaming a profile renames its references, and Compile can turn references to Sources into footnotes and a list of works cited. Like notes, references are left out of word counts and the compiled book, and each profile lists where it's referenced.",
+    "Link to another document the same way, with [[its title]]: hover to see its synopsis, \u{2318}-click to open it beside. A document's inspector lists what it links to and what links to it, and renaming a document renames the links to it.",
     "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",
     "Double-click a binder item to rename it.",
     "Mobile Notes (in More\u{2026}) is a notepad for jotting on your phone: on the web it's first in each project, with a New Entry button that adds the date and time. On the Mac it opens beside what you're writing. Any document can be the notepad: tick Mobile notepad in its inspector. Notes added on both sides between syncs are all kept.",

@@ -2,6 +2,16 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.16.0
+
+Links between documents.
+
+- Write `[[A document's title]]` to link to it, the way references point at profiles: typing `[[` offers documents too (by the folder they're in), hovering shows its synopsis, and ⌘-click opens it beside. A pinpoint works as before: `[[The Letter|second page]]`.
+- A document's inspector has Links: the documents it links to (click to open one beside), and the places that link to it, by section (click to go there).
+- Renaming a document renames the links to it.
+- Linked documents are strung together on the Canvas.
+- A profile with the same name as a document wins; name the profile's kind to be sure (`[[Character: Mara]]`). Links are left out of word counts and the compiled book.
+
 ## 1.15.0
 
 Writing on the web, with paragraphs as Sloth Writer shows them.

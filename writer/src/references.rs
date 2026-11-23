@@ -8,16 +8,36 @@
 //! folder name), and anything after `|` is a pinpoint (`|p. 47`), kept for
 //! the writer and ignored in finding the profile.
 //!
+//! A reference can also link to another document: `[[The Harbour]]`, by its
+//! title, where no profile has that name (a profile of the same name wins).
+//! Its target's kind is `DOCUMENT`.
+//!
 //! A document's sections start at its headings (`#`, `##`, `###`…), so a
 //! reference can be placed by the sub-essay it's in.
 
 use crate::project::{Node, Project};
 
 /// The profile a reference names: its kind's id and its own.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Target {
     pub kind: String,
     pub id: String,
+}
+
+/// The kind of a link to a document rather than a profile.
+pub const DOCUMENT: &str = "";
+
+impl Target {
+    /// A link to another document (not a profile).
+    pub fn is_document(&self) -> bool {
+        self.kind == DOCUMENT
+    }
+}
+
+/// The documents a reference can link to: every one outside the Trash
+/// that isn't a profile, in binder order.
+fn linkable(project: &Project) -> Vec<&Node> {
+    project.documents().into_iter().filter(|n| project.profile_of(&n.id).is_none()).collect()
 }
 
 /// What's inside a reference's brackets: the name (with any `Kind:`), and
@@ -29,9 +49,10 @@ pub fn split(inner: &str) -> (&str, Option<&str>) {
     }
 }
 
-/// The profile a reference names, if there is one. Names match without
-/// regard to case; with no `Kind:`, the first profile folder (in binder
-/// order) with that name wins.
+/// The profile a reference names, if there is one, or else the document
+/// it links to. Names match without regard to case; with no `Kind:`, the
+/// first profile folder (in binder order) with that name wins, then the
+/// first document (in binder order).
 pub fn resolve(project: &Project, inner: &str) -> Option<Target> {
     let (name, _) = split(inner);
     let same = |a: &str, b: &str| a.trim().to_lowercase() == b.trim().to_lowercase();
@@ -40,10 +61,12 @@ pub fn resolve(project: &Project, inner: &str) -> Option<Target> {
         Some((kind, rest)) => (Some(kind.id.clone()), rest),
         None => (None, name),
     };
-    project
-        .profile_kinds()
-        .iter().filter(|k| wanted.as_ref().is_none_or(|w| *w == k.id)).find_map(|kind| {
+    let profile = project.profile_kinds().iter().filter(|k| wanted.as_ref().is_none_or(|w| *w == k.id)).find_map(|kind| {
         project.profile_items(&kind.id).into_iter().find(|n| same(&n.title, name)).map(|n| Target { kind: kind.id.clone(), id: n.id.clone() })
+    });
+    profile.or_else(|| {
+        wanted.is_none().then(|| linkable(project).into_iter().find(|n| same(&n.title, name)))?
+            .map(|n| Target { kind: DOCUMENT.to_owned(), id: n.id.clone() })
     })
 }
 
@@ -84,8 +107,9 @@ pub struct Suggestion {
 const SUGGESTIONS: usize = 8;
 
 /// Profiles whose names contain what's typed (those starting with it
-/// first), then, unless one is called exactly that, a New … for each kind.
-/// `Kind: …` keeps to that kind.
+/// first), then documents to link to, then, unless something is called
+/// exactly that, a New … for each kind. `Kind: …` keeps to that kind (and
+/// leaves out documents).
 pub fn suggestions(project: &Project, typed: &str) -> Vec<Suggestion> {
     let (only, query) = match kind_prefix(project, typed) {
         Some((kind, rest)) => (Some(kind.id.clone()), rest),
@@ -112,10 +136,25 @@ pub fn suggestions(project: &Project, typed: &str) -> Vec<Suggestion> {
             found.push((title.starts_with(&q), Suggestion { label: n.title.clone(), kind_item: kind.item.clone(), insert, create: None }));
         }
     }
-    // Names starting with what's typed first; otherwise binder order.
+    // Documents to link to, by the folder they're in. One that shares a
+    // profile's name can't be linked to by name, so isn't offered.
+    let mut exact_document = false;
+    if only.is_none() && !q.is_empty() {
+        for n in linkable(project) {
+            let title = n.title.to_lowercase();
+            exact_document |= title == q;
+            if !title.contains(&q) || names.contains_key(&title) {
+                continue;
+            }
+            let folder = project.role_of(&n.id).map_or("Document", |r| r.title()).to_owned();
+            found.push((title.starts_with(&q), Suggestion { label: n.title.clone(), kind_item: folder, insert: n.title.clone(), create: None }));
+        }
+    }
+    // Names starting with what's typed first; otherwise binder order
+    // (profiles before documents).
     found.sort_by_key(|(starts, _)| !starts);
     let mut out: Vec<Suggestion> = found.into_iter().map(|(_, s)| s).take(SUGGESTIONS).collect();
-    let exact = kinds.iter().any(|k| project.profile_items(&k.id).iter().any(|n| n.title.to_lowercase() == q));
+    let exact = exact_document || kinds.iter().any(|k| project.profile_items(&k.id).iter().any(|n| n.title.to_lowercase() == q));
     if !query.is_empty() && !exact {
         for kind in &kinds {
             out.push(Suggestion {
@@ -314,6 +353,31 @@ mod tests {
         assert_eq!(id("concepts: attention").as_ref(), Some(&concept), "by its folder's name too");
         assert_eq!(id("Nobody"), None);
         assert_eq!(split("Ways of Seeing|p. 47"), ("Ways of Seeing", Some("p. 47")));
+    }
+
+    #[test]
+    fn a_reference_can_link_to_a_document() {
+        let dir = TempDir::new("doc-links");
+        let (mut p, berger, ..) = project(&dir);
+        let essay = p.add_document(&Place::Into("manuscript".into()), "On Looking").unwrap();
+        let twin = p.add_document(&Place::Into("manuscript".into()), "Ways of Seeing").unwrap();
+        let resolved = |inner: &str| resolve(&p, inner);
+        assert_eq!(resolved("on looking"), Some(Target { kind: DOCUMENT.into(), id: essay.clone() }));
+        assert!(resolved("On Looking").unwrap().is_document());
+        assert_eq!(resolved("Ways of Seeing").unwrap().id, berger, "a profile of the same name wins");
+        assert_ne!(twin, berger);
+        assert_eq!(resolved("Source: On Looking"), None, "a kind named: profiles only");
+
+        // Offered as you type, by folder; not the one hidden by a profile.
+        let found = suggestions(&p, "look");
+        assert_eq!(found[0].label, "On Looking");
+        assert_eq!(found[0].kind_item, "Manuscript");
+        assert!(!suggestions(&p, "ways").iter().any(|s| s.kind_item == "Manuscript"));
+        assert!(suggestions(&p, "On Looking").iter().all(|s| s.create.is_none()), "it exists: nothing to make");
+
+        // Renaming finds its links.
+        let target = resolved("On Looking").unwrap();
+        assert_eq!(renamed(&p, "See [[on looking|§2]].", &target, "On Seeing").as_deref(), Some("See [[On Seeing|§2]]."));
     }
 
     #[test]

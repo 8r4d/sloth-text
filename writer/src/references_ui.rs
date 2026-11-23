@@ -21,11 +21,19 @@ const REFRESH_SECONDS: f64 = 2.0;
 /// Longest a tooltip's description gets, in characters.
 const DESCRIPTION: usize = 240;
 
-/// A profile's backlinks, as last gathered.
+/// Backlinks as last gathered, by what they point at (a profile, or a
+/// document: the inspector and the split pane can each show one), and when.
+#[derive(Default)]
 pub(super) struct BacklinkCache {
-    target: Target,
-    at: f64,
-    links: Vec<Backlink>,
+    found: std::collections::HashMap<Target, (f64, Vec<Backlink>)>,
+}
+
+/// What was clicked in a document's Links.
+pub(super) enum LinkPick {
+    /// A document it links to: open it beside.
+    Open(String),
+    /// A place that links to it: go there.
+    From(Backlink),
 }
 
 /// Suggestions for a reference being typed.
@@ -243,12 +251,21 @@ impl WriterApp {
         let Some(project) = &self.project else { return };
         let (name, pin) = references::split(inner);
         let found = references::resolve(project, inner).map(|t| {
-            let item = project.profile_kind(&t.kind).map(|k| k.item.clone()).unwrap_or_default();
+            // A profile's kind ("Character"), or a document's folder ("Manuscript").
+            let item = match project.profile_kind(&t.kind) {
+                Some(k) => k.item.clone(),
+                None => project.role_of(&t.id).map_or("Document", |r| r.title()).to_owned(),
+            };
             let title = project.node(&t.id).map(|n| n.title.clone()).unwrap_or_default();
             (t, item, title)
         });
-        let description = found.as_ref().and_then(|(t, ..)| self.document_text(&t.id)).map(|text| {
-            let description = Sheet::parse(&text).description;
+        let description = found.as_ref().and_then(|(t, ..)| {
+            // A document's synopsis; a profile's description.
+            if t.is_document() { project.node(&t.id).map(|n| n.meta.synopsis.clone()) } else { self.document_text(&t.id) }
+        });
+        let profile = found.as_ref().is_some_and(|(t, ..)| !t.is_document());
+        let description = description.map(|text| {
+            let description = if profile { Sheet::parse(&text).description } else { text };
             let chars: Vec<char> = description.chars().collect();
             if chars.len() > DESCRIPTION {
                 format!("{}\u{2026}", chars[..DESCRIPTION].iter().collect::<String>().trim_end())
@@ -270,18 +287,22 @@ impl WriterApp {
                     ui.label(RichText::new("\u{2318}-click to open").small().weak());
                 }
                 None => {
-                    ui.label(format!("No profile called \u{201c}{name}\u{201d} yet."));
-                    ui.label(RichText::new("Add one to a profile folder, and this reference finds it.").small().weak());
+                    ui.label(format!("No profile or document called \u{201c}{name}\u{201d} yet."));
+                    ui.label(RichText::new("Add one by that name, and this reference finds it.").small().weak());
                 }
             });
     }
 
-    /// Before a profile is renamed: the documents whose references to it
-    /// need the new name, each with its new text.
+    /// Before a profile or document is renamed: the documents whose
+    /// references or links to it need the new name, each with its new text.
     pub(super) fn reference_rewrites(&self, id: &str, title: &str) -> Vec<(String, String)> {
         let Some(project) = &self.project else { return Vec::new() };
-        let Some(kind) = project.profile_of(id) else { return Vec::new() };
-        let target = Target { kind: kind.id.clone(), id: id.to_owned() };
+        let kind = match project.profile_of(id) {
+            Some(kind) => kind.id.clone(),
+            None if project.node(id).is_some_and(|n| n.is_document()) => references::DOCUMENT.to_owned(),
+            None => return Vec::new(),
+        };
+        let target = Target { kind, id: id.to_owned() };
         project
             .documents()
             .into_iter()
@@ -332,15 +353,14 @@ impl WriterApp {
 
     /// Where a profile is referenced, gathered now and then.
     pub(super) fn backlinks(&mut self, now: f64, target: &Target) -> Vec<Backlink> {
-        if let Some(cache) = &self.backlinks
-            && cache.target == *target
-            && now - cache.at < REFRESH_SECONDS
+        if let Some((at, links)) = self.backlinks.as_ref().and_then(|c| c.found.get(target))
+            && now - at < REFRESH_SECONDS
         {
-            return cache.links.clone();
+            return links.clone();
         }
         let Some(project) = &self.project else { return Vec::new() };
         let links = references::backlinks(project, target, |n| self.document_text(&n.id));
-        self.backlinks = Some(BacklinkCache { target: target.clone(), at: now, links: links.clone() });
+        self.backlinks.get_or_insert_with(Default::default).found.insert(target.clone(), (now, links.clone()));
         links
     }
 
@@ -372,6 +392,42 @@ impl WriterApp {
                     ui.label(RichText::new(&link.snippet).small().weak());
                 }
             });
+        }
+        picked
+    }
+
+    /// A document's Links, in the inspector: the documents it links to, and
+    /// the places that link to it. Returns what was clicked.
+    pub(super) fn links_section(ui: &mut egui::Ui, to: &[(String, String)], from: &[Backlink]) -> Option<LinkPick> {
+        let mut picked = None;
+        if to.is_empty() && from.is_empty() {
+            ui.weak("Link to another document by writing [[its title]] in the text.");
+            return None;
+        }
+        if !to.is_empty() {
+            ui.label(RichText::new("Links to").small().weak());
+            ui.horizontal_wrapped(|ui| {
+                for (id, title) in to {
+                    let chip = egui::Button::new(RichText::new(format!("[[{title}]]")).small().color(ui.visuals().hyperlink_color)).frame(false);
+                    if ui.add(chip).on_hover_text("Open it beside this one").clicked() {
+                        picked = Some(LinkPick::Open(id.clone()));
+                    }
+                }
+            });
+        }
+        if !from.is_empty() {
+            ui.add_space(6.0);
+            ui.label(RichText::new("Linked from").small().weak());
+            for link in from {
+                let place = match &link.section {
+                    Some(section) => format!("{} \u{b7} {section}", link.doc_title),
+                    None => link.doc_title.clone(),
+                };
+                let hint = if link.snippet.is_empty() { "Go to it".to_owned() } else { link.snippet.clone() };
+                if ui.link(place).on_hover_text(hint).clicked() {
+                    picked = Some(LinkPick::From(link.clone()));
+                }
+            }
         }
         picked
     }
