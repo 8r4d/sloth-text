@@ -75,6 +75,9 @@ pub struct EditorSettings {
     /// Offer Add Comment in the right-click menu (Sloth Writer; with
     /// `markdown`, comments' marks are kept out of sight away from the cursor).
     pub comments: bool,
+    /// One of several editors on a page (Sloth Writer's Scrivenings): no
+    /// scroll area of its own, and only as tall as its text.
+    pub embedded: bool,
 }
 
 impl EditorSettings {
@@ -115,6 +118,7 @@ impl Default for EditorSettings {
             copy_formatted: false,
             focus_paragraph: false,
             comments: false,
+            embedded: false,
         }
     }
 }
@@ -698,10 +702,7 @@ pub fn show(
     let mut info = CursorInfo::default();
     let viewport_height = ui.available_height();
 
-    scroll
-        .id_salt(("editor-scroll", tab))
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
+    let body = |ui: &mut egui::Ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 // A centred column, inside the scroll area so the scroll bar
@@ -810,7 +811,9 @@ pub fn show(
                 let edit = edit.layouter(&mut layouter);
 
                 // Fill the rest of the viewport so clicking below the text focuses it.
-                let min_height = ui.available_height();
+                // Fill the view (so a click below the text still lands in it),
+                // except as one of several on a page.
+                let min_height = if settings.embedded { 0.0 } else { ui.available_height() };
                 // The text widget moves the cursor on any button's press;
                 // a right-click is for the formatting menu, so keep the
                 // selection it's meant to format.
@@ -895,10 +898,16 @@ pub fn show(
                 }
             });
             // Room for the last line to reach the middle.
-            if settings.typewriter {
+            if settings.typewriter && !settings.embedded {
                 ui.add_space(viewport_height * 0.5);
             }
-        });
+        };
+    if settings.embedded {
+        // In a page of several (Scrivenings): the page scrolls.
+        body(ui);
+    } else {
+        scroll.id_salt(("editor-scroll", tab)).auto_shrink([false, false]).show(ui, body);
+    }
 
     info
 }

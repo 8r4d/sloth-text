@@ -2388,3 +2388,86 @@ fn a_comment_on_a_passage_is_written_in_the_margin_and_resolved() {
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("She left the lamp on."));
 }
+
+// ----- scrivenings ------------------------------------------------------------------------
+
+/// A chapter of three scenes with words in, and a subfolder with a fourth.
+fn scrivenings_project(dir: &TempDir) -> (Project, String, Vec<String>) {
+    let (mut p, chapter, mut scenes) = chapter_project(dir);
+    for (id, text) in scenes.iter().zip(["She arrived too late.", "The letter was never sent.", "The harbour froze."]) {
+        fs::write(p.file_path(id).unwrap(), text).unwrap();
+    }
+    let part = p.add_folder(&Place::Into(chapter.clone()), "Later").unwrap();
+    let last = p.add_document(&Place::Into(part), "Spring").unwrap();
+    fs::write(p.file_path(&last).unwrap(), "By spring she had gone.").unwrap();
+    scenes.push(last);
+    (p, chapter, scenes)
+}
+
+#[test]
+fn scrivenings_shows_a_folders_documents_as_one_text() {
+    let dir = TempDir::new("scrivenings");
+    let (p, chapter, scenes) = scrivenings_project(&dir);
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().select(chapter);
+    harness.run_steps(2);
+    harness.get_by_label("Scrivenings").click();
+    harness.run_steps(3);
+    // Each document under its title, the subfolder's too, in order.
+    for title in ["Arrival", "Letter", "Harbour", "Spring"] {
+        harness.get_all_by_label(title).last().unwrap();
+    }
+    let texts: Vec<String> = harness.get_all_by_label("Document text").map(|n| n.value().unwrap_or_default()).collect();
+    assert_eq!(texts, ["She arrived too late.", "The letter was never sent.", "The harbour froze.", "By spring she had gone."]);
+
+    // Typing goes into the document it's in, and saves to its own file.
+    let letter = harness.state().open[&scenes[1]];
+    let len = "The letter was never sent.".chars().count();
+    harness.ctx.memory_mut(|m| m.request_focus(sloth_core::editor::editor_id(letter)));
+    sloth_core::editor::set_selection(&harness.ctx, letter, len..len);
+    harness.run_steps(2);
+    harness.event(egui::Event::Text(" Not once.".into()));
+    harness.run_steps(2);
+    harness.state_mut().save_all();
+    let path = harness.state().project.as_ref().unwrap().file_path(&scenes[1]).unwrap();
+    assert_eq!(fs::read_to_string(path).unwrap(), "The letter was never sent. Not once.");
+
+    // At its end, ↓ goes on into the next; at that one's start, ↑ comes back.
+    harness.key_press(egui::Key::ArrowDown);
+    harness.run_steps(3);
+    let harbour = harness.state().open[&scenes[2]];
+    assert!(harness.ctx.memory(|m| m.has_focus(sloth_core::editor::editor_id(harbour))), "into the next");
+    assert_eq!(sloth_core::editor::selection(&harness.ctx, harbour), Some(0..0));
+    harness.key_press(egui::Key::ArrowUp);
+    harness.run_steps(3);
+    assert!(harness.ctx.memory(|m| m.has_focus(sloth_core::editor::editor_id(letter))), "back again");
+    let end = "The letter was never sent. Not once.".chars().count();
+    assert_eq!(sloth_core::editor::selection(&harness.ctx, letter), Some(end..end));
+
+    // A title opens its document on its own.
+    harness.get_all_by_label("Harbour").last().unwrap().click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().selected.as_deref(), Some(scenes[2].as_str()));
+}
+
+#[test]
+fn command_1_shows_a_documents_folder_as_scrivenings_where_it_was() {
+    let dir = TempDir::new("scrivenings-cmd1");
+    let (p, chapter, scenes) = scrivenings_project(&dir);
+    let mut harness = harness(p);
+    harness.state_mut().select(scenes[1].clone());
+    harness.run_steps(2);
+    let letter = harness.state().open[&scenes[1]];
+    sloth_core::editor::set_selection(&harness.ctx, letter, 4..4);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num1);
+    harness.run_steps(4);
+    assert_eq!(harness.state().selected.as_deref(), Some(chapter.as_str()));
+    assert_eq!(harness.state().folder_views.get(&chapter), Some(&super::views::FolderView::Scrivenings));
+    assert!(harness.ctx.memory(|m| m.has_focus(sloth_core::editor::editor_id(letter))));
+    assert_eq!(sloth_core::editor::selection(&harness.ctx, letter), Some(4..4));
+    // ⌘2: the corkboard.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num2);
+    harness.run_steps(2);
+    assert_eq!(harness.state().folder_views.get(&chapter), Some(&super::views::FolderView::Corkboard));
+}

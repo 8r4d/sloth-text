@@ -17,6 +17,8 @@ pub(super) enum FolderView {
     #[default]
     Corkboard,
     Outline,
+    /// The folder's documents as one text (see scrivenings_ui.rs).
+    Scrivenings,
 }
 
 /// Which view each folder was last shown in, for this session.
@@ -51,15 +53,16 @@ impl WriterApp {
         let mode = self.folder_views.get(folder).copied().unwrap_or_default();
         ui.horizontal(|ui| {
             let mut chosen = mode;
-            ui.selectable_value(&mut chosen, FolderView::Corkboard, "Corkboard");
-            ui.selectable_value(&mut chosen, FolderView::Outline, "Outline");
+            ui.selectable_value(&mut chosen, FolderView::Scrivenings, "Scrivenings").on_hover_text("Its documents as one text (\u{2318}1)");
+            ui.selectable_value(&mut chosen, FolderView::Corkboard, "Corkboard").on_hover_text("\u{2318}2");
+            ui.selectable_value(&mut chosen, FolderView::Outline, "Outline").on_hover_text("\u{2318}3");
             if chosen != mode {
                 self.folder_views.insert(folder.to_owned(), chosen);
             }
         });
         ui.add_space(8.0);
 
-        let items = self.view_items(folder, mode == FolderView::Outline);
+        let items = self.view_items(folder, mode != FolderView::Corkboard);
         if items.is_empty() {
             let trash = self.project.as_ref().and_then(|p| p.node(folder)).is_some_and(|n| n.role == Some(crate::project::Role::Trash));
             if trash {
@@ -75,9 +78,13 @@ impl WriterApp {
         };
         let dragging = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).map(|d| d.0.clone());
         let mut actions = Vec::new();
+        if mode == FolderView::Scrivenings {
+            self.scrivenings(ui, folder);
+            return;
+        }
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match mode {
             FolderView::Corkboard => corkboard(ui, &items, &statuses, &labels, dragging.as_deref(), &mut actions),
-            FolderView::Outline => outline(ui, &items, &statuses, &labels, dragging.as_deref(), &mut actions),
+            _ => outline(ui, &items, &statuses, &labels, dragging.as_deref(), &mut actions),
         });
 
         for action in actions {
@@ -445,6 +452,37 @@ fn drag_and_drop(
     };
     if let Some(dragged) = response.dnd_release_payload::<Dragged>() {
         actions.push(ViewAction::Move { id: dragged.0.clone(), place });
+    }
+}
+
+
+/// The folder (or document with children) an item is in.
+fn parent_of(nodes: &[Node], id: &str) -> Option<String> {
+    nodes.iter().find_map(|n| {
+        if n.children.iter().any(|c| c.id == id) { Some(n.id.clone()) } else { parent_of(&n.children, id) }
+    })
+}
+
+impl WriterApp {
+    /// ⌘1–3: show a folder (the selected one, or the one the selected
+    /// document is in) this way. Into Scrivenings from a document, the
+    /// cursor stays where it was.
+    pub(super) fn show_folder_as(&mut self, ctx: &egui::Context, view: FolderView) {
+        let Some(selected) = self.selected.clone() else { return };
+        let Some(project) = &self.project else { return };
+        let is_folder = project.node(&selected).is_some_and(|n| !n.is_document());
+        let folder = if is_folder { Some(selected.clone()) } else { parent_of(&project.manifest.binder, &selected) };
+        let Some(folder) = folder else { return };
+        if !is_folder && view == FolderView::Scrivenings
+            && let Some(tab) = self.open.get(&selected).copied()
+        {
+            let at = sloth_core::editor::selection(ctx, tab).map_or(0, |r| r.start);
+            self.crossing = Some(super::scrivenings_ui::Crossing::to(selected.clone(), at));
+        }
+        self.folder_views.insert(folder.clone(), view);
+        if folder != selected {
+            self.select(folder);
+        }
     }
 }
 
