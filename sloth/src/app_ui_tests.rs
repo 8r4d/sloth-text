@@ -629,6 +629,46 @@ fn markdown_preview_shows_only_for_markdown_files() {
 }
 
 #[test]
+fn markdown_preview_shows_pictures_and_scrolls_with_the_editor() {
+    let dir = TempDir::new("preview-sync");
+    // A tall picture in the middle section, beside the document.
+    image::RgbaImage::from_pixel(40, 500, image::Rgba([200, 80, 60, 255])).save(dir.0.join("tall pic.png")).unwrap();
+    let filler = |name: &str| (0..40).map(|i| format!("{name} line {i}.\n")).collect::<String>();
+    let text = format!("# First\n{}# Second\n![a tall picture](<tall pic.png>)\n{}# Third\n{}", filler("a"), filler("b"), filler("c"));
+    let md = dir.file("long.md", &text);
+    let mut harness = harness(Settings::default(), vec![md]);
+    execute(&mut harness, Command::ToggleMarkdownPreview);
+
+    // The picture loads (in the background) and takes its height.
+    let mut tall = false;
+    for _ in 0..100 {
+        harness.run_steps(1);
+        let placed = &harness.state().w.preview.placed;
+        if placed.len() == 3 && placed[1].height >= 500.0 {
+            tall = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(tall, "the picture is shown: {:?}", harness.state().w.preview.placed);
+
+    // Scroll the editor to the third section: the preview follows to it,
+    // not to where the lines alone (without the picture) would say.
+    // (Revealing a line puts it mid-view, so go well into the section.)
+    let at = text.find("c line 35.").unwrap();
+    harness.state_mut().w.reveal = Some(at);
+    harness.run_steps(4);
+    let app = harness.state();
+    let top = app.w.cursor.top_line;
+    assert!(top > 80.0, "the editor scrolled down: {top}");
+    let preview = &app.w.preview;
+    assert_eq!(preview.synced.map(|(_, line)| line), Some(Some(top)), "lined up with the editor");
+    let offset = crate::preview::offset_for(preview, top, text.split('\n').count());
+    let third = preview.placed[2];
+    assert!(offset >= third.top - 1.0 || offset >= preview.content_height - preview.view_height - 1.0, "in the third section: {offset} vs {third:?}");
+}
+
+#[test]
 fn status_bar_names_the_language_unless_highlighting_is_off() {
     let dir = TempDir::new("lang");
     let file = dir.file("script.py", "print('hi')\n");
@@ -700,14 +740,52 @@ fn quitting_asks_about_unsaved_tabs_in_other_windows() {
 }
 
 #[test]
+fn untitled_documents_are_kept_across_a_quit_without_asking() {
+    let dir = TempDir::new("keep-untitled");
+    let a = dir.file("a.txt", "A");
+    let mut harness = harness(Settings::default(), vec![a.clone()]);
+    execute(&mut harness, Command::New);
+    harness.state_mut().w.tabs.active_mut().doc.text.push_str("A thought for later");
+    // An empty untitled tab isn't worth keeping.
+    execute(&mut harness, Command::New);
+
+    // Running: the occasional save leaves them to crash recovery.
+    assert!(harness.state().all_sessions().0.untitled.is_empty());
+
+    execute(&mut harness, Command::Quit);
+    assert!(harness.state().windows().all(|w| w.pending.is_none()), "nothing to ask about");
+    assert!(harness.state().allow_close);
+    let (main, _) = harness.state().all_sessions();
+    assert_eq!(main.files, vec![a.clone()]);
+    assert_eq!(main.untitled.len(), 1);
+    assert_eq!((main.untitled[0].at, main.untitled[0].record.text.as_str()), (1, "A thought for later"));
+
+    // Next launch: back where it was, still unsaved.
+    let settings = Settings { session: main, ..Settings::default() };
+    let harness = self::harness(settings, vec![]);
+    let tabs: Vec<_> = harness.state().w.tabs.iter().map(|t| (t.doc.display_name(), t.doc.text.clone(), t.doc.is_dirty())).collect();
+    assert_eq!(tabs, vec![("a.txt".into(), "A".into(), false), ("Untitled".into(), "A thought for later".into(), true)]);
+}
+
+#[test]
+fn untitled_documents_are_asked_about_when_tabs_arent_reopened() {
+    let settings = Settings { reopen_at_launch: false, ..Settings::default() };
+    let mut harness = harness(settings, vec![]);
+    harness.state_mut().w.tabs.active_mut().doc.text.push_str("Scratch");
+    execute(&mut harness, Command::Quit);
+    assert!(harness.state().w.pending.is_some(), "asked");
+    assert!(!harness.state().allow_close);
+}
+
+#[test]
 fn windows_are_restored_at_launch() {
     let dir = TempDir::new("restorewin");
     let a = dir.file("a.txt", "A");
     let b = dir.file("b.txt", "B");
     let c = dir.file("c.txt", "C");
     let settings = Settings {
-        session: crate::settings::Session { files: vec![a.clone()], active: 0 },
-        other_windows: vec![crate::settings::Session { files: vec![b.clone(), c.clone()], active: 1 }],
+        session: crate::settings::Session { files: vec![a.clone()], active: 0, ..Default::default() },
+        other_windows: vec![crate::settings::Session { files: vec![b.clone(), c.clone()], active: 1, ..Default::default() }],
         ..Settings::default()
     };
     let harness = harness(settings, vec![]);
@@ -837,7 +915,7 @@ fn reopening_at_launch_can_be_turned_off() {
     let dir = TempDir::new("noreopen");
     let a = dir.file("a.txt", "A");
     let settings = Settings {
-        session: crate::settings::Session { files: vec![a], active: 0 },
+        session: crate::settings::Session { files: vec![a], active: 0, ..Default::default() },
         reopen_at_launch: false,
         ..Settings::default()
     };

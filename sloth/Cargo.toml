@@ -1,12 +1,15 @@
 [package]
 name = "sloth"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 
 [dependencies]
 sloth-core = { path = "../core" }
 eframe = { version = "0.37.0", features = ["persistence"] }
-egui_commonmark = { version = "0.26", default-features = false, features = ["pulldown_cmark"] }
+egui_commonmark = { version = "0.26", default-features = false, features = ["pulldown_cmark", "load-images"] }
+# Pictures in the Markdown preview: loading files, and the formats to read.
+egui_extras = { version = "0.37", default-features = false, features = ["file", "image"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 encoding_rs = "0.8.44"
 regex = "1.13.2"
 rfd = "0.18.0"
@@ -16,7 +19,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 # macOS bindings (already used by muda): window tabbing.
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSFont", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSText", "NSTextView", "NSView", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSDocumentController", "NSFont", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSText", "NSTextView", "NSView", "NSWindow"] }
+# For the Dock menu's recent files (NSDocumentController takes file URLs).
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
 muda = "0.21.2"
 # Same major version eframe uses; needed only to tweak the macOS menu.
 winit = "0.30"

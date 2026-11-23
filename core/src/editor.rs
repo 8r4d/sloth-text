@@ -141,6 +141,9 @@ pub struct CursorInfo {
     /// Where the cursor is on screen, if the editor has one (for a popup
     /// beside it, such as the app's suggestions).
     pub cursor_rect: Option<Rect>,
+    /// The line at the top of the view (0-based), with the fraction of it
+    /// scrolled past: for a preview to scroll along.
+    pub top_line: f32,
 }
 
 /// Each tab has its own text widget, so cursor, undo history and scroll
@@ -764,6 +767,7 @@ pub fn show(
                     ui.scroll_to_rect(rect.expand(8.0), Some(Align::Center));
                 }
 
+                info.top_line = top_line(&output, ui.clip_rect().min.y);
                 if let Some(gutter) = gutter_rect {
                     paint_line_numbers(ui, gutter, &output, &font);
                 }
@@ -1142,6 +1146,27 @@ impl Faces {
             format.color = color.gamma_multiply(0.75);
         }
     }
+}
+
+/// Which line of the text is at `top` (the top of the view, on screen):
+/// 0-based, plus how far through it (a wrapped line has several rows).
+fn top_line(output: &egui::text_edit::TextEditOutput, top: f32) -> f32 {
+    let rows = &output.galley.rows;
+    let mut line = 0usize;
+    let mut line_top: Option<f32> = None;
+    for (i, row) in rows.iter().enumerate() {
+        let y = output.galley_pos.y + row.pos.y;
+        let start = *line_top.get_or_insert(y);
+        if row.ends_with_newline || i + 1 == rows.len() {
+            let bottom = y + row.height();
+            if bottom > top {
+                return line as f32 + ((top - start) / (bottom - start).max(1.0)).clamp(0.0, 1.0);
+            }
+            line += 1;
+            line_top = None;
+        }
+    }
+    line as f32
 }
 
 fn paint_line_numbers(

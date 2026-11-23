@@ -218,6 +218,7 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
         // Keep the original's permissions (e.g. an executable script).
         if let Ok(meta) = fs::metadata(&target) {
             fs::set_permissions(&temp, meta.permissions())?;
+            keep_attributes(&target, &file, &temp, &meta);
         }
         fs::rename(&temp, &target)
     })();
@@ -236,6 +237,34 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     }
 }
 
+/// What the swap in `write_atomically` would otherwise lose, copied from the
+/// original onto the new file: its extended attributes (Finder tags and
+/// colour labels, where it was downloaded from…), its access list, and its
+/// creation date. Best effort: the words matter more than these.
+#[cfg(target_os = "macos")]
+fn keep_attributes(original: &Path, new: &File, new_path: &Path, meta: &fs::Metadata) {
+    use std::ffi::CString;
+    use std::os::macos::fs::FileTimesExt;
+    use std::os::unix::ffi::OsStrExt;
+
+    unsafe extern "C" {
+        // copyfile(3), from the system library.
+        fn copyfile(from: *const std::ffi::c_char, to: *const std::ffi::c_char, state: *mut std::ffi::c_void, flags: u32) -> i32;
+    }
+    const COPYFILE_ACL: u32 = 1 << 0;
+    const COPYFILE_XATTR: u32 = 1 << 2;
+    if let (Ok(from), Ok(to)) = (CString::new(original.as_os_str().as_bytes()), CString::new(new_path.as_os_str().as_bytes())) {
+        // SAFETY: two valid C strings for paths, no state, documented flags.
+        unsafe { copyfile(from.as_ptr(), to.as_ptr(), std::ptr::null_mut(), COPYFILE_ACL | COPYFILE_XATTR) };
+    }
+    if let Ok(created) = meta.created() {
+        let _ = new.set_times(fs::FileTimes::new().set_created(created));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keep_attributes(_original: &Path, _new: &File, _new_path: &Path, _meta: &fs::Metadata) {}
+
 fn no_path() -> io::Error {
     io::Error::new(io::ErrorKind::NotFound, "document has no path")
 }
@@ -249,6 +278,26 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Finder tags and other extended attributes, and the creation date,
+    /// survive a save (which swaps in a new file).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn saving_keeps_tags_attributes_and_creation_date() {
+        use std::process::Command;
+        let dir = temp_dir("xattr");
+        let path = dir.join("tagged.txt");
+        fs::write(&path, "before").unwrap();
+        let ok = Command::new("xattr").args(["-w", "com.example.sloth-test", "kept"]).arg(&path).status().unwrap();
+        assert!(ok.success());
+        let created = fs::metadata(&path).unwrap().created().unwrap();
+
+        write_atomically(&path, b"after").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "after");
+        let out = Command::new("xattr").args(["-p", "com.example.sloth-test"]).arg(&path).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "kept");
+        assert_eq!(fs::metadata(&path).unwrap().created().unwrap(), created);
     }
 
     #[test]

@@ -77,18 +77,22 @@ pick Sloth under **Open with**, and click **Change All**.
 - Cursor line/column and line count in the status bar
 - Native macOS open/save dialogs
 - Drag files onto the window to open them, or open them from Finder
-- File → Open Recent, and the tabs you had open are reopened at launch
+- File → Open Recent (also in the Dock icon's menu), and the tabs you had open
+  are reopened at launch, untitled ones included
 - Files changed by another program reload automatically, or Sloth asks if you
   have unsaved edits
 - Keeps each file's encoding (17 common ones, detected automatically) and line
   endings; File menu options to reopen, convert or change them
-- Safe saves (temporary file, then swapped into place) and crash recovery for
+- Safe saves (temporary file, then swapped into place, keeping Finder tags,
+  other extended attributes and the creation date) and crash recovery for
   unsaved documents
 - Auto-indent, indent/outdent, tabs or spaces, current-line highlight, matching
   brackets, word count, and any installed fixed-width font
 - Drag tabs to reorder them; right-click a tab for more close options
-- Syntax highlighting in theme colours, and a Markdown preview
-- Several windows, each with its own tabs; printing and Save as PDF
+- Syntax highlighting in theme colours, and a Markdown preview that shows
+  pictures and scrolls with the editor
+- Several windows, each with its own tabs; printing (in colour, with line
+  numbers) and Save as PDF
 - Asks before discarding unsaved changes (closing a tab, quitting, closing the window)
 - A `•` in the title bar marks unsaved changes
 
@@ -217,8 +221,10 @@ to include Writer.
 | `sloth/src/settings.rs` | Everything saved between launches (theme, view options, recent files, open tabs) |
 | `core/src/macos_open.rs` | Receives files opened from Finder |
 | `core/src/macos_print.rs` | Printing through the macOS print dialog |
+| `core/src/print_text.rs` | The printed text: line numbers and syntax colours |
 | `sloth/src/help.rs`     | The Help window's pages |
 | `sloth/src/settings_window.rs` | The Settings window |
+| `sloth/src/preview.rs` | The Markdown preview's sections, pictures and scrolling with the editor |
 | `scripts/make-icon.swift` | Draws the app icon (`sloth/icons/`); rerun after changing it |
 | `scripts/make-writer-icon.swift` | Draws Sloth Writer's icon (`writer/icons/`) |
 | `core/src/text_format.rs` | Encodings, byte-order marks and line endings (reading and writing) |

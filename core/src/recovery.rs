@@ -30,7 +30,7 @@ pub struct Record {
 }
 
 impl Record {
-    fn from_document(doc: &Document) -> Self {
+    pub fn from_document(doc: &Document) -> Self {
         Self {
             path: doc.path.clone(),
             text: doc.text.clone(),

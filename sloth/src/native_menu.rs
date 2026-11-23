@@ -192,7 +192,26 @@ impl NativeMenu {
         clear.set_enabled(!paths.is_empty());
         submenu.append(&clear).ok();
 
+        dock_recent(paths);
         self.shown_recent = Some(paths.to_vec());
+    }
+}
+
+/// The same files in the Dock icon's menu. macOS keeps that list for the
+/// app's document controller, so it's replaced with ours: cleared, then
+/// filled oldest first so the newest ends up on top. Choosing one opens it
+/// the way Finder does (see macos_open.rs).
+fn dock_recent(paths: &[PathBuf]) {
+    use objc2_app_kit::NSDocumentController;
+    use objc2_foundation::{NSString, NSURL};
+
+    let Some(mtm) = objc2::MainThreadMarker::new() else { return };
+    let controller = NSDocumentController::sharedDocumentController(mtm);
+    // SAFETY: called on the main thread with no sender, as a menu item would.
+    unsafe { controller.clearRecentDocuments(None) };
+    for path in paths.iter().rev() {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
+        controller.noteNewRecentDocumentURL(&url);
     }
 }
 

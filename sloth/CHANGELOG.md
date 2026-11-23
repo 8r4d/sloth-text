@@ -2,6 +2,14 @@
 
 Sloth uses semantic versioning (major.minor.patch).
 
+## 1.1.0
+
+- Untitled documents are kept when you quit: no "Save changes?" for them. They're back, still unsaved, in their place among the tabs at the next launch (while Settings → "Reopen the windows and tabs from last time" is on; with it off, Sloth asks as before).
+- Recent files are in the Dock icon's menu too, the same list as File → Open Recent.
+- The Markdown preview shows pictures (`![…](picture.png)`, relative to the document), and scrolls along with the editor. It lines up a section at a time (by heading), so tall pictures don't pull the two apart.
+- Printing keeps the code's colours (the light theme's, for paper) and its line numbers, when they're on in the View menu. Wrapped lines stay clear of the numbers.
+- Saving keeps the file's Finder tags, colour label and other extended attributes, its access list, and its creation date (they were lost when the new version was swapped in).
+
 ## 1.0.0
 
 - Settings window (⌘, or Sloth → Settings…) with every option in one place: theme, font and size, what to show, indentation, and files.

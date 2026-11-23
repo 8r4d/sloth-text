@@ -108,7 +108,7 @@ Goal: Sloth never damages a file or loses work.
 
 ## After 1.0
 
-Smaller ideas, not yet planned:
+Smaller ideas, all done in 1.1.0 ✅:
 
 - Keep untitled tabs across a normal quit (they're only kept after a crash).
 - Recent files in the Dock icon's menu.

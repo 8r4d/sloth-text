@@ -51,8 +51,21 @@ impl Default for Settings {
 #[serde(default)]
 pub struct Session {
     pub files: Vec<PathBuf>,
-    /// Index into `files` of the tab that was active.
+    /// The tab that was active, counting the files and untitled tabs
+    /// together in tab order (before untitled tabs were kept, just `files`).
     pub active: usize,
+    /// Untitled documents kept from a clean quit, with where each was in
+    /// the tab order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub untitled: Vec<KeptTab>,
+}
+
+/// An untitled document kept across a quit: its text (and format), and its
+/// place among the window's tabs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct KeptTab {
+    pub at: usize,
+    pub record: crate::recovery::Record,
 }
 
 impl Settings {

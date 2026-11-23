@@ -129,6 +129,8 @@ struct WindowState {
     closed: bool,
     /// The main window, hidden because it was closed while others are open.
     hidden: bool,
+    /// The Markdown preview's layout, for scrolling it with the editor.
+    preview: crate::preview::PreviewState,
 }
 
 impl WindowState {
@@ -158,23 +160,46 @@ impl WindowState {
             closing: false,
             closed: false,
             hidden: false,
+            preview: Default::default(),
         }
     }
 }
 
-/// The open files in a window, to reopen next launch.
-fn session_of(w: &WindowState) -> settings::Session {
+/// The open files in a window, to reopen next launch, and (`keep_untitled`)
+/// its untitled documents with their text.
+fn session_of(w: &WindowState, keep_untitled: bool) -> settings::Session {
     let active_id = w.tabs.active().id;
     let mut session = settings::Session::default();
+    let mut at = 0;
     for tab in w.tabs.iter() {
-        if let Some(path) = &tab.doc.path {
-            if tab.id == active_id {
-                session.active = session.files.len();
+        let kept = match &tab.doc.path {
+            Some(path) => {
+                session.files.push(path.clone());
+                true
             }
-            session.files.push(path.clone());
+            None if keep_untitled && !tab.doc.text.is_empty() => {
+                let record = crate::recovery::Record::from_document(&tab.doc);
+                session.untitled.push(settings::KeptTab { at, record });
+                true
+            }
+            None => false,
+        };
+        if kept {
+            if tab.id == active_id {
+                session.active = at;
+            }
+            at += 1;
         }
     }
     session
+}
+
+/// The first tab that quitting should ask about: one with unsaved changes,
+/// unless it's untitled and being kept for next time (`keep_untitled`).
+fn first_to_ask(tabs: &Tabs, keep_untitled: bool) -> Option<TabId> {
+    tabs.iter()
+        .find(|t| t.doc.is_dirty() && !t.discard_on_quit && !(keep_untitled && t.doc.path.is_none()))
+        .map(|t| t.id)
 }
 
 pub struct SlothApp {
@@ -259,6 +284,8 @@ impl SlothApp {
         };
         app.settings.theme.apply(ctx);
         app.apply_fonts(ctx);
+        // Pictures in the Markdown preview.
+        egui_extras::install_image_loaders(ctx);
 
         // Reopen the windows and tabs from last time, then any files we were
         // asked to open.
@@ -288,12 +315,26 @@ impl SlothApp {
 
     fn restore_session(&mut self, session: settings::Session) {
         let mut active = None;
-        for (i, path) in session.files.into_iter().enumerate() {
-            if path.exists() {
-                self.open_path(path);
-                if i == session.active {
-                    active = Some(self.w.tabs.active().id);
+        let total = session.files.len() + session.untitled.len();
+        let mut files = session.files.into_iter();
+        let mut kept: std::collections::HashMap<usize, crate::recovery::Record> =
+            session.untitled.into_iter().map(|k| (k.at, k.record)).collect();
+        for i in 0..total {
+            // An untitled document kept from last time, still unsaved.
+            let opened = if let Some(record) = kept.remove(&i) {
+                self.w.tabs.open(record.into_document());
+                true
+            } else {
+                match files.next() {
+                    Some(path) if path.exists() => {
+                        self.open_path(path);
+                        true
+                    }
+                    _ => false,
                 }
+            };
+            if opened && i == session.active {
+                active = Some(self.w.tabs.active().id);
             }
         }
         if let Some(id) = active {
@@ -666,11 +707,24 @@ impl SlothApp {
 
     fn print(&mut self) {
         let doc = &self.w.tabs.active().doc;
+        // Coloured and numbered as the editor shows it, in the light theme's
+        // colours (it's going on white paper).
+        let e = &self.settings.editor;
+        let spans = e
+            .syntax_highlighting
+            .then(|| syntax::detect(doc.path.as_deref(), &doc.text))
+            .flatten()
+            .map(|syntax| {
+                let colors = sloth_core::theme::ThemeChoice::Light.syntax_colors(false);
+                syntax::HighlightCache::default().highlight(&doc.text, syntax, colors)
+            })
+            .unwrap_or_default();
+        let page = sloth_core::print_text::layout(&doc.text, &spans, e.show_line_numbers);
         #[cfg(target_os = "macos")]
-        crate::macos_print::print(&doc.display_name(), &doc.text, self.settings.editor.font.as_deref());
+        crate::macos_print::print(&doc.display_name(), &page, e.font.as_deref());
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = doc;
+            let _ = page;
             self.w.status = Some("Printing is only available on macOS".into());
         }
     }
@@ -685,19 +739,50 @@ impl SlothApp {
         let fill = ui.visuals().extreme_bg_color;
         let panel = self.panel_id("markdown-preview");
         let doc = &self.w.tabs.active().doc;
+        let tab = self.w.tabs.active().id;
+        let sections = crate::preview::sections(&doc.text, doc.path.as_deref().and_then(|p| p.parent()));
+        let total_lines = doc.text.split('\n').count();
+        let top = self.w.cursor.top_line;
         let cache = &mut self.markdown_cache;
+        let state = &mut self.w.preview;
+        // Follow the editor when it's moved (or another tab is showing), so
+        // the preview can still be scrolled on its own meanwhile.
+        let follow = !matches!(state.synced, Some((t, Some(line))) if t == tab && (line - top).abs() <= 0.01);
         egui::Panel::right(panel)
             .resizable(true)
             .default_size(width / 2.0)
             .size_range(200.0..=width * 0.8)
             .frame(egui::Frame::NONE.fill(fill).inner_margin(Margin::symmetric(16, 10)))
             .show(ui, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("markdown-preview-scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        egui_commonmark::CommonMarkViewer::new().show(ui, cache, &doc.text);
-                    });
+                let mut area = egui::ScrollArea::vertical().id_salt("markdown-preview-scroll").auto_shrink([false, false]);
+                // Last frame's layout is this tab's: line it up with the editor.
+                let laid_out = state.synced.is_some_and(|(t, _)| t == tab);
+                if follow && laid_out {
+                    area = area.vertical_scroll_offset(crate::preview::offset_for(state, top, total_lines));
+                }
+                let image_width = ui.available_width().max(1.0) as usize;
+                let out = area.show(ui, |ui| {
+                    let origin = ui.cursor().top();
+                    let mut placed = Vec::with_capacity(sections.len());
+                    for (i, section) in sections.iter().enumerate() {
+                        let top = ui.cursor().top() - origin;
+                        ui.push_id(("preview-section", i), |ui| {
+                            egui_commonmark::CommonMarkViewer::new()
+                                .max_image_width(Some(image_width))
+                                .show(ui, cache, &section.text);
+                        });
+                        let height = ui.cursor().top() - origin - top;
+                        placed.push(crate::preview::Placed { first_line: section.first_line, lines: section.lines, top, height });
+                    }
+                    placed
+                });
+                state.placed = out.inner;
+                state.content_height = out.content_size.y;
+                state.view_height = out.inner_rect.height();
+                if follow {
+                    // Lined up now, or (first frame for this tab) next frame.
+                    state.synced = Some((tab, laid_out.then_some(top)));
+                }
             });
     }
 
@@ -790,14 +875,16 @@ impl SlothApp {
         }
     }
 
-    /// Ask about each tab with unsaved changes, then quit.
+    /// Ask about each tab with unsaved changes (untitled ones are kept for
+    /// next time instead, if tabs are reopened at launch), then quit.
     fn request_quit(&mut self, ctx: &egui::Context) {
-        if let Some(id) = self.w.tabs.first_unsaved() {
+        let keep = self.keeps_untitled();
+        if let Some(id) = first_to_ask(&self.w.tabs, keep) {
             self.w.tabs.activate(id);
             self.w.pending = Some(PendingAction::Quit);
-        } else if let Some(other) = self.others.iter_mut().find(|w| w.tabs.first_unsaved().is_some()) {
+        } else if let Some(other) = self.others.iter_mut().find(|w| first_to_ask(&w.tabs, keep).is_some()) {
             // Ask in the other window, and bring it to the front.
-            let id = other.tabs.first_unsaved().expect("checked above");
+            let id = first_to_ask(&other.tabs, keep).expect("checked above");
             other.tabs.activate(id);
             other.pending = Some(PendingAction::Quit);
             ctx.send_viewport_cmd_to(other.viewport, ViewportCommand::Focus);
@@ -1148,21 +1235,31 @@ impl SlothApp {
     /// The open files in the current window, to reopen next launch.
     #[cfg(test)]
     fn session(&self) -> settings::Session {
-        session_of(&self.w)
+        session_of(&self.w, false)
     }
 
-    /// Main window, then the other windows that have files open.
+    /// Untitled documents are kept across a quit when windows and tabs are
+    /// reopened at launch.
+    fn keeps_untitled(&self) -> bool {
+        self.settings.reopen_at_launch
+    }
+
+    /// Main window, then the other windows that have files open. Untitled
+    /// documents go in only on a clean quit: the saves made now and then
+    /// while running leave them to crash recovery, so a crash can't bring
+    /// them back twice.
     fn all_sessions(&self) -> (settings::Session, Vec<settings::Session>) {
+        let keep = self.allow_close && self.keeps_untitled();
         let main = self
             .windows()
             .find(|w| w.viewport == ViewportId::ROOT)
-            .map(session_of)
+            .map(|w| session_of(w, keep))
             .unwrap_or_default();
         let others = self
             .windows()
             .filter(|w| w.viewport != ViewportId::ROOT && !w.closed)
-            .map(session_of)
-            .filter(|s| !s.files.is_empty())
+            .map(|w| session_of(w, keep))
+            .filter(|s| !s.files.is_empty() || !s.untitled.is_empty())
             .collect();
         (main, others)
     }

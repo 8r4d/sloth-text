@@ -3,6 +3,7 @@ mod commands;
 mod help;
 #[cfg(target_os = "macos")]
 mod native_menu;
+mod preview;
 mod settings;
 mod settings_window;
 mod version;
