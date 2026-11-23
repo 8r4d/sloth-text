@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.18.0
+
+- Replace: Replace… in the find bar (⌘F) replaces the selected match and moves to the next, or Replace All in the document. Regular expressions can use `$1` in the replacement, as in Sloth.
+- Replace in the whole project: with the project's matches showing (⇧⌘F, or Whole Project in the find bar), Replace All replaces in every document outside the Trash. It asks first, saying how many it'll change, and takes a snapshot of each document before changing it, so any can be put back from its Snapshots.
+
 ## 1.17.0
 
 - Twenty more colour themes, 26 in all (Settings → Appearance → Theme), grouped into light and dark. For writing: Paper (a soft white page) and Lamplight (warm and low-glare, for night). Also GitHub, One, Gruvbox, Catppuccin, Rosé Pine and Everforest in light and dark, Nord, Dracula, Tokyo Night and Monokai, and a High Contrast pair.

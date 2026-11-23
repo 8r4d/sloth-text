@@ -389,6 +389,69 @@ fn project_search_lists_every_document_and_jumps_to_a_match() {
 }
 
 #[test]
+fn replace_one_at_a_time_or_all_in_the_open_document() {
+    let dir = TempDir::new("replace");
+    let mut harness = harness(project(&dir, "the cat and the hat and the bat"));
+    harness.state_mut().open_find(false);
+    type_text(&mut harness, "the");
+    harness.get_by_label("Replace…").click();
+    harness.run_steps(2);
+    harness.state_mut().find.replacement = "a".into();
+
+    // Replace: the selected match, then on to the next.
+    harness.get_by_label("Replace").click();
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a cat and the hat and the bat"));
+    assert_eq!(harness.state().find.current, Some(10..13), "on to the next");
+
+    harness.get_by_label("Replace All").click();
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a cat and a hat and a bat"));
+    assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m == "Replaced 2 occurrences"));
+}
+
+#[test]
+fn replace_all_in_the_project_asks_and_snapshots_first() {
+    let dir = TempDir::new("replace-project");
+    let mut p = project(&dir, "The ferry left. The ferry came back.");
+    let first = p.documents().into_iter().find(|n| n.title == "Untitled").unwrap().id.clone();
+    let second = p.add_document(&Place::Into("notes".into()), "Timetable").unwrap();
+    fs::write(p.file_path(&second).unwrap(), "ferry at noon").unwrap();
+    let cut = p.add_document(&Place::Into("manuscript".into()), "Cut").unwrap();
+    fs::write(p.file_path(&cut).unwrap(), "a ferry in the bin").unwrap();
+    p.trash(&cut).unwrap();
+    let mut harness = harness(p);
+
+    harness.state_mut().open_find(true);
+    type_text(&mut harness, "ferry");
+    harness.get_by_label("Replace…").click();
+    harness.run_steps(2);
+    harness.state_mut().find.replacement = "boat".into();
+    harness.get_by_label("Replace All").click();
+    harness.run_steps(2);
+
+    // It asks first, with what it'll do.
+    assert_eq!(harness.state().confirm_project_replace, Some((3, 2)));
+    harness.get_by_label("Replace 3 occurrences in 2 documents?");
+    harness.get_all_by_label("Replace All").last().unwrap().click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().confirm_project_replace, None);
+
+    assert_eq!(current_text(&mut harness).as_deref(), Some("The boat left. The boat came back."));
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(fs::read_to_string(project.file_path(&second).unwrap()).unwrap(), "boat at noon");
+    assert_eq!(fs::read_to_string(project.file_path(&cut).unwrap()).unwrap(), "a ferry in the bin", "not in the Trash");
+    // Each changed document has a snapshot of how it was.
+    for (id, was) in [(&first, "The ferry left. The ferry came back."), (&second, "ferry at noon")] {
+        let snaps = crate::snapshots::list(&dir.0, id);
+        assert_eq!(snaps.len(), 1);
+        assert!(snaps[0].name.contains("Before replacing"), "{:?}", snaps[0].name);
+        assert_eq!(fs::read_to_string(&snaps[0].path).unwrap(), was);
+    }
+    assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m.starts_with("Replaced 3 occurrences in 2 documents")));
+}
+
+#[test]
 fn project_search_sees_unsaved_edits() {
     let dir = TempDir::new("find-unsaved");
     let mut harness = harness(project(&dir, "nothing here"));

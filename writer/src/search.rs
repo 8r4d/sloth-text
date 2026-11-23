@@ -3,6 +3,10 @@
 //! in every document in the project (outside the Trash); clicking one opens
 //! that document at the match. The search itself, the find bar and the
 //! results panel come from core, as in Sloth.
+//!
+//! Replace… in the find bar replaces in the open document, one at a time or
+//! all. With the whole project's matches showing, Replace All replaces in
+//! every document, after asking, and snapshots each one it changes first.
 
 use std::fs;
 use std::ops::Range;
@@ -14,6 +18,7 @@ use sloth_core::find::{self, FindAction, FindBarInfo};
 use sloth_core::search_results::{self, ResultRow, ResultsAction, ResultsWording, TabResults};
 
 use super::WriterApp;
+use crate::snapshots;
 
 /// While the project results are shown, they're rebuilt this often (as
 /// well as whenever the search changes), so they keep up with typing.
@@ -62,8 +67,16 @@ impl WriterApp {
             }
             FindAction::Next => self.find_step(ctx, Direction::Next),
             FindAction::Previous => self.find_step(ctx, Direction::Previous),
-            // The find bar doesn't offer Replace in Writer yet.
-            FindAction::Replace | FindAction::ReplaceAll => {}
+            FindAction::Replace => self.replace_current(ctx),
+            // With the project's matches showing, everywhere (after asking).
+            FindAction::ReplaceAll if self.show_results => {
+                self.search_project();
+                let count = self.results.iter().map(|r| r.rows.len()).sum();
+                if count > 0 {
+                    self.confirm_project_replace = Some((count, self.results.len()));
+                }
+            }
+            FindAction::ReplaceAll => self.replace_all_here(ctx),
             FindAction::ToggleResults => {
                 self.show_results = !self.show_results;
                 self.results_key = None;
@@ -72,6 +85,135 @@ impl WriterApp {
                 self.find.close();
                 self.show_results = false;
                 self.focus_editor = true;
+            }
+        }
+    }
+
+    /// Replace the match that's selected, then go on to the next. With none
+    /// selected yet, the first press just finds one.
+    fn replace_current(&mut self, ctx: &egui::Context) {
+        let matches = self.current_matches().unwrap_or_default();
+        let Some(current) = self.find.current.clone().filter(|c| matches.contains(c)) else {
+            self.find_step(ctx, Direction::Next);
+            return;
+        };
+        let (query, replacement, options) = (self.find.query.clone(), self.find.replacement.clone(), self.find.options);
+        let Some(tab) = self.current() else { return };
+        let with = match find::replacement_for(&tab.doc.text, current.clone(), &query, &replacement, options) {
+            Ok(with) => with,
+            Err(e) => {
+                let now = ctx.input(|i| i.time);
+                self.set_status(format!("Can't replace: {e}"), now);
+                return;
+            }
+        };
+        tab.doc.text.replace_range(current.clone(), &with);
+        let after = find::byte_to_char(&tab.doc.text, current.start + with.len());
+        let id = tab.id;
+        editor::set_selection(ctx, id, after..after);
+        self.find.current = None;
+        self.find_step(ctx, Direction::Next);
+    }
+
+    /// Replace every match in the open document.
+    fn replace_all_here(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        let (query, replacement, options) = (self.find.query.clone(), self.find.replacement.clone(), self.find.options);
+        let Some(tab) = self.current() else { return };
+        match find::replace_all(&tab.doc.text, &query, &replacement, options) {
+            Ok((_, 0)) => {}
+            Ok((text, count)) => {
+                tab.doc.text = text;
+                let id = tab.id;
+                editor::set_selection(ctx, id, 0..0);
+                self.find.current = None;
+                self.set_status(format!("Replaced {}", occurrences(count)), now);
+            }
+            Err(e) => self.set_status(format!("Can't replace: {e}"), now),
+        }
+    }
+
+    /// Replace every match in every document outside the Trash. Each one
+    /// that changes is snapshotted first, so it can be put back.
+    pub(super) fn replace_in_project(&mut self, now: f64) {
+        self.save_all();
+        let (query, replacement, options) = (self.find.query.clone(), self.find.replacement.clone(), self.find.options);
+        let Some(project) = &self.project else { return };
+        let root = project.root.clone();
+        let ids: Vec<String> = project.documents().into_iter().map(|n| n.id.clone()).collect();
+        let snapshot_name = format!("Before replacing \u{201c}{query}\u{201d}");
+        let (mut total, mut documents, mut failed) = (0, 0, Vec::new());
+        for id in ids {
+            let Some(text) = self.document_text(&id) else { continue };
+            let (new, count) = match find::replace_all(&text, &query, &replacement, options) {
+                Ok(result) => result,
+                Err(e) => {
+                    self.set_status(format!("Can't replace: {e}"), now);
+                    return;
+                }
+            };
+            if count == 0 {
+                continue;
+            }
+            // No snapshot, no change: nothing is replaced that can't be put back.
+            if let Err(e) = snapshots::take(&root, &id, &text, &snapshot_name) {
+                failed.push(format!("{} ({e})", self.title_of_node(&id)));
+                continue;
+            }
+            if let Some(tab) = self.tab_of(&id) {
+                tab.doc.text = new.clone();
+            } else {
+                let Some(path) = self.project.as_ref().and_then(|p| p.file_path(&id)) else { continue };
+                if let Err(e) = sloth_core::document::write_atomically(&path, new.as_bytes()) {
+                    failed.push(format!("{} ({e})", self.title_of_node(&id)));
+                    continue;
+                }
+            }
+            self.note_words(&id, &new);
+            total += count;
+            documents += 1;
+        }
+        self.save_all();
+        self.find.current = None;
+        self.results_key = None;
+        self.backlinks = None;
+        if !failed.is_empty() {
+            self.error = Some(format!("Left unchanged: {}", failed.join(", ")));
+        }
+        let docs = if documents == 1 { "1 document".to_owned() } else { format!("{documents} documents") };
+        self.set_status(format!("Replaced {} in {docs} (each has a snapshot from before)", occurrences(total)), now);
+    }
+
+    fn title_of_node(&self, id: &str) -> String {
+        self.project.as_ref().and_then(|p| p.node(id)).map(|n| n.title.clone()).unwrap_or_default()
+    }
+
+    /// Asking before Replace All goes through the whole project.
+    pub(super) fn project_replace_dialog(&mut self, ctx: &egui::Context) {
+        let Some((count, documents)) = self.confirm_project_replace else { return };
+        let mut answer = None;
+        egui::Modal::new(egui::Id::unique("project-replace")).show(ctx, |ui| {
+            let docs = if documents == 1 { "1 document".to_owned() } else { format!("{documents} documents") };
+            ui.heading(format!("Replace {} in {docs}?", occurrences(count)));
+            ui.label(format!(
+                "\u{201c}{}\u{201d} becomes \u{201c}{}\u{201d} everywhere in the project (not in the Trash).",
+                self.find.query, self.find.replacement
+            ));
+            ui.label(egui::RichText::new("Each document is snapshotted first, so you can put it back from its Snapshots.").small().weak());
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Replace All").clicked() {
+                    answer = Some(true);
+                }
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    answer = Some(false);
+                }
+            });
+        });
+        if let Some(yes) = answer {
+            self.confirm_project_replace = None;
+            if yes {
+                self.replace_in_project(ctx.input(|i| i.time));
             }
         }
     }
@@ -192,7 +334,7 @@ impl WriterApp {
             results_open: self.show_results,
             results_label: "Whole Project",
             results_hint: "List matches in every document in the project (\u{21e7}\u{2318}F)",
-            allow_replace: false,
+            allow_replace: true,
         };
         let action = egui::Panel::top(egui::Id::unique("find"))
             .show(ui, |ui| find::find_bar(ui, &mut self.find, info))
@@ -239,4 +381,9 @@ impl WriterApp {
             None => {}
         }
     }
+}
+
+/// "1 occurrence", "3 occurrences".
+fn occurrences(n: usize) -> String {
+    if n == 1 { "1 occurrence".to_owned() } else { format!("{n} occurrences") }
 }

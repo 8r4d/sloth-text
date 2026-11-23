@@ -92,6 +92,9 @@ pub struct WriterApp {
     /// The search the results were built for, and when.
     results_key: Option<(String, FindOptions)>,
     results_at: f64,
+    /// Replace All in the whole project, waiting to be confirmed: how many
+    /// matches, in how many documents.
+    confirm_project_replace: Option<(usize, usize)>,
 
     // Inspector (see inspector.rs).
     show_inspector: bool,
@@ -230,6 +233,7 @@ impl WriterApp {
             results_error: None,
             results_key: None,
             results_at: 0.0,
+            confirm_project_replace: None,
             show_inspector: true,
             show_binder: true,
             focus_mode: false,
@@ -1505,6 +1509,7 @@ impl eframe::App for WriterApp {
         }
         self.create_menu_ui(&ctx);
         self.empty_trash_dialog(&ctx);
+        self.project_replace_dialog(&ctx);
         self.labels_window(&ctx);
         self.statuses_window(&ctx);
         self.compile_window(&ctx);
