@@ -45,6 +45,8 @@ use crate::project::{MANIFEST_FILE, Meta, Node, PathChange, Place, Project, Role
 const LAST_PROJECT_KEY: &str = "last_project";
 /// Unsaved edits are written this often, and when switching documents.
 const AUTOSAVE_SECONDS: f64 = 2.0;
+/// How often to see whether the day's automatic backup is due.
+const BACKUP_CHECK_SECONDS: f64 = 600.0;
 /// While the window is in front, open files are checked for changes made by
 /// other programs this often (and whenever it comes back to the front).
 const DISK_CHECK_SECONDS: f64 = 2.0;
@@ -90,6 +92,8 @@ pub struct WriterApp {
     // Inspector (see inspector.rs).
     show_inspector: bool,
     show_binder: bool,
+    /// When the daily backup was last looked for (seconds, egui's clock).
+    last_backup_check: f64,
     inspector_buffers: Option<inspector::Buffers>,
     editing_labels: bool,
     word_cache: inspector::WordCache,
@@ -201,6 +205,7 @@ impl WriterApp {
             results_at: 0.0,
             show_inspector: true,
             show_binder: true,
+            last_backup_check: 0.0,
             inspector_buffers: None,
             editing_labels: false,
             word_cache: inspector::WordCache::default(),
@@ -296,6 +301,7 @@ impl WriterApp {
 
     fn close_project(&mut self) {
         self.save_all();
+        self.auto_backup(crate::backup::When::Closing);
         self.project = None;
         self.selected = None;
         self.docs = Tabs::new();
@@ -458,6 +464,7 @@ impl WriterApp {
     /// could lose words; that document is shown instead.
     fn before_close(&mut self) -> bool {
         self.save_all();
+        self.auto_backup(crate::backup::When::Closing);
         let Some(id) = self.unresolved_change() else { return true };
         self.select(id);
         let name = self.current().map(|t| t.doc.display_name()).unwrap_or_default();
@@ -612,6 +619,18 @@ impl WriterApp {
                 self.set_status(format!("Backed up to {}", path.display()), now);
             }
             Err(e) => self.error = Some(format!("Couldn't back up the project: {e}")),
+        }
+    }
+
+    /// An automatic backup, if they're on and one is due (see backup.rs).
+    fn auto_backup(&mut self, when: crate::backup::When) {
+        if !self.settings.auto_backup {
+            return;
+        }
+        let Some(project) = &self.project else { return };
+        let keep = self.settings.backup_keep.max(1) as usize;
+        if let Err(e) = crate::backup::automatic(&project.root, project.title(), &self.settings.backups_root(), keep, when) {
+            self.error = Some(format!("Couldn't back up the project automatically: {e}"));
         }
     }
 
@@ -1151,6 +1170,11 @@ impl eframe::App for WriterApp {
         if now - self.last_autosave >= AUTOSAVE_SECONDS {
             self.save_all();
             self.last_autosave = now;
+        }
+        // Every so often, see whether today's backup is due.
+        if now - self.last_backup_check >= BACKUP_CHECK_SECONDS {
+            self.last_backup_check = now;
+            self.auto_backup(crate::backup::When::Daily);
         }
         if self.any_unsaved() {
             ctx.request_repaint_after(Duration::from_secs_f64(AUTOSAVE_SECONDS));

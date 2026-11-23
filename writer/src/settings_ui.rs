@@ -30,6 +30,13 @@ pub struct WriterSettings {
     pub spell_check: bool,
     /// How tall a document's notes panel is (dragged by its bottom edge).
     pub notes_height: f32,
+    /// Back up automatically: when a project closes, and once a day.
+    pub auto_backup: bool,
+    /// How many automatic backups to keep, per project.
+    pub backup_keep: u32,
+    /// Where automatic backups go (each project in a folder of its own);
+    /// `None` for ~/Library/Application Support/Sloth Writer/Backups.
+    pub auto_backup_folder: Option<String>,
     /// Where the last backup went, to offer it next time.
     pub backup_folder: Option<String>,
     /// The iPad helper's address (its token is in the Keychain).
@@ -48,6 +55,10 @@ impl Default for WriterSettings {
             show_markdown: true,
             spell_check: true,
             notes_height: 140.0,
+            // Not while testing: tests close projects all the time.
+            auto_backup: !cfg!(test),
+            backup_keep: 10,
+            auto_backup_folder: None,
             backup_folder: None,
             helper_url: String::new(),
             theme: ThemeChoice::default(),
@@ -56,6 +67,11 @@ impl Default for WriterSettings {
 }
 
 impl WriterSettings {
+    /// Where automatic backups go.
+    pub fn backups_root(&self) -> std::path::PathBuf {
+        self.auto_backup_folder.as_deref().map_or_else(crate::backup::default_root, std::path::PathBuf::from)
+    }
+
     /// The editor's settings: prose, not code.
     pub fn editor(&self) -> EditorSettings {
         EditorSettings {
@@ -94,6 +110,11 @@ impl WriterApp {
         if !self.settings_open {
             return;
         }
+        // When the open project was last backed up automatically.
+        let last_backup = self.project.as_ref().and_then(|p| {
+            let (_, made) = crate::backup::newest(&crate::backup::auto_folder(&self.settings.backups_root(), &p.root))?;
+            Some(chrono::DateTime::<chrono::Local>::from(made).format("%-d %B %Y, %H:%M").to_string())
+        });
         let before = self.settings.clone();
         let settings = &mut self.settings;
         let filter = &mut self.font_filter;
@@ -181,6 +202,34 @@ impl WriterApp {
                             ui.selectable_value(&mut settings.theme, *choice, choice.label());
                         }
                     });
+                });
+
+                group(ui, "Backups");
+                ui.checkbox(&mut settings.auto_backup, "Back up automatically when a project closes, and once a day");
+                row(ui, "Keep", &mut |ui| {
+                    ui.add(egui::DragValue::new(&mut settings.backup_keep).range(1..=100).suffix(" backups of each project"));
+                });
+                row(ui, "Folder", &mut |ui| {
+                    let root = settings.backups_root();
+                    ui.add(egui::Label::new(RichText::new(root.display().to_string()).small()).truncate())
+                        .on_hover_text(root.display().to_string());
+                    ui.horizontal(|ui| {
+                        if ui.button("Choose\u{2026}").clicked()
+                            && let Some(folder) = rfd::FileDialog::new().set_title("Back Up Projects To…").set_directory(&root).pick_folder()
+                        {
+                            settings.auto_backup_folder = Some(folder.to_string_lossy().into_owned());
+                        }
+                        if ui.button("Show in Finder").clicked() {
+                            let _ = std::fs::create_dir_all(&root);
+                            let _ = std::process::Command::new("open").arg(&root).spawn();
+                        }
+                        if settings.auto_backup_folder.is_some() && ui.button("Use the Default").clicked() {
+                            settings.auto_backup_folder = None;
+                        }
+                    });
+                    if let Some(made) = &last_backup {
+                        ui.weak(format!("This project's last automatic backup: {made}"));
+                    }
                 });
 
                 group(ui, "iPad Helper");

@@ -1550,3 +1550,24 @@ fn undo_takes_back_a_formatting_edit_on_its_own() {
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("a word here!"));
 }
+
+#[test]
+fn closing_a_project_backs_it_up_automatically() {
+    let dir = TempDir::new("auto-backup");
+    let out = TempDir::new("auto-backup-out");
+    let mut harness = harness(project(&dir, "Words."));
+    {
+        let app = harness.state_mut();
+        app.settings.auto_backup = true;
+        app.settings.auto_backup_folder = Some(out.0.to_string_lossy().into_owned());
+        app.current().unwrap().doc.text.push_str(" More.");
+    }
+    harness.state_mut().close_project();
+    let folder = crate::backup::auto_folder(&out.0, &dir.0);
+    let (zip_path, _) = crate::backup::newest(&folder).expect("a backup was made");
+    let mut zip = zip::ZipArchive::new(fs::File::open(zip_path).unwrap()).unwrap();
+    let top = dir.0.file_name().unwrap().to_string_lossy().into_owned();
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name(&format!("{top}/manuscript/untitled.md")).unwrap(), &mut text).unwrap();
+    assert_eq!(text, "Words. More.", "saved first, then backed up");
+}
