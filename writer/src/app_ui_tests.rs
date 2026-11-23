@@ -2326,3 +2326,38 @@ fn a_sprint_stopped_early_isnt_kept() {
     assert!(harness.state().stats.sprints.is_empty());
     assert!(harness.state().celebration.is_none());
 }
+
+// ----- overused words ---------------------------------------------------------------------
+
+#[test]
+fn repeated_words_are_marked_and_the_most_used_listed() {
+    let dir = TempDir::new("repeats");
+    let mut harness = harness(project(&dir, "The lantern swung. She suddenly saw the lantern go out. Lantern light."));
+    harness.run_steps(2);
+    assert!(harness.query_by_label("Repeats shown").is_none());
+
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::R);
+    harness.run_steps(2);
+    harness.get_by_label("Repeats shown");
+    let visuals = harness.ctx.global_style().visuals.clone();
+    let marks = harness.state_mut().repetition_marks(&visuals);
+    let text = current_text(&mut harness).unwrap();
+    let marked: Vec<&str> = marks.iter().map(|m| &text[m.range.clone()]).collect();
+    assert_eq!(marked, ["lantern", "suddenly", "lantern", "Lantern"]);
+    assert!(marks[1].underline != egui::Color32::TRANSPARENT, "watched");
+
+    // Statistics lists the most used; clicking one finds it in the project.
+    harness.state_mut().open_stats();
+    harness.run_steps(3);
+    harness.get_by_label("lantern  3").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().find.query, "lantern");
+    assert!(harness.state().show_results);
+
+    // Click the reminder to put them away.
+    harness.state_mut().stats_open = false;
+    harness.run_steps(2);
+    harness.get_by_label("Repeats shown").click();
+    harness.run_steps(2);
+    assert!(!harness.state().settings.show_repetition);
+}

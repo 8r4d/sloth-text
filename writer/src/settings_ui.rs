@@ -78,6 +78,10 @@ pub struct WriterSettings {
     pub celebrate_goals: bool,
     /// In Focus mode, fade all but the paragraph being written in.
     pub focus_paragraph: bool,
+    /// Mark echoes and watch-list words in the open document (⌥⌘R).
+    pub show_repetition: bool,
+    /// Words and phrases to underline when they come up, commas between.
+    pub watch_words: String,
 }
 
 impl Default for WriterSettings {
@@ -104,6 +108,8 @@ impl Default for WriterSettings {
             helper_url: String::new(),
             celebrate_goals: true,
             focus_paragraph: true,
+            show_repetition: false,
+            watch_words: crate::repetition::default_watch_list().join(", "),
             theme: ThemeChoice::default(),
         }
     }
@@ -294,6 +300,11 @@ impl WriterApp {
                         .on_hover_text("Uses your Mac's spelling language and learned words. Right-click a word for suggestions.");
                     ui.checkbox(&mut settings.focus_paragraph, "In Focus mode, fade all but the paragraph you're writing")
                         .on_hover_text("The light moves with the cursor. Focus mode is \u{2325}\u{2318}F.");
+                    ui.checkbox(&mut settings.show_repetition, "Highlight repeated words (\u{2325}\u{2318}R)")
+                        .on_hover_text("A word used again within about 100 words is tinted; words you watch for are underlined.");
+                    row(ui, "Watch for", &mut |ui| {
+                        ui.add(egui::TextEdit::singleline(&mut settings.watch_words).desired_width(320.0).hint_text("just, suddenly, began to"));
+                    });
                     ui.checkbox(&mut settings.celebrate_goals, "Celebrate reaching the day's goal")
                         .on_hover_text("Once a day: the goal ring pulses, and the sloth says so.");
                     ui.add_space(4.0);

@@ -2062,6 +2062,7 @@ impl SlothApp {
         let highlights = Highlights {
             all: &matches,
             current: self.w.find.current.clone(),
+            ..Default::default()
         };
         let reveal = self.w.reveal.take();
         self.markdown_preview(ui);

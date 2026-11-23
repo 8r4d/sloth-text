@@ -2,6 +2,14 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.24.0
+
+Overused words.
+
+- Highlight Repeated Words (⌥⌘R, or More…): a word used again within about 100 words is tinted, both times, so echoes stand out; common little words don't count, nor do notes or references.
+- Words you lean on are underlined wherever they come: a watch list in Settings → Writing, starting with just, really, very, suddenly, actually, began to and the like. Phrases work too.
+- Statistics lists the manuscript's most used words; click one to find it through the project.
+
 ## 1.23.0
 
 Writing sprints.

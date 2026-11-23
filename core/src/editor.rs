@@ -120,6 +120,18 @@ impl Default for EditorSettings {
 pub struct Highlights<'a> {
     pub all: &'a [Range<usize>],
     pub current: Option<Range<usize>>,
+    /// Other marks over the text (Sloth Writer's repeated words), under
+    /// search matches.
+    pub marks: &'a [Mark],
+}
+
+/// A mark over part of the text: a tint behind it, a line under it, or both
+/// (`Color32::TRANSPARENT` for neither).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mark {
+    pub range: Range<usize>,
+    pub background: Color32,
+    pub underline: Color32,
 }
 
 /// What's needed to colour code in the editor.
@@ -369,6 +381,35 @@ fn indent_paragraphs(mut job: LayoutJob, indent: f32) -> LayoutJob {
     }
     job.sections = sections;
     job
+}
+
+/// The lines under marks that have one, just below the text's baseline
+/// (egui's own underline sits at the bottom of the row, which with wider
+/// line spacing is in the gap, and off the end on the last line).
+fn paint_mark_lines(ui: &egui::Ui, output: &egui::text_edit::TextEditOutput, text: &str, marks: &[Mark]) {
+    let painter = ui.painter();
+    let to_char = |b: usize| text.get(..b).map_or(0, |s| s.chars().count());
+    for mark in marks.iter().filter(|m| m.underline != Color32::TRANSPARENT && m.range.end <= text.len()) {
+        let at = |i| output.galley.pos_from_cursor(CCursor::new(i)).translate(output.galley_pos.to_vec2());
+        let (a, b) = (at(to_char(mark.range.start)), at(to_char(mark.range.end)));
+        // A phrase across rows is marked to the end of its first.
+        let right = if (a.top() - b.top()).abs() < 1.0 { b.left() } else { output.galley_pos.x + output.galley.rect.right() };
+        // Just under the baseline of the row the mark starts on.
+        let Some(baseline) = output
+            .galley
+            .rows
+            .iter()
+            .find(|r| {
+                let top = output.galley_pos.y + r.pos.y;
+                a.center().y >= top && a.center().y < top + r.height()
+            })
+            .and_then(|r| r.glyphs.first().map(|g| output.galley_pos.y + r.pos.y + g.pos.y))
+        else {
+            continue;
+        };
+        let y = baseline + 2.5;
+        painter.hline(a.left()..=right, y, Stroke::new(1.5, mark.underline));
+    }
 }
 
 /// A red wavy line under each misspelled word (byte ranges).
@@ -654,6 +695,8 @@ pub fn show(
                 // once we know where the cursor's row landed.
                 let behind_text = ui.painter().add(Shape::Noop);
 
+                // For the lines under marks, drawn after the text.
+                let mark_lines = highlights.marks;
                 let edit = TextEdit::multiline(text)
                     .id(editor_id(tab))
                     .font(font.clone())
@@ -727,6 +770,7 @@ pub fn show(
                 if let Some(kept) = kept {
                     set_selection(ui.ctx(), tab, kept);
                 }
+                paint_mark_lines(ui, &output, text, mark_lines);
                 if settings.spell_check {
                     // The word being typed isn't flagged until the cursor leaves it.
                     let cursor = output.cursor_range.map(|c| c.primary.index.0);
@@ -1116,7 +1160,7 @@ fn build_layout(
     hide_markers: Option<&Range<usize>>,
 ) -> LayoutJob {
     let plain = TextFormat { line_height, ..TextFormat::simple(font.clone(), color) };
-    if spans.is_empty() && highlights.all.is_empty() && styles.is_empty() {
+    if spans.is_empty() && highlights.all.is_empty() && highlights.marks.is_empty() && styles.is_empty() {
         return LayoutJob::single_section(text.to_owned(), plain);
     }
 
@@ -1150,12 +1194,16 @@ fn build_layout(
     for (r, _) in styles {
         cuts.extend([r.start, r.end]);
     }
+    let marks: Vec<&Mark> = highlights.marks.iter().filter(|m| valid(&m.range)).collect();
+    for m in &marks {
+        cuts.extend([m.range.start, m.range.end]);
+    }
     cuts.retain(|&c| c <= text.len() && text.is_char_boundary(c));
     cuts.sort_unstable();
     cuts.dedup();
 
     let mut job = LayoutJob::default();
-    let (mut si, mut bi, mut mi) = (0, 0, 0);
+    let (mut si, mut bi, mut mi, mut ki) = (0, 0, 0, 0);
     for pair in cuts.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         while si < spans.len() && spans[si].range.end <= a {
@@ -1166,6 +1214,9 @@ fn build_layout(
         }
         while mi < styles.len() && styles[mi].0.end <= a {
             mi += 1;
+        }
+        while ki < marks.len() && marks[ki].range.end <= a {
+            ki += 1;
         }
         let mut format = plain.clone();
         if let (Some((_, style)), Some(faces)) = (styles.get(mi).filter(|(r, _)| r.start <= a), faces) {
@@ -1181,6 +1232,10 @@ fn build_layout(
             format.color = span.color;
             format.italics = span.italic;
         }
+        if let Some(mark) = marks.get(ki).filter(|m| m.range.start <= a) {
+            format.background = mark.background;
+        }
+        // Search matches show over marks.
         if let Some((_, bg)) = backgrounds.get(bi).filter(|(r, _)| r.start <= a) {
             format.background = *bg;
         }
@@ -1382,7 +1437,7 @@ mod tests {
         let red = Color32::RED;
         let spans = [Span { range: 0..3, color: red, italic: false }]; // "let"
         let found: Vec<Range<usize>> = std::iter::once(2..5).collect(); // "t x": overlaps the end of "let"
-        let highlights = Highlights { all: &found, current: None };
+        let highlights = Highlights { all: &found, current: None, ..Default::default() };
         let job = build_layout(text, &font, None, Color32::WHITE, &spans, &highlights, &[], None, None);
 
         let pieces: Vec<(&str, Color32, bool)> = job

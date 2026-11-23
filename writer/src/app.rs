@@ -30,6 +30,8 @@ pub(crate) mod inspector;
 mod projects_ui;
 #[path = "references_ui.rs"]
 mod references_ui;
+#[path = "repetition_ui.rs"]
+mod repetition_ui;
 #[path = "search.rs"]
 mod search;
 #[path = "settings_ui.rs"]
@@ -180,6 +182,8 @@ pub struct WriterApp {
     celebration: Option<goal_ui::Celebration>,
     /// A writing sprint under way (see sprint_ui.rs).
     sprint: Option<sprint_ui::Sprint>,
+    /// Repeated words, as last worked out (see repetition_ui.rs).
+    repetition: repetition_ui::RepetitionCache,
     /// The sloth's poses, once shown (see sloth_ui.rs).
     sloth_art: sloth_ui::SlothArt,
     // Softer motion (see `motion_style` and `view_fade`).
@@ -296,6 +300,7 @@ impl WriterApp {
             stats_open: false,
             celebration: None,
             sprint: None,
+            repetition: Default::default(),
             sloth_art: Default::default(),
             animating: None,
             view_key: String::new(),
@@ -1064,6 +1069,9 @@ impl WriterApp {
         if self.focus_mode && !esc_taken && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             self.set_focus_mode(ctx, false);
         }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::R) {
+            self.toggle_repetition();
+        }
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::C) {
             self.toggle_canvas();
         }
@@ -1235,6 +1243,11 @@ impl WriterApp {
                             self.settings_open = true;
                             ui.close();
                         }
+                        let mut repeats = self.settings.show_repetition;
+                        if ui.checkbox(&mut repeats, "Highlight Repeated Words  \u{2325}\u{2318}R").changed() {
+                            self.toggle_repetition();
+                            ui.close();
+                        }
                         if ui.add(egui::Button::new("Help").shortcut_text("\u{2318}?")).clicked() {
                             self.help = Some(about_ui::HelpPage::Shortcuts);
                             ui.close();
@@ -1300,6 +1313,13 @@ impl WriterApp {
                 self.goal_ring(ui, &today, written, goal);
                 ui.separator();
                 self.sprint_button(ui);
+                if self.settings.show_repetition {
+                    ui.separator();
+                    let chip = egui::Button::new(egui::RichText::new("Repeats shown").small()).frame(false);
+                    if ui.add(chip).on_hover_text("Echoes are tinted, watched words underlined. Click (or \u{2325}\u{2318}R) to hide them.").clicked() {
+                        self.toggle_repetition();
+                    }
+                }
                 if let Some(message) = status {
                     ui.separator();
                     ui.label(message);
@@ -1339,7 +1359,8 @@ impl WriterApp {
         }
         // Find matches in this document, highlighted while the find bar is open.
         let matches = if self.find.visible { self.current_matches().unwrap_or_default() } else { Vec::new() };
-        let highlights = Highlights { all: &matches, current: self.find.current.clone() };
+        let marks = self.repetition_marks(ui.visuals());
+        let highlights = Highlights { all: &matches, current: self.find.current.clone(), marks: &marks };
         let reveal = self.reveal.take();
         let mut split = None;
         egui::CentralPanel::default()

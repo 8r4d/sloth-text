@@ -12,6 +12,7 @@ mod keychain;
 mod lock;
 mod project;
 mod references;
+mod repetition;
 mod rtf;
 mod scrivener;
 mod snapshots;
