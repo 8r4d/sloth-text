@@ -328,6 +328,8 @@ pub fn gather(project: &Project, settings: &CompileSettings, text: impl Fn(&Node
             }
             (settings.citations == Citations::Notes).then_some(c)
         };
+        // Comments go first (a commented passage stays).
+        let raw = &sloth_core::markdown::strip_comments(raw);
         let marked = mark_citations(raw, &mut notes, &mut cite);
         strip_notes(&sloth_core::markdown::strip_references(&marked))
     };

@@ -66,7 +66,9 @@ impl WordCache {
 /// and references (`[[…]]`) aren't part of the manuscript, so they don't
 /// count.
 pub fn count_words(text: &str) -> usize {
-    if text.contains("<!--") || text.contains("[[") {
+    if text.contains("{>>") {
+        count_words(&sloth_core::markdown::strip_comments(text))
+    } else if text.contains("<!--") || text.contains("[[") {
         crate::compile::strip_notes(&sloth_core::markdown::strip_references(text)).split_whitespace().count()
     } else {
         text.split_whitespace().count()

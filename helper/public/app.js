@@ -53,7 +53,10 @@ const q = (project, scene) => `&p=${encodeURIComponent(project)}` + (scene ? `&i
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const when = ms => (ms ? new Date(ms).toLocaleString() : 'never');
-const words = text => (text.replace(/<!--[\s\S]*?(-->|$)/g, ' ').match(/\S+/g) || []).length;
+// Comments ({==passage==}{>>comment<<}, from Sloth Writer) aren't words of
+// the scene, nor notes; a commented passage is.
+const withoutComments = text => text.replace(/\{>>[\s\S]*?<<\}/g, '').replace(/\{==([\s\S]*?)==\}/g, '$1');
+const words = text => (withoutComments(text).replace(/<!--[\s\S]*?(-->|$)/g, ' ').match(/\S+/g) || []).length;
 const fmt = n => Number(n || 0).toLocaleString();
 const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
 
@@ -193,7 +196,7 @@ function preview(text) {
     .replace(/\*\*(\S(?:.*?\S)?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(\S(?:.*?\S)?)\*/g, '<em>$1</em>')
     .replace(/(^|[^\w])_(\S(?:.*?\S)?)_(?!\w)/g, '$1<em>$2</em>');
-  return text
+  return withoutComments(text)
     .replace(/<!--[\s\S]*?(-->|$)/g, '')
     .split('\n')
     .map(line => line.trim())

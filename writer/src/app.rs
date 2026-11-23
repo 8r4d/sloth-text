@@ -20,6 +20,8 @@ mod about_ui;
 mod profiles_ui;
 #[path = "canvas_ui.rs"]
 mod canvas_ui;
+#[path = "comments_ui.rs"]
+mod comments_ui;
 #[path = "compile_window.rs"]
 mod compile_window;
 #[path = "goal_ui.rs"]
@@ -184,6 +186,9 @@ pub struct WriterApp {
     sprint: Option<sprint_ui::Sprint>,
     /// Repeated words, as last worked out (see repetition_ui.rs).
     repetition: repetition_ui::RepetitionCache,
+    /// A comment just added, whose card should take the keyboard (where its
+    /// words start, in bytes; see comments_ui.rs).
+    comment_focus: Option<usize>,
     /// The sloth's poses, once shown (see sloth_ui.rs).
     sloth_art: sloth_ui::SlothArt,
     // Softer motion (see `motion_style` and `view_fade`).
@@ -301,6 +306,7 @@ impl WriterApp {
             celebration: None,
             sprint: None,
             repetition: Default::default(),
+            comment_focus: None,
             sloth_art: Default::default(),
             animating: None,
             view_key: String::new(),
@@ -1069,6 +1075,9 @@ impl WriterApp {
         if self.focus_mode && !esc_taken && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             self.set_focus_mode(ctx, false);
         }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::K) {
+            self.add_comment(ctx);
+        }
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::R) {
             self.toggle_repetition();
         }
@@ -1360,7 +1369,9 @@ impl WriterApp {
         // Find matches in this document, highlighted while the find bar is open.
         let matches = if self.find.visible { self.current_matches().unwrap_or_default() } else { Vec::new() };
         let marks = self.repetition_marks(ui.visuals());
-        let highlights = Highlights { all: &matches, current: self.find.current.clone(), marks: &marks };
+        // Where each comment is, for its card in the margin.
+        let anchors: Vec<usize> = self.current().map(|t| sloth_core::markdown::comments(&t.doc.text).iter().map(|c| c.passage.as_ref().map_or(c.words.start, |p| p.start)).collect()).unwrap_or_default();
+        let highlights = Highlights { all: &matches, current: self.find.current.clone(), marks: &marks, anchors: &anchors };
         let reveal = self.reveal.take();
         let mut split = None;
         egui::CentralPanel::default()
@@ -1387,11 +1398,26 @@ impl WriterApp {
                         if focus {
                             ui.memory_mut(|m| m.request_focus(editor::editor_id(tab.id)));
                         }
-                        let info = editor::show(ui, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None);
+                        // With comments, the text leaves room for their column.
+                        let full = ui.available_rect_before_wrap();
+                        let column = (!anchors.is_empty()).then(|| {
+                            egui::Rect::from_min_max(egui::pos2(full.right() - comments_ui::COLUMN, full.top()), full.max)
+                        });
+                        let info = match column {
+                            Some(column) => {
+                                let text_rect = egui::Rect::from_min_max(full.min, egui::pos2(column.left() - comments_ui::GAP, full.bottom()));
+                                let mut left = ui.new_child(egui::UiBuilder::new().max_rect(text_rect).layout(egui::Layout::top_down(egui::Align::Min)));
+                                editor::show(&mut left, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None)
+                            }
+                            None => editor::show(ui, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None),
+                        };
                         split = info.split_at;
                         let (hovered, clicked) = references_ui::reported(&tab.doc.text, &info);
                         self.reference_events(ui, hovered, clicked);
                         self.suggestions_ui(ui, &doc, &info);
+                        if let Some(column) = column {
+                            self.comment_cards(ui, column, &info.anchor_tops);
+                        }
                     }
                     None => {
                         self.empty_state(ui, sloth_ui::Pose::Reading, "Nothing open", "Choose a document in the binder, or start one with \u{2318}N.");

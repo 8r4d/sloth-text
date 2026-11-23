@@ -72,6 +72,9 @@ pub struct EditorSettings {
     /// Fade every paragraph but the one being written in (Sloth Writer's
     /// Focus mode). Moving to another paragraph eases the light across.
     pub focus_paragraph: bool,
+    /// Offer Add Comment in the right-click menu (Sloth Writer; with
+    /// `markdown`, comments' marks are kept out of sight away from the cursor).
+    pub comments: bool,
 }
 
 impl EditorSettings {
@@ -111,6 +114,7 @@ impl Default for EditorSettings {
             hide_markers: false,
             copy_formatted: false,
             focus_paragraph: false,
+            comments: false,
         }
     }
 }
@@ -123,6 +127,10 @@ pub struct Highlights<'a> {
     /// Other marks over the text (Sloth Writer's repeated words), under
     /// search matches.
     pub marks: &'a [Mark],
+    /// Places in the text (bytes) to report where they are on screen, in
+    /// `CursorInfo::anchor_tops` (Sloth Writer's comments, beside their
+    /// passages).
+    pub anchors: &'a [usize],
 }
 
 /// A mark over part of the text: a tint behind it, a line under it, or both
@@ -142,7 +150,7 @@ pub struct SyntaxInput<'a> {
 }
 
 /// Information the editor reports back to the app each frame.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct CursorInfo {
     /// 1-based line and column of the cursor, if the editor has a cursor.
     pub line_col: Option<(usize, usize)>,
@@ -160,6 +168,8 @@ pub struct CursorInfo {
     /// The line at the top of the view (0-based), with the fraction of it
     /// scrolled past: for a preview to scroll along.
     pub top_line: f32,
+    /// Where each of `Highlights::anchors` is on screen: the top of its row.
+    pub anchor_tops: Vec<f32>,
 }
 
 /// Each tab has its own text widget, so cursor, undo history and scroll
@@ -202,6 +212,31 @@ pub fn apply_edit(
     }
     *text = edit.text;
     set_selection(ctx, tab, edit.selection);
+}
+
+/// Add a comment: on the selected words (`{==them==}{>><<}`), or at the
+/// cursor (`{>><<}`). The cursor goes into its (empty) words, and where
+/// they are is kept for the app to find with `take_added_comment`.
+pub fn add_comment(ctx: &egui::Context, tab: TabId, text: &mut String) {
+    let chars = selection(ctx, tab).unwrap_or(0..0);
+    let (start, end) = (crate::find::char_to_byte(text, chars.start), crate::find::char_to_byte(text, chars.end));
+    let insert = if start < end { format!("{{=={}==}}{{>><<}}", &text[start..end]) } else { "{>><<}".to_owned() };
+    // The cursor between `{>>` and `<<}`.
+    let words = start + insert.len() - 3;
+    apply_edit(ctx, tab, text, |t, _| {
+        let mut edit = editing::replace(t, chars.clone(), &insert);
+        let at = t[..start].chars().count() + insert[..insert.len() - 3].chars().count();
+        edit.selection = at..at;
+        edit
+    });
+    ctx.data_mut(|d| d.insert_temp(editor_id(tab).with("comment-added"), words));
+}
+
+/// Where the comment just added (if any) has its words, in bytes; asked
+/// once.
+pub fn take_added_comment(ctx: &egui::Context, tab: TabId) -> Option<usize> {
+    let id = editor_id(tab).with("comment-added");
+    ctx.data_mut(|d| d.remove_temp::<usize>(id))
 }
 
 /// Forget a tab's undo history (after a change undo shouldn't reach back
@@ -476,6 +511,7 @@ enum MenuChoice {
     Case(editing::Case),
     RemoveBlankLines,
     Split,
+    Comment,
 }
 
 /// Right-click in the editor: spelling suggestions for a misspelled word
@@ -551,6 +587,13 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                 picked = Some(MenuChoice::RemoveBlankLines);
             }
         }
+        if settings.comments && settings.markdown {
+            ui.separator();
+            let add = egui::Button::new("Add Comment").shortcut_text("\u{2325}\u{2318}K");
+            if ui.add(add).on_hover_text("A comment in the margin, on the selected words").clicked() {
+                picked = Some(MenuChoice::Comment);
+            }
+        }
         if settings.split_menu {
             ui.separator();
             let split = egui::Button::new("Split at Cursor").shortcut_text("\u{2318}K");
@@ -588,6 +631,12 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                         set_selection(ctx, tab, range);
                     }
                     apply_edit(ctx, tab, text, editing::remove_blank_lines);
+                }
+                MenuChoice::Comment => {
+                    if let Some(range) = ctx.data(|d| d.get_temp::<Range<usize>>(opened_on)) {
+                        set_selection(ctx, tab, range);
+                    }
+                    add_comment(ctx, tab, text);
                 }
                 MenuChoice::Split => {
                     let range = ctx.data(|d| d.get_temp::<Range<usize>>(opened_on)).unwrap_or(0..0);
@@ -688,6 +737,16 @@ pub fn show(
                         .flatten()
                         .map_or(usize::MAX..usize::MAX, |chars| lines_around(text, chars))
                 });
+                // Comments' marks and words show only in the paragraphs being
+                // edited (wherever the cursor isn't, they're out of sight).
+                let comments_shown = (settings.markdown && settings.comments).then(|| {
+                    ui.memory(|m| m.has_focus(editor_id(tab)))
+                        .then(|| selection(ui.ctx(), tab))
+                        .flatten()
+                        .map_or(usize::MAX..usize::MAX, |chars| lines_around(text, chars))
+                });
+                // For the cards beside them: where the anchors are.
+                let anchors = highlights.anchors;
                 // Paragraph focus: which lines are lit, and how far the
                 // light has moved from where it was.
                 let focus = settings.focus_paragraph.then(|| paragraph_focus(ui, tab, text)).flatten();
@@ -738,6 +797,7 @@ pub fn show(
                             &styles,
                             faces.as_ref(),
                             hide_markers.as_ref(),
+                            comments_shown.as_ref(),
                         );
                         job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
                         let job = indent_paragraphs(job, indent);
@@ -823,6 +883,13 @@ pub fn show(
                 }
 
                 info.top_line = top_line(&output, ui.clip_rect().min.y);
+                info.anchor_tops = anchors
+                    .iter()
+                    .map(|&b| {
+                        let chars = text.get(..b.min(text.len())).map_or(0, |s| s.chars().count());
+                        output.galley.pos_from_cursor(CCursor::new(chars)).top() + output.galley_pos.y
+                    })
+                    .collect();
                 if let Some(gutter) = gutter_rect {
                     paint_line_numbers(ui, gutter, &output, &font);
                 }
@@ -983,6 +1050,10 @@ fn cursor_highlights(
 /// backgrounds for search matches.
 #[allow(clippy::too_many_arguments)]
 /// References' colour: a mid blue that reads on light and dark alike.
+/// A commented passage's tint, and a comment's colour (amber, readable
+/// on light and dark).
+const COMMENT_TINT: Color32 = Color32::from_rgba_premultiplied(64, 46, 0, 48);
+const COMMENT_COLOR: Color32 = Color32::from_rgb(0xc9, 0x8a, 0x22);
 const REFERENCE_COLOR: Color32 = Color32::from_rgb(70, 130, 200);
 
 /// The `[[reference]]` under a point in the editor, if the point is on it
@@ -1158,6 +1229,7 @@ fn build_layout(
     styles: &[(Range<usize>, markdown::Style)],
     faces: Option<&Faces>,
     hide_markers: Option<&Range<usize>>,
+    comments_shown: Option<&Range<usize>>,
 ) -> LayoutJob {
     let plain = TextFormat { line_height, ..TextFormat::simple(font.clone(), color) };
     if spans.is_empty() && highlights.all.is_empty() && highlights.marks.is_empty() && styles.is_empty() {
@@ -1222,7 +1294,9 @@ fn build_layout(
         if let (Some((_, style)), Some(faces)) = (styles.get(mi).filter(|(r, _)| r.start <= a), faces) {
             faces.style(&mut format, *style, color);
             let marker = style & markdown::MARKER != 0 && style & markdown::BREAK == 0;
-            if marker && hide_markers.is_some_and(|shown| !(shown.start <= a && b <= shown.end)) {
+            let away = |shown: &Range<usize>| !(shown.start <= a && b <= shown.end);
+            let hidden_comment = style & markdown::COMMENT != 0 && comments_shown.is_some_and(away);
+            if (marker && hide_markers.is_some_and(away)) || hidden_comment {
                 // Still there (the cursor steps over it), but too small to see.
                 format.font_id.size = HIDDEN_SIZE;
                 format.color = Color32::TRANSPARENT;
@@ -1284,6 +1358,15 @@ impl Faces {
         if style & HEADING != 0 {
             format.font_id.size = self.size * 1.3;
             format.line_height = format.line_height.map(|h| h * 1.3);
+        }
+        if style & markdown::COMMENTED != 0 {
+            format.background = COMMENT_TINT;
+        }
+        if style & markdown::COMMENT != 0 {
+            // Small, in the comment colour, like a note in the margin.
+            format.font_id.size = self.size * 0.8;
+            format.color = if style & MARKER != 0 { COMMENT_COLOR.gamma_multiply(0.5) } else { COMMENT_COLOR };
+            return;
         }
         if style & REFERENCE != 0 {
             // Small and blue, like a note in the margin. (No background:
@@ -1438,7 +1521,7 @@ mod tests {
         let spans = [Span { range: 0..3, color: red, italic: false }]; // "let"
         let found: Vec<Range<usize>> = std::iter::once(2..5).collect(); // "t x": overlaps the end of "let"
         let highlights = Highlights { all: &found, current: None, ..Default::default() };
-        let job = build_layout(text, &font, None, Color32::WHITE, &spans, &highlights, &[], None, None);
+        let job = build_layout(text, &font, None, Color32::WHITE, &spans, &highlights, &[], None, None, None);
 
         let pieces: Vec<(&str, Color32, bool)> = job
             .sections
@@ -1554,7 +1637,7 @@ mod tests {
         // No bold or italic faces installed: italics are slanted.
         let faces = Faces { size: 14.0, bold: None, italic: None, bold_italic: None };
         let font = FontId::proportional(14.0);
-        let job = build_layout(text, &font, None, Color32::WHITE, &[], &Highlights::default(), &styles, Some(&faces), None);
+        let job = build_layout(text, &font, None, Color32::WHITE, &[], &Highlights::default(), &styles, Some(&faces), None, None);
         let pieces: Vec<(&str, bool, bool)> = job
             .sections
             .iter()
@@ -1637,7 +1720,7 @@ mod tests {
         let font = FontId::proportional(14.0);
         let ctx = egui::Context::default();
         let lay = |hide: Option<&Range<usize>>| {
-            let job = build_layout(text, &font, None, Color32::WHITE, &[], &Highlights::default(), &styles, Some(&faces), hide);
+            let job = build_layout(text, &font, None, Color32::WHITE, &[], &Highlights::default(), &styles, Some(&faces), hide, None);
             let mut galley = None;
             let mut output = ctx.run_ui(Default::default(), |ui| galley = Some(ui.fonts_mut(|f| f.layout_job(job.clone()))));
             output.textures_delta.clear();
@@ -1648,7 +1731,7 @@ mod tests {
         let last_line = text.rfind('\n').unwrap() + 1..text.len();
         let (shown, hidden) = (lay(None), lay(Some(&last_line)));
         let plain = {
-            let job = build_layout("a b c", &font, None, Color32::WHITE, &[], &Highlights::default(), &[], None, None);
+            let job = build_layout("a b c", &font, None, Color32::WHITE, &[], &Highlights::default(), &[], None, None, None);
             let mut galley = None;
             let mut output = ctx.run_ui(Default::default(), |ui| galley = Some(ui.fonts_mut(|f| f.layout_job(job.clone()))));
             output.textures_delta.clear();

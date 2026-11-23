@@ -9,7 +9,7 @@
 use std::ops::Range;
 
 /// How a stretch of text is shown. Several can apply at once.
-pub type Style = u8;
+pub type Style = u16;
 pub const ITALIC: Style = 1;
 pub const BOLD: Style = 2;
 /// A Markdown marker: drawn faintly.
@@ -23,6 +23,66 @@ pub const BREAK: Style = 64;
 /// `[[…]]`: a reference to a profile (a source, a concept, a character).
 /// Like a note in the margin, it isn't part of the prose.
 pub const REFERENCE: Style = 128;
+/// A passage with a comment on it: `{==this==}{>>…<<}` (CriticMarkup).
+pub const COMMENTED: Style = 256;
+/// A comment's marks and words: `{==`, `==}` and `{>>…<<}`. Like a note in
+/// the margin, not part of the prose; kept out of sight except where
+/// you're writing.
+pub const COMMENT: Style = 512;
+
+/// A comment in the text: `{==passage==}{>>words<<}`, or just
+/// `{>>words<<}` at a point.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Comment {
+    /// All of it, marks and passage and words.
+    pub whole: Range<usize>,
+    /// The passage it's on, if any (without its marks).
+    pub passage: Option<Range<usize>>,
+    /// The comment's words (inside `{>>` and `<<}`).
+    pub words: Range<usize>,
+}
+
+/// The comments in `text`, in order (outside notes).
+pub fn comments(text: &str) -> Vec<Comment> {
+    let notes = note_ranges(text);
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(open) = text[from..].find("{>>").map(|i| from + i) {
+        let Some(close) = text[open + 3..].find("<<}").map(|i| open + 3 + i) else { break };
+        from = close + 3;
+        if notes.iter().any(|n| n.start <= open && open < n.end) {
+            continue;
+        }
+        let words = open + 3..close;
+        // A passage just before: `{==…==}` ending right where this starts.
+        let passage = text[..open]
+            .strip_suffix("==}")
+            .and_then(|before| before.rfind("{==").map(|start| start..before.len()))
+            .filter(|p| !text[p.start + 3..p.end].contains("==}") && out.last().is_none_or(|c: &Comment| c.whole.end <= p.start));
+        let whole = passage.as_ref().map_or(open, |p| p.start)..close + 3;
+        out.push(Comment { whole, passage: passage.map(|p| p.start + 3..p.end), words });
+    }
+    out
+}
+
+/// `text` without its comments: a commented passage stays, without its
+/// marks; the comments go, with the extra space a lone one leaves.
+pub fn strip_comments(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut from = 0;
+    for c in comments(text) {
+        out.push_str(&text[from..c.whole.start]);
+        if let Some(p) = &c.passage {
+            out.push_str(&text[p.clone()]);
+        }
+        from = c.whole.end;
+        if c.passage.is_none() && out.ends_with([' ', '\t']) && text[from..].starts_with([' ', '\t', '\n', '.', ',', ';', ':', '!', '?']) {
+            out.pop();
+        }
+    }
+    out.push_str(&text[from..]);
+    out
+}
 
 /// The `<!-- notes -->` in `text`, as byte ranges (an unclosed one runs to
 /// the end).
@@ -115,6 +175,16 @@ fn flags(text: &str) -> Vec<Style> {
         set(range.start..range.start + 2, MARKER);
         set(range.end - 2..range.end, MARKER);
     }
+    for c in comments(text) {
+        if let Some(p) = &c.passage {
+            set(p.start - 3..p.start, COMMENT | MARKER);
+            set(p.clone(), COMMENTED);
+            set(p.end..p.end + 3, COMMENT | MARKER);
+        }
+        set(c.words.start - 3..c.words.start, COMMENT | MARKER);
+        set(c.words.clone(), COMMENT);
+        set(c.words.end..c.words.end + 3, COMMENT | MARKER);
+    }
 
     let mut line_start = 0;
     for line in text.split_inclusive('\n') {
@@ -182,7 +252,7 @@ pub fn formatted(text: &str) -> Formatted {
         let mut runs: Vec<(String, Style)> = Vec::new();
         for (i, c) in content.char_indices() {
             let f = line_flags[i];
-            if f & NOTE != 0 || (f & MARKER != 0 && f & BREAK == 0) {
+            if f & (NOTE | COMMENT) != 0 || (f & MARKER != 0 && f & BREAK == 0) {
                 continue;
             }
             let emphasis = f & (BOLD | ITALIC);
@@ -298,6 +368,27 @@ fn emphasis(text: &str, line: Range<usize>, set: &mut impl FnMut(Range<usize>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn comments_on_passages_and_points() {
+        let text = "She {==left the lamp==}{>>why here?<<} on. Later.{>>check dates<<} End.";
+        let found = comments(text);
+        assert_eq!(found.len(), 2);
+        assert_eq!(&text[found[0].passage.clone().unwrap()], "left the lamp");
+        assert_eq!(&text[found[0].words.clone()], "why here?");
+        assert_eq!(&text[found[0].whole.clone()], "{==left the lamp==}{>>why here?<<}");
+        assert_eq!(found[1].passage, None);
+        assert_eq!(&text[found[1].words.clone()], "check dates");
+        assert_eq!(strip_comments(text), "She left the lamp on. Later. End.");
+        assert_eq!(formatted(text).plain, "She left the lamp on. Later. End.");
+
+        // The passage is tinted; the marks and words kept for out of sight.
+        let style_of = |needle: &str| styles(text).into_iter().find(|(r, _)| text[r.clone()].contains(needle)).map(|(_, s)| s).unwrap();
+        assert_eq!(style_of("left the"), COMMENTED);
+        assert_eq!(style_of("why here"), COMMENT);
+        assert!(comments("<!-- {>>in a note<<} -->").is_empty());
+        assert!(comments("{>>never closed").is_empty());
+    }
 
     #[test]
     fn references_are_found_and_taken_out() {

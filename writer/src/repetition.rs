@@ -45,6 +45,8 @@ pub struct Found {
 /// The parts of a text that aren't prose: notes and references.
 fn asides(text: &str) -> Vec<Range<usize>> {
     let mut out: Vec<Range<usize>> = sloth_core::markdown::references(text).into_iter().map(|(r, _)| r).collect();
+    // A comment's words (its passage is prose).
+    out.extend(sloth_core::markdown::comments(text).into_iter().map(|c| c.words.start - 3..c.words.end + 3));
     let mut from = 0;
     while let Some(start) = text[from..].find("<!--").map(|i| from + i) {
         let end = text[start..].find("-->").map_or(text.len(), |i| start + i + 3);

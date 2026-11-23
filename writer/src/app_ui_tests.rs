@@ -2361,3 +2361,30 @@ fn repeated_words_are_marked_and_the_most_used_listed() {
     harness.run_steps(2);
     assert!(!harness.state().settings.show_repetition);
 }
+
+// ----- comments ------------------------------------------------------------------------------
+
+#[test]
+fn a_comment_on_a_passage_is_written_in_the_margin_and_resolved() {
+    let dir = TempDir::new("comments");
+    let mut harness = harness(project(&dir, "She left the lamp on."));
+    harness.run_steps(2);
+    let tab = harness.state_mut().current().unwrap().id;
+    // "left the lamp", then ⌥⌘K.
+    sloth_core::editor::set_selection(&harness.ctx, tab, 4..17);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::K);
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("She {==left the lamp==}{>><<} on."));
+
+    // Its card has the keyboard: type the comment.
+    harness.event(egui::Event::Text("Why would she?".into()));
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("She {==left the lamp==}{>>Why would she?<<} on."));
+    harness.get_by_label("\u{201c}left the lamp\u{201d}");
+    // Not words of the document.
+    assert_eq!(crate::app::inspector::count_words(&current_text(&mut harness).unwrap()), 5);
+
+    harness.get_by_label("Resolve").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("She left the lamp on."));
+}

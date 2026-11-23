@@ -2,6 +2,15 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.25.0
+
+Comments on passages.
+
+- Select some words and press ⌥⌘K (or right-click → Add Comment): the words get a soft amber tint, and a card in a column beside the text, level with them, to write the comment in. With nothing selected, the comment goes at the cursor.
+- Each card quotes its passage (click to go there) and has Resolve, which takes the comment away and leaves the words.
+- In the text, comments are CriticMarkup, `{==the words==}{>>the comment<<}`, so they stay with their words through edits, splits and syncing. Their marks are kept out of sight except in the paragraph you're writing.
+- Compile, word counts, copying as formatted text and the web editor's Preview all leave comments out.
+
 ## 1.24.0
 
 Overused words.
