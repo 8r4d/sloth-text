@@ -62,6 +62,13 @@ pub struct EditorSettings {
     /// multiple of the font size: 0 for none. Only how it looks; the text
     /// doesn't change.
     pub first_line_indent: f32,
+    /// With `markdown`, hide the markers (`**`, `*`, `#`, `>`) except in
+    /// the paragraph being edited (Sloth Writer; off in Sloth).
+    pub hide_markers: bool,
+    /// With `markdown`, copy and cut put formatted text on the clipboard
+    /// (bold, italics, headings) rather than Markdown; see
+    /// `markdown::formatted` (Sloth Writer; off in Sloth).
+    pub copy_formatted: bool,
 }
 
 impl EditorSettings {
@@ -98,6 +105,8 @@ impl Default for EditorSettings {
             typewriter: false,
             paragraph_spacing: 0.0,
             first_line_indent: 0.0,
+            hide_markers: false,
+            copy_formatted: false,
         }
     }
 }
@@ -605,6 +614,17 @@ pub fn show(
                     smart_dashes(ui, tab, text);
                 }
                 handle_editing_keys(ui, tab, text, settings);
+                let copy_formatted = settings.markdown && settings.copy_formatted;
+                if copy_formatted && ui.memory(|m| m.has_focus(editor_id(tab))) {
+                    paste_markdown_back(ui.ctx());
+                }
+                // Hidden markers show again in the paragraphs being edited.
+                let hide_markers = (settings.markdown && settings.hide_markers).then(|| {
+                    ui.memory(|m| m.has_focus(editor_id(tab)))
+                        .then(|| selection(ui.ctx(), tab))
+                        .flatten()
+                        .map_or(usize::MAX..usize::MAX, |chars| lines_around(text, chars))
+                });
                 // Placeholder for highlights drawn behind the text; filled in
                 // once we know where the cursor's row landed.
                 let behind_text = ui.painter().add(Shape::Noop);
@@ -649,6 +669,7 @@ pub fn show(
                             &highlights,
                             &styles,
                             faces.as_ref(),
+                            hide_markers.as_ref(),
                         );
                         job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
                         let job = indent_paragraphs(job, indent);
@@ -669,6 +690,9 @@ pub fn show(
                     });
                 let kept = right_click.then(|| selection(ui.ctx(), tab)).flatten();
                 let output = edit.min_size(Vec2::new(0.0, min_height)).show(ui);
+                if copy_formatted && output.response.has_focus() {
+                    copy_as_formatted(ui.ctx());
+                }
                 // Name it for VoiceOver (there's no visible label).
                 let _ = egui::Response::clone(&output.response).accessible_name("Document text");
                 if let Some(kept) = kept {
@@ -871,6 +895,66 @@ fn cursor_highlights(
 /// Build the text layout: syntax colours for the text, and highlighted
 /// backgrounds for search matches.
 #[allow(clippy::too_many_arguments)]
+/// The font size hidden Markdown markers are set in.
+const HIDDEN_SIZE: f32 = 0.01;
+
+/// The byte range of the whole lines a character range touches.
+fn lines_around(text: &str, chars: Range<usize>) -> Range<usize> {
+    let (start, end) = (crate::find::char_to_byte(text, chars.start), crate::find::char_to_byte(text, chars.end));
+    let start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let end = text[end..].find('\n').map_or(text.len(), |i| end + i);
+    start..end
+}
+
+/// What was last copied as formatted text: (the plain text put on the
+/// clipboard, the Markdown it came from).
+fn last_copy_id() -> Id {
+    Id::unique("sloth-editor-last-formatted-copy")
+}
+
+/// Copy and cut: swap the Markdown egui is about to put on the clipboard
+/// for formatted text (HTML, with plain text for apps that don't take it).
+fn copy_as_formatted(ctx: &egui::Context) {
+    let copied: Vec<String> = ctx.output_mut(|o| {
+        let mut copied = Vec::new();
+        o.commands.retain(|c| match c {
+            egui::OutputCommand::CopyText(t) => {
+                copied.push(t.clone());
+                false
+            }
+            _ => true,
+        });
+        copied
+    });
+    let Some(markdown) = copied.into_iter().last() else { return };
+    let formatted = markdown::formatted(&markdown);
+    let written = arboard::Clipboard::new()
+        .and_then(|mut c| c.set().html(formatted.html.as_str(), Some(formatted.plain.as_str())));
+    if written.is_ok() {
+        ctx.data_mut(|d| d.insert_temp(last_copy_id(), (formatted.plain, markdown)));
+    } else {
+        // Couldn't reach the clipboard ourselves: let egui copy it as it was.
+        ctx.copy_text(markdown);
+    }
+}
+
+/// Pasting back what was copied from here gives back its Markdown, so
+/// bold stays bold when moving text between documents.
+fn paste_markdown_back(ctx: &egui::Context) {
+    let Some((plain, markdown)) = ctx.data(|d| d.get_temp::<(String, String)>(last_copy_id())) else { return };
+    ctx.input_mut(|i| {
+        for event in &mut i.events {
+            if let egui::Event::Paste(pasted) = event
+                && *pasted == plain
+            {
+                *pasted = markdown.clone();
+            }
+        }
+    });
+}
+
+/// `hide_markers`: hide Markdown markers, except within this byte range.
+#[allow(clippy::too_many_arguments)]
 fn build_layout(
     text: &str,
     font: &FontId,
@@ -880,6 +964,7 @@ fn build_layout(
     highlights: &Highlights<'_>,
     styles: &[(Range<usize>, markdown::Style)],
     faces: Option<&Faces>,
+    hide_markers: Option<&Range<usize>>,
 ) -> LayoutJob {
     let plain = TextFormat { line_height, ..TextFormat::simple(font.clone(), color) };
     if spans.is_empty() && highlights.all.is_empty() && styles.is_empty() {
@@ -936,6 +1021,12 @@ fn build_layout(
         let mut format = plain.clone();
         if let (Some((_, style)), Some(faces)) = (styles.get(mi).filter(|(r, _)| r.start <= a), faces) {
             faces.style(&mut format, *style, color);
+            let marker = style & markdown::MARKER != 0 && style & markdown::BREAK == 0;
+            if marker && hide_markers.is_some_and(|shown| !(shown.start <= a && b <= shown.end)) {
+                // Still there (the cursor steps over it), but too small to see.
+                format.font_id.size = HIDDEN_SIZE;
+                format.color = Color32::TRANSPARENT;
+            }
         }
         if let Some(span) = spans.get(si).filter(|s| s.range.start <= a) {
             format.color = span.color;
@@ -1095,7 +1186,7 @@ mod tests {
         let spans = [Span { range: 0..3, color: red, italic: false }]; // "let"
         let found: Vec<Range<usize>> = std::iter::once(2..5).collect(); // "t x": overlaps the end of "let"
         let highlights = Highlights { all: &found, current: None };
-        let job = build_layout(text, &font, None, Color32::WHITE, &spans, &highlights, &[], None);
+        let job = build_layout(text, &font, None, Color32::WHITE, &spans, &highlights, &[], None, None);
 
         let pieces: Vec<(&str, Color32, bool)> = job
             .sections
@@ -1211,7 +1302,7 @@ mod tests {
         // No bold or italic faces installed: italics are slanted.
         let faces = Faces { size: 14.0, bold: None, italic: None, bold_italic: None };
         let font = FontId::proportional(14.0);
-        let job = build_layout(text, &font, None, Color32::WHITE, &[], &Highlights::default(), &styles, Some(&faces));
+        let job = build_layout(text, &font, None, Color32::WHITE, &[], &Highlights::default(), &styles, Some(&faces), None);
         let pieces: Vec<(&str, bool, bool)> = job
             .sections
             .iter()
@@ -1284,5 +1375,38 @@ mod tests {
         let eleven = indented.text().find("Eleven").unwrap();
         let at = indented.pos_from_cursor(CCursor::new(eleven));
         assert!((at.left() - plain.pos_from_cursor(CCursor::new(eleven)).left() - 20.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn hidden_markers_take_no_room_except_where_the_cursor_is() {
+        let text = "a **b** c\n# Head\n#\na **b** c";
+        let styles = markdown::styles(text);
+        let faces = Faces { size: 14.0, bold: None, italic: None, bold_italic: None };
+        let font = FontId::proportional(14.0);
+        let ctx = egui::Context::default();
+        let lay = |hide: Option<&Range<usize>>| {
+            let job = build_layout(text, &font, None, Color32::WHITE, &[], &Highlights::default(), &styles, Some(&faces), hide);
+            let mut galley = None;
+            let mut output = ctx.run_ui(Default::default(), |ui| galley = Some(ui.fonts_mut(|f| f.layout_job(job.clone()))));
+            output.textures_delta.clear();
+            galley.unwrap()
+        };
+        let width = |g: &egui::Galley, row: usize| g.rows[row].row.size.x;
+        // The cursor's in the last line: its markers stay, the others go.
+        let last_line = text.rfind('\n').unwrap() + 1..text.len();
+        let (shown, hidden) = (lay(None), lay(Some(&last_line)));
+        let plain = {
+            let job = build_layout("a b c", &font, None, Color32::WHITE, &[], &Highlights::default(), &[], None, None);
+            let mut galley = None;
+            let mut output = ctx.run_ui(Default::default(), |ui| galley = Some(ui.fonts_mut(|f| f.layout_job(job.clone()))));
+            output.textures_delta.clear();
+            galley.unwrap()
+        };
+        assert!((width(&hidden, 0) - width(&plain, 0)).abs() < 0.5, "\"a **b** c\" as wide as \"a b c\"");
+        assert!(width(&hidden, 1) < width(&shown, 1), "the heading's # is hidden");
+        assert!((width(&hidden, 2) - width(&shown, 2)).abs() < 0.01, "a scene break is never hidden");
+        assert!((width(&hidden, 3) - width(&shown, 3)).abs() < 0.01, "the cursor's line keeps its markers");
+        // Rows keep their height.
+        assert!((hidden.rows[0].row.size.y - shown.rows[0].row.size.y).abs() < 0.01);
     }
 }

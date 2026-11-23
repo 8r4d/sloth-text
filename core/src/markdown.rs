@@ -24,6 +24,22 @@ pub const BREAK: Style = 64;
 /// The styled stretches of `text`, in order, without overlaps: each range
 /// with every style that applies to it. Unstyled text isn't listed.
 pub fn styles(text: &str) -> Vec<(Range<usize>, Style)> {
+    // Join neighbouring bytes with the same style into stretches.
+    let mut out: Vec<(Range<usize>, Style)> = Vec::new();
+    for (i, &f) in flags(text).iter().enumerate() {
+        if f == 0 {
+            continue;
+        }
+        match out.last_mut() {
+            Some((r, style)) if r.end == i && *style == f => r.end = i + 1,
+            _ => out.push((i..i + 1, f)),
+        }
+    }
+    out
+}
+
+/// The styles of each byte of `text`.
+fn flags(text: &str) -> Vec<Style> {
     let mut flags = vec![0 as Style; text.len()];
     let mut set = |range: Range<usize>, style: Style| {
         for f in &mut flags[range] {
@@ -71,19 +87,85 @@ pub fn styles(text: &str) -> Vec<(Range<usize>, Style)> {
         }
         emphasis(text, body, &mut set);
     }
+    flags
+}
 
-    // Join neighbouring bytes with the same style into stretches.
-    let mut out: Vec<(Range<usize>, Style)> = Vec::new();
-    for (i, &f) in flags.iter().enumerate() {
-        if f == 0 {
+/// Text as it reads, without its Markdown: for copying to other apps.
+/// `html` has the formatting (paragraphs, headings, quotes, bold and
+/// italics); `plain` is the same words with the markers taken out, line
+/// for line. Notes (`<!-- … -->`) are left out of both.
+#[derive(Debug, PartialEq)]
+pub struct Formatted {
+    pub html: String,
+    pub plain: String,
+}
+
+pub fn formatted(text: &str) -> Formatted {
+    let flags = flags(text);
+    let mut html = String::new();
+    let mut plain: Vec<String> = Vec::new();
+    let mut line_start = 0;
+    for line in text.split_inclusive('\n') {
+        let content = line.trim_end_matches(['\n', '\r']);
+        let range = line_start..line_start + content.len();
+        line_start += line.len();
+        if content.trim().is_empty() {
+            plain.push(String::new());
             continue;
         }
-        match out.last_mut() {
-            Some((r, style)) if r.end == i && *style == f => r.end = i + 1,
-            _ => out.push((i..i + 1, f)),
+        let line_flags = &flags[range.clone()];
+        // The runs of shown text, each with its emphasis.
+        let mut runs: Vec<(String, Style)> = Vec::new();
+        for (i, c) in content.char_indices() {
+            let f = line_flags[i];
+            if f & NOTE != 0 || (f & MARKER != 0 && f & BREAK == 0) {
+                continue;
+            }
+            let emphasis = f & (BOLD | ITALIC);
+            match runs.last_mut() {
+                Some((run, style)) if *style == emphasis => run.push(c),
+                _ => runs.push((c.to_string(), emphasis)),
+            }
         }
+        let words: String = runs.iter().map(|(t, _)| t.as_str()).collect();
+        if words.trim().is_empty() {
+            continue; // only a note, say
+        }
+        plain.push(words.trim().to_owned());
+        let inner: String = runs
+            .iter()
+            .map(|(t, style)| {
+                let mut t = escape_html(t);
+                if style & ITALIC != 0 {
+                    t = format!("<em>{t}</em>");
+                }
+                if style & BOLD != 0 {
+                    t = format!("<strong>{t}</strong>");
+                }
+                t
+            })
+            .collect();
+        let inner = inner.trim();
+        let first = line_flags.iter().copied().find(|f| f & NOTE == 0).unwrap_or(0);
+        html.push_str(&if first & BREAK != 0 {
+            format!("<p style=\"text-align:center\">{inner}</p>\n")
+        } else if first & HEADING != 0 {
+            let level = heading_level(content.trim_start()).unwrap_or(1);
+            format!("<h{level}>{inner}</h{level}>\n")
+        } else if line_flags.iter().any(|f| f & QUOTE != 0) {
+            format!("<blockquote><p>{inner}</p></blockquote>\n")
+        } else {
+            format!("<p>{inner}</p>\n")
+        });
     }
-    out
+    // Blank lines at either end are just where the selection began or ended.
+    let plain = plain.join("\n").trim_matches('\n').to_owned();
+    let html = format!("<html><head><meta charset=\"utf-8\"></head><body>\n{html}</body></html>");
+    Formatted { html, plain }
+}
+
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// `#` alone, or three or more `*` or `-` (spaces allowed between).
@@ -152,6 +234,23 @@ fn emphasis(text: &str, line: Range<usize>, set: &mut impl FnMut(Range<usize>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formatted_text_has_no_markers() {
+        let f = formatted("# The *Long* Winter\n\nShe was **sure**. <!-- check -->\n> A _quote_ & more\n#\n<!-- just a note -->\nThe end.");
+        assert_eq!(f.plain, "The Long Winter\n\nShe was sure.\nA quote & more\n#\nThe end.");
+        let body = f.html.split("<body>\n").nth(1).unwrap();
+        assert_eq!(
+            body,
+            "<h1>The <em>Long</em> Winter</h1>\n\
+             <p>She was <strong>sure</strong>.</p>\n\
+             <blockquote><p>A <em>quote</em> &amp; more</p></blockquote>\n\
+             <p style=\"text-align:center\">#</p>\n\
+             <p>The end.</p>\n\
+             </body></html>"
+        );
+        assert!(f.html.contains("charset=\"utf-8\""), "so em dashes and accents survive");
+    }
 
     /// The styled stretches as (text, style) pairs, for readable tests.
     fn show(text: &str) -> Vec<(&str, Style)> {

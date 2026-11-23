@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.10.0
+
+- Hide the Markdown marks (Settings → Writing): the `**`, `*`, `#` and `>` disappear and the text closes up, except in the paragraph you're typing in, where they show faintly so you can still change them. Scene breaks always show.
+- Copy as formatted text (Settings → Writing): Copy and Cut give other apps real bold, italics, headings and quotes rather than `**` and `*`; notes are left out, and plain-text apps get the words without the marks. Pasting back into Writer keeps the Markdown.
+
 ## 1.9.0
 
 - First-line indent (Settings → Text): each paragraph's first line starts a little way in, from none to 4 em (1 em is the font size). Like paragraph spacing, it's only how the text looks; no spaces are added.

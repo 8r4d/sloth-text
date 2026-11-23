@@ -52,6 +52,10 @@ pub struct WriterSettings {
     pub smart_dashes: bool,
     /// Show *italics*, **bold**, headings and notes styled as you type.
     pub show_markdown: bool,
+    /// Hide the `**`, `*`, `#` and `>` except in the paragraph being edited.
+    pub hide_markdown: bool,
+    /// Copy and cut as formatted text (bold, italics) rather than Markdown.
+    pub copy_formatted: bool,
     /// Underline misspelled words (the Mac's spell checker).
     pub spell_check: bool,
     /// When to keep the line being typed in the middle of the screen.
@@ -83,6 +87,8 @@ impl Default for WriterSettings {
             text_width: Some(680.0),
             smart_dashes: true,
             show_markdown: true,
+            hide_markdown: false,
+            copy_formatted: false,
             spell_check: true,
             typewriter: Typewriter::FocusMode,
             notes_height: 140.0,
@@ -119,6 +125,8 @@ impl WriterSettings {
             first_line_indent: self.first_line_indent,
             max_text_width: self.text_width,
             markdown: self.show_markdown,
+            hide_markers: self.hide_markdown,
+            copy_formatted: self.copy_formatted,
             spell_check: self.spell_check,
             split_menu: true,
             typewriter: self.typewriter == Typewriter::Always,
@@ -263,6 +271,19 @@ impl WriterApp {
                     group(ui, "Writing");
                     ui.checkbox(&mut settings.smart_dashes, "Two hyphens make an em dash (\u{2014})");
                     ui.checkbox(&mut settings.show_markdown, "Show *italics*, **bold** and headings as you type");
+                    ui.indent("markdown-options", |ui| {
+                        ui.add_enabled_ui(settings.show_markdown, |ui| {
+                            ui.checkbox(&mut settings.hide_markdown, "Hide the ** and # marks except where you're typing")
+                                .on_hover_text(
+                                    "The marks show again in the paragraph the cursor is in, so you can still change them.",
+                                );
+                            ui.checkbox(&mut settings.copy_formatted, "Copy as formatted text")
+                                .on_hover_text(
+                                    "Copy and Cut give other apps bold and italics, not ** and *. \
+                                     Notes are left out. Pasting back into Writer keeps the Markdown.",
+                                );
+                        });
+                    });
                     ui.checkbox(&mut settings.spell_check, "Check spelling as you type")
                         .on_hover_text("Uses your Mac's spelling language and learned words. Right-click a word for suggestions.");
                     ui.add_space(4.0);
@@ -381,6 +402,7 @@ mod tests {
         assert!(saved.smart_dashes);
         assert_eq!(saved.text_width, Some(680.0));
         assert_eq!(saved.first_line_indent, 0.0, "no indent until asked for");
+        assert!(!saved.hide_markdown && !saved.copy_formatted);
     }
 
     #[test]
@@ -388,6 +410,8 @@ mod tests {
         let s = WriterSettings { font_size: 21.0, smart_dashes: false, text_width: None, first_line_indent: 1.5, ..Default::default() };
         let e = s.editor();
         assert_eq!(e.first_line_indent, 1.5);
+        let marks = WriterSettings { hide_markdown: true, copy_formatted: true, ..Default::default() }.editor();
+        assert!(marks.hide_markers && marks.copy_formatted);
         assert!(e.prose && e.word_wrap && !e.show_line_numbers);
         assert_eq!((e.font_size, e.smart_dashes, e.max_text_width), (21.0, false, None));
     }

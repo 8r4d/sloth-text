@@ -3928,6 +3928,7 @@ dependencies = [
 name = "sloth-core"
 version = "1.0.0"
 dependencies = [
+ "arboard",
  "chardetng",
  "eframe",
  "encoding_rs",
@@ -3945,7 +3946,7 @@ dependencies = [
 
 [[package]]
 name = "sloth-writer"
-version = "1.9.0"
+version = "1.10.0"
 dependencies = [
  "chrono",
  "docx-rs",

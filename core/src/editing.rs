@@ -366,8 +366,8 @@ pub fn remove_blank_lines(text: &str, selection: Range<usize>) -> Edit {
         // Take a line break with them, so no empty line is left behind.
         if end < text.len() {
             end += 1;
-        } else if start > 0 {
-            start -= 1;
+        } else {
+            start = start.saturating_sub(1);
         }
     }
     let chars = text[..start].chars().count()..text[..end].chars().count();
