@@ -585,6 +585,34 @@ impl WriterApp {
         self.start_rename(&new);
     }
 
+    /// Back Up…: choose a folder (the last one is offered) for a dated zip
+    /// of the whole project.
+    fn back_up_dialog(&mut self, now: f64) {
+        if self.project.is_none() {
+            return;
+        }
+        let mut dialog = rfd::FileDialog::new().set_title("Back Up the Project To…");
+        if let Some(folder) = self.settings.backup_folder.as_deref().filter(|f| Path::new(f).is_dir()) {
+            dialog = dialog.set_directory(folder);
+        }
+        if let Some(folder) = dialog.pick_folder() {
+            self.back_up_to(&folder, now);
+        }
+    }
+
+    fn back_up_to(&mut self, folder: &Path, now: f64) {
+        self.save_all();
+        let Some(project) = &self.project else { return };
+        let name = crate::backup::file_name(project.title(), chrono::Local::now().naive_local());
+        match crate::backup::back_up(&project.root, folder, &name) {
+            Ok(path) => {
+                self.settings.backup_folder = Some(folder.to_string_lossy().into_owned());
+                self.set_status(format!("Backed up to {}", path.display()), now);
+            }
+            Err(e) => self.error = Some(format!("Couldn't back up the project: {e}")),
+        }
+    }
+
     fn start_rename(&mut self, id: &str) {
         let Some(node) = self.project.as_ref().and_then(|p| p.node(id)) else { return };
         if node.role.is_none() {
@@ -894,6 +922,10 @@ impl WriterApp {
                     ui.toggle_value(&mut self.split_open, "Split").on_hover_text("A second pane beside the editor (\u{2318}\\)");
                     if ui.button("Compile\u{2026}").on_hover_text("\u{21e7}\u{2318}E").clicked() {
                         self.compile_open = true;
+                    }
+                    if ui.button("Back Up\u{2026}").on_hover_text("Save a dated zip of the whole project somewhere else").clicked() {
+                        let now = ui.input(|i| i.time);
+                        self.back_up_dialog(now);
                     }
                     if !self.settings.helper_url.trim().is_empty() && !self.helper_token.is_empty() {
                         let label = if self.sync_running() { "Syncing\u{2026}" } else { "Sync" };

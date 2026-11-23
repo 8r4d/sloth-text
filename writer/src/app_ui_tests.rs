@@ -1447,3 +1447,25 @@ fn change_case_from_the_right_click_menu() {
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("The Long Winter"));
 }
+
+#[test]
+fn back_up_saves_first_and_remembers_the_folder() {
+    let dir = TempDir::new("backup");
+    let out = TempDir::new("backup-out");
+    fs::create_dir_all(&out.0).unwrap();
+    let mut harness = harness(project(&dir, "Saved words."));
+    harness.state_mut().current().unwrap().doc.text.push_str(" Unsaved ones.");
+    harness.state_mut().back_up_to(&out.0, 0.0);
+    harness.run_steps(2);
+
+    let zips: Vec<_> = fs::read_dir(&out.0).unwrap().map(|e| e.unwrap().path()).collect();
+    assert_eq!(zips.len(), 1);
+    assert!(zips[0].file_name().unwrap().to_string_lossy().starts_with("Book 20"));
+    let mut zip = zip::ZipArchive::new(fs::File::open(&zips[0]).unwrap()).unwrap();
+    let top = dir.0.file_name().unwrap().to_string_lossy().into_owned();
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name(&format!("{top}/manuscript/untitled.md")).unwrap(), &mut text).unwrap();
+    assert_eq!(text, "Saved words. Unsaved ones.");
+    assert_eq!(harness.state().settings.backup_folder.as_deref(), Some(out.0.to_string_lossy().as_ref()));
+    assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m.starts_with("Backed up to")));
+}

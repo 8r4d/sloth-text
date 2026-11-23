@@ -28,6 +28,8 @@ pub struct WriterSettings {
     pub show_markdown: bool,
     /// Underline misspelled words (the Mac's spell checker).
     pub spell_check: bool,
+    /// Where the last backup went, to offer it next time.
+    pub backup_folder: Option<String>,
     /// The iPad helper's address (its token is in the Keychain).
     pub helper_url: String,
     pub theme: ThemeChoice,
@@ -43,6 +45,7 @@ impl Default for WriterSettings {
             smart_dashes: true,
             show_markdown: true,
             spell_check: true,
+            backup_folder: None,
             helper_url: String::new(),
             theme: ThemeChoice::default(),
         }

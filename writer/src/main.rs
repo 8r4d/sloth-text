@@ -3,6 +3,7 @@
 //! `project.rs` for the format and `app.rs` for the window.
 
 mod app;
+mod backup;
 mod binder;
 mod character;
 mod compile;
