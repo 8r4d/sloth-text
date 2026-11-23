@@ -20,6 +20,65 @@ pub const QUOTE: Style = 16;
 pub const NOTE: Style = 32;
 /// A scene break line: `#`, `***`, `---`, `* * *`.
 pub const BREAK: Style = 64;
+/// `[[…]]`: a reference to a profile (a source, a concept, a character).
+/// Like a note in the margin, it isn't part of the prose.
+pub const REFERENCE: Style = 128;
+
+/// The `<!-- notes -->` in `text`, as byte ranges (an unclosed one runs to
+/// the end).
+fn note_ranges(text: &str) -> Vec<Range<usize>> {
+    let mut notes = Vec::new();
+    let mut from = 0;
+    while let Some(start) = text[from..].find("<!--").map(|i| from + i) {
+        let end = text[start + 4..].find("-->").map_or(text.len(), |i| start + 4 + i + 3);
+        notes.push(start..end);
+        from = end;
+    }
+    notes
+}
+
+/// The references in `text`: each `[[…]]` within one line and outside
+/// notes, as its byte range (brackets and all) and what's inside, trimmed.
+pub fn references(text: &str) -> Vec<(Range<usize>, &str)> {
+    let notes = note_ranges(text);
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(start) = text[from..].find("[[").map(|i| from + i) {
+        let Some(close) = text[start + 2..].find("]]").map(|i| start + 2 + i) else { break };
+        let inner = &text[start + 2..close];
+        if inner.contains("[[") || inner.contains('\n') {
+            // Not closed on this line: look again from the next `[[`.
+            from = start + 2;
+            continue;
+        }
+        let range = start..close + 2;
+        if !inner.trim().is_empty() && !notes.iter().any(|n| n.start <= start && start < n.end) {
+            out.push((range.clone(), inner.trim()));
+        }
+        from = range.end;
+    }
+    out
+}
+
+/// `text` without its references, and without the extra space each one
+/// leaves (`the gaze [[Berger]] applies` reads `the gaze applies`).
+pub fn strip_references(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut from = 0;
+    for (range, _) in references(text) {
+        out.push_str(&text[from..range.start]);
+        from = range.end;
+        let rest = &text[from..];
+        let before_space = out.is_empty() || out.ends_with([' ', '\t', '\n']);
+        if before_space && rest.starts_with([' ', '\t']) {
+            from += 1;
+        } else if out.ends_with([' ', '\t']) && (rest.is_empty() || rest.starts_with(['\n', '.', ',', ';', ':', '!', '?', ')'])) {
+            out.pop();
+        }
+    }
+    out.push_str(&text[from..]);
+    out
+}
 
 /// The styled stretches of `text`, in order, without overlaps: each range
 /// with every style that applies to it. Unstyled text isn't listed.
@@ -48,11 +107,13 @@ fn flags(text: &str) -> Vec<Style> {
     };
 
     // Notes first: they can span lines.
-    let mut from = 0;
-    while let Some(start) = text[from..].find("<!--").map(|i| from + i) {
-        let end = text[start + 4..].find("-->").map_or(text.len(), |i| start + 4 + i + 3);
-        set(start..end, NOTE);
-        from = end;
+    for note in note_ranges(text) {
+        set(note, NOTE);
+    }
+    for (range, _) in references(text) {
+        set(range.clone(), REFERENCE);
+        set(range.start..range.start + 2, MARKER);
+        set(range.end - 2..range.end, MARKER);
     }
 
     let mut line_start = 0;
@@ -93,7 +154,8 @@ fn flags(text: &str) -> Vec<Style> {
 /// Text as it reads, without its Markdown: for copying to other apps.
 /// `html` has the formatting (paragraphs, headings, quotes, bold and
 /// italics); `plain` is the same words with the markers taken out, line
-/// for line. Notes (`<!-- … -->`) are left out of both.
+/// for line. Notes (`<!-- … -->`) and references (`[[…]]`) are left out
+/// of both.
 #[derive(Debug, PartialEq)]
 pub struct Formatted {
     pub html: String,
@@ -101,6 +163,8 @@ pub struct Formatted {
 }
 
 pub fn formatted(text: &str) -> Formatted {
+    // References are margin notes: they go, with the space they leave.
+    let text = &strip_references(text);
     let flags = flags(text);
     let mut html = String::new();
     let mut plain: Vec<String> = Vec::new();
@@ -234,6 +298,23 @@ fn emphasis(text: &str, line: Range<usize>, set: &mut impl FnMut(Range<usize>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn references_are_found_and_taken_out() {
+        let text = "The gaze [[Ways of Seeing|p. 47]] applies. [[Concept: attention]]\n[[not\nclosed]] <!-- [[in a note]] --> [[ ]] end [[x]].";
+        let found: Vec<&str> = references(text).into_iter().map(|(_, inner)| inner).collect();
+        assert_eq!(found, ["Ways of Seeing|p. 47", "Concept: attention", "x"]);
+        assert_eq!(
+            strip_references(text),
+            "The gaze applies.\n[[not\nclosed]] <!-- [[in a note]] --> [[ ]] end."
+        );
+        assert_eq!(strip_references("[[A]] Starts here."), "Starts here.");
+        assert_eq!(strip_references("Ends here [[A]]"), "Ends here");
+        // Styled: the whole reference, its brackets as markers.
+        let styled = show("a [[B]] c");
+        assert_eq!(styled, [("[[", REFERENCE | MARKER), ("B", REFERENCE), ("]]", REFERENCE | MARKER)]);
+        assert_eq!(formatted("She was [[Berger]] **sure**.").plain, "She was sure.");
+    }
 
     #[test]
     fn formatted_text_has_no_markers() {

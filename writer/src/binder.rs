@@ -176,7 +176,8 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &m
             ui.menu_button("New Profile Folder", |ui| {
                 let unused: Vec<_> = profile_presets().into_iter().filter(|(p, _)| !kinds.iter().any(|k| k.id == p.id)).collect();
                 for (heading, fiction) in [("Fiction", true), ("Non-fiction", false)] {
-                    let group: Vec<_> = unused.iter().filter(|(_, f)| *f == fiction).collect();
+                    // Themes serve essays as well as novels: offered under both.
+                    let group: Vec<_> = unused.iter().filter(|(p, f)| *f == fiction || p.id == "themes").collect();
                     if group.is_empty() {
                         continue;
                     }

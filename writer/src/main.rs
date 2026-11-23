@@ -10,6 +10,7 @@ mod compile;
 mod keychain;
 mod lock;
 mod project;
+mod references;
 mod rtf;
 mod scrivener;
 mod snapshots;

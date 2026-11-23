@@ -133,6 +133,14 @@ pub struct CursorInfo {
     /// Split at Cursor was chosen in the right-click menu, at this
     /// character index (see `EditorSettings::split_menu`).
     pub split_at: Option<usize>,
+    /// The `[[reference]]` under the pointer (byte range in the text), for
+    /// the app to explain in a tooltip (Markdown only).
+    pub reference_hovered: Option<(usize, usize)>,
+    /// A `[[reference]]` was ⌘-clicked: the app opens what it refers to.
+    pub reference_clicked: Option<(usize, usize)>,
+    /// Where the cursor is on screen, if the editor has one (for a popup
+    /// beside it, such as the app's suggestions).
+    pub cursor_rect: Option<Rect>,
 }
 
 /// Each tab has its own text widget, so cursor, undo history and scroll
@@ -706,9 +714,22 @@ pub fn show(
                 if menu {
                     info.split_at = text_menu(&output, tab, text, settings);
                 }
+                if settings.markdown
+                    && let Some(pos) = output.response.hover_pos()
+                    && let Some(reference) = reference_at(&output, text, pos)
+                {
+                    info.reference_hovered = Some(reference);
+                    if ui.input(|i| i.modifiers.command) {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        if output.response.clicked() {
+                            info.reference_clicked = Some(reference);
+                        }
+                    }
+                }
 
                 if let Some(cursor) = output.cursor_range {
                     info.line_col = Some(line_col(text, cursor.primary));
+                    info.cursor_rect = Some(output.galley.pos_from_cursor(cursor.primary).translate(output.galley_pos.to_vec2()));
                     let shapes = cursor_highlights(ui, &output, text, cursor, settings);
                     ui.painter().set(behind_text, Shape::Vec(shapes));
                 }
@@ -895,6 +916,26 @@ fn cursor_highlights(
 /// Build the text layout: syntax colours for the text, and highlighted
 /// backgrounds for search matches.
 #[allow(clippy::too_many_arguments)]
+/// References' colour: a mid blue that reads on light and dark alike.
+const REFERENCE_COLOR: Color32 = Color32::from_rgb(70, 130, 200);
+
+/// The `[[reference]]` under a point in the editor, if the point is on it
+/// (not just level with it, past the end of the line).
+fn reference_at(output: &egui::text_edit::TextEditOutput, text: &str, pos: egui::Pos2) -> Option<(usize, usize)> {
+    let local = pos - output.galley_pos;
+    let index = output.galley.cursor_from_pos(local).index.0;
+    let at = text.char_indices().nth(index).map_or(text.len(), |(b, _)| b);
+    let (range, _) = markdown::references(text).into_iter().find(|(r, _)| r.start <= at && at <= r.end)?;
+    let chars = |b: usize| text[..b].chars().count();
+    let (a, b) = (output.galley.pos_from_cursor(CCursor::new(chars(range.start))), output.galley.pos_from_cursor(CCursor::new(chars(range.end))));
+    let on_it = if (a.top() - b.top()).abs() < 1.0 {
+        (a.left()..=b.left()).contains(&local.x) && (a.top()..=a.bottom()).contains(&local.y)
+    } else {
+        true // wrapped over two rows: near enough
+    };
+    on_it.then_some((range.start, range.end))
+}
+
 /// The font size hidden Markdown markers are set in.
 const HIDDEN_SIZE: f32 = 0.01;
 
@@ -1061,7 +1102,7 @@ impl Faces {
 
     /// Apply a Markdown style to a piece of text's format.
     fn style(&self, format: &mut TextFormat, style: markdown::Style, color: Color32) {
-        use markdown::{BOLD, BREAK, HEADING, ITALIC, MARKER, NOTE, QUOTE};
+        use markdown::{BOLD, BREAK, HEADING, ITALIC, MARKER, NOTE, QUOTE, REFERENCE};
         let bold = style & (BOLD | HEADING) != 0;
         let italic = style & (ITALIC | NOTE) != 0;
         let family = match (bold, italic) {
@@ -1081,7 +1122,12 @@ impl Faces {
             format.font_id.size = self.size * 1.3;
             format.line_height = format.line_height.map(|h| h * 1.3);
         }
-        if style & (MARKER | BREAK) != 0 {
+        if style & REFERENCE != 0 {
+            // Small and blue, like a note in the margin. (No background:
+            // it would fill the whole line's height.)
+            format.font_id.size = self.size * 0.8;
+            format.color = if style & MARKER != 0 { REFERENCE_COLOR.gamma_multiply(0.5) } else { REFERENCE_COLOR };
+        } else if style & (MARKER | BREAK) != 0 {
             format.color = color.gamma_multiply(0.35);
         } else if style & NOTE != 0 {
             format.color = color.gamma_multiply(0.5);

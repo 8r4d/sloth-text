@@ -7,7 +7,7 @@ use std::path::Path;
 use eframe::egui;
 
 use super::WriterApp;
-use crate::compile::{self, ChapterHeadings, CompileSettings, Format, Manuscript, Paper, SceneBreak, Typeface};
+use crate::compile::{self, ChapterHeadings, Citations, CompileSettings, Format, Manuscript, Paper, SceneBreak, Typeface};
 
 impl WriterApp {
     /// The manuscript as it stands: open documents as they are in the
@@ -90,6 +90,22 @@ impl WriterApp {
                     });
                     ui.end_row();
 
+                    // [[References]] to profiles with a Citation section.
+                    ui.label("Sources");
+                    ui.vertical(|ui| {
+                        let as_notes = match settings.format {
+                            Format::Manuscript => "As footnotes",
+                            Format::Epub => "As notes at the end of each chapter",
+                            Format::Markdown => "As footnotes (pandoc)",
+                        };
+                        ui.radio_value(&mut settings.citations, Citations::LeaveOut, "Leave out");
+                        ui.radio_value(&mut settings.citations, Citations::Notes, as_notes);
+                        ui.checkbox(&mut settings.works_cited, "List the works cited at the end");
+                    })
+                    .response
+                    .on_hover_text("From [[references]] to profiles with a Citation section, such as Sources. The note is that section, with any page given after | in the reference.");
+                    ui.end_row();
+
                     if settings.format == Format::Manuscript {
                         ui.label("Paper");
                         ui.horizontal(|ui| {
@@ -109,8 +125,14 @@ impl WriterApp {
 
                 ui.add_space(8.0);
                 let chapters = manuscript.chapters.len();
+                let sources = match (manuscript.notes.len(), manuscript.works_cited.len()) {
+                    (0, 0) => String::new(),
+                    (0, w) => format!(" {w} {} cited.", if w == 1 { "work" } else { "works" }),
+                    (n, 0) => format!(" {n} {}.", if n == 1 { "note" } else { "notes" }),
+                    (n, w) => format!(" {n} {}, {w} {} cited.", if n == 1 { "note" } else { "notes" }, if w == 1 { "work" } else { "works" }),
+                };
                 ui.weak(format!(
-                    "{chapters} {}, {} words. Items marked not to be included, the Trash, and notes in <!-- --> are left out.",
+                    "{chapters} {}, {} words.{sources} Items marked not to be included, the Trash, notes in <!-- --> and [[references]] are left out.",
                     if chapters == 1 { "chapter" } else { "chapters" },
                     manuscript.words(),
                 ));

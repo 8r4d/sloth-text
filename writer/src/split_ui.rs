@@ -122,7 +122,11 @@ impl WriterApp {
         if let Some(choice) = choice {
             self.resolve_notice_for(&id, choice);
         }
+        self.suggestion_keys(ui.ctx(), &id);
         let Some(tab) = self.tab_of(&id) else { return };
-        editor::show(ui, tab.id, &mut tab.doc.text, &settings, Highlights::default(), None, None);
+        let info = editor::show(ui, tab.id, &mut tab.doc.text, &settings, Highlights::default(), None, None);
+        let (hovered, clicked) = super::references_ui::reported(&tab.doc.text, &info);
+        self.reference_events(ui, hovered, clicked);
+        self.suggestions_ui(ui, &id, &info);
     }
 }

@@ -2,6 +2,18 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.12.0
+
+References: point a passage at a profile — a source, concept, theme, character, place — by writing `[[its name]]` where it comes up. Like a note in the margin, a reference isn't part of the prose.
+
+- References show small and blue in the text. Hover one to see what it refers to; ⌘-click to open it in the split pane. `[[Concept: attention]]` picks the kind when two share a name, and `[[Ways of Seeing|p. 47]]` adds a page.
+- Typing `[[` suggests profiles' names as you type (↑↓ to choose, Return to put one in, Esc to close), and offers to make a new one if nothing matches. ⌘-clicking a reference to a profile that doesn't exist yet offers the same.
+- Each profile lists where it's referenced, by document and section, with the line it's on; click to go there. A section starts at a heading, or at a separator line (`#`, `##`, `***`, `+++`) with its title on the next line.
+- In This Scene shows the profiles a document refers to, alongside the ones linked by hand.
+- Renaming a profile renames its references.
+- Compile leaves references out, as it does notes, and they don't count as words. Or, under Sources: references to profiles with a Citation section (Sources have one) become footnotes in Word, notes at the end of each chapter in an e-book, or pandoc footnotes in Markdown, and the works cited can be listed at the end.
+- Themes can be added as a profile folder in non-fiction projects too.
+
 ## 1.11.0
 
 - Recent projects on the start screen are tiles: each with an icon and colour for the kind of writing it is — Novel, Short Fiction, Essay, Nonfiction, Blog, Podcast Script, Screenplay, Stage Play, Poetry, Journal, Personal, Letters, Children's, Fantasy, Mystery, Science Fiction, Horror, or just Writing. Right-click a tile and choose Icon to change it, or click the project's title in the toolbar while it's open. The kind is kept with the project.

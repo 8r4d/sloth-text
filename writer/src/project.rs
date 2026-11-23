@@ -606,6 +606,11 @@ impl Project {
         if is_profile_folder && is_document && top.id != id { self.profile_kind(&top.id) } else { None }
     }
 
+    /// The project's kinds of profile, Characters first.
+    pub fn profile_kinds(&self) -> &[ProfileKind] {
+        &self.manifest.profiles
+    }
+
     /// The profiles of a kind (its folder's documents), in binder order.
     pub fn profile_items(&self, kind: &str) -> Vec<&Node> {
         self.manifest

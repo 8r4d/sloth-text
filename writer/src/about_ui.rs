@@ -54,6 +54,7 @@ const TIPS: &[&str] = &[
     "Right-click in the text for Bold, Italic, Heading, Quote, Note, Scene Break, Change Case, Remove Blank Lines and Split at Cursor.",
     "Write notes to yourself <!-- like this -->: they're left out of word counts and the compiled book.",
     "A line with only # on it is a scene break.",
+    "Refer to a profile (a source, concept, theme or character) with [[its name]] where it comes up: typing [[ offers names (or makes a new one), hover to see it, \u{2318}-click to open it. Renaming a profile renames its references, and Compile can turn references to Sources into footnotes and a list of works cited. Like notes, references are left out of word counts and the compiled book, and each profile lists where it's referenced.",
     "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",
     "Double-click a binder item to rename it.",
     "Coming from Scrivener? Close the project and choose Import from Scrivener… on the start screen.",

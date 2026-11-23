@@ -866,6 +866,110 @@ fn a_projects_icon_is_chosen_from_its_tile_or_its_title() {
 }
 
 #[test]
+fn a_profile_lists_where_it_is_referenced() {
+    let dir = TempDir::new("references");
+    let essay = "## On images\nThe gaze [[Ways of Seeing|p. 47]] is learned.\n\n## On ads\nNothing here.";
+    let mut p = project(&dir, essay);
+    let sources = crate::project::profile_presets().into_iter().map(|(k, _)| k).find(|k| k.id == "sources").unwrap();
+    p.add_profile_folder(sources).unwrap();
+    let berger = p.add_document(&Place::Into("sources".into()), "Ways of Seeing").unwrap();
+    fs::write(p.file_path(&berger).unwrap(), "John Berger, 1972.").unwrap();
+    let doc = p.documents()[0].id.clone();
+    let mut harness = harness(p);
+
+    harness.state_mut().select(berger);
+    harness.run_steps(3);
+    harness.get_by_label("Referenced in");
+    harness.get_by_label("The gaze is learned.");
+    harness.get_by_label("On images \u{b7} p. 47").click();
+    harness.run_steps(3);
+
+    // The essay opens with the reference selected.
+    assert_eq!(harness.state().selected.as_deref(), Some(doc.as_str()));
+    let tab = harness.state_mut().current().unwrap().id;
+    let start = essay.find("[[").unwrap();
+    let end = essay.find("]]").unwrap() + 2;
+    assert_eq!(sloth_core::editor::selection(&harness.ctx, tab), Some(start..end));
+    // References aren't words.
+    let without = essay.replace(" [[Ways of Seeing|p. 47]]", "");
+    assert_eq!(crate::app::inspector::count_words(essay), crate::app::inspector::count_words(&without));
+}
+
+/// A project whose one document says `text`, with a Sources folder holding
+/// "Ways of Seeing" and a Concepts folder: the document is selected, and
+/// typing goes at its end.
+fn essay_with_sources(dir: &TempDir, text: &str) -> (Harness<'static, WriterApp>, String, String) {
+    let mut p = project(dir, text);
+    for id in ["sources", "concepts"] {
+        let kind = crate::project::profile_presets().into_iter().map(|(k, _)| k).find(|k| k.id == id).unwrap();
+        p.add_profile_folder(kind).unwrap();
+    }
+    let berger = p.add_document(&Place::Into("sources".into()), "Ways of Seeing").unwrap();
+    let doc = p.documents()[0].id.clone();
+    let mut harness = harness(p);
+    harness.state_mut().select(doc.clone());
+    harness.run_steps(2);
+    harness.get_by_label("Document text").click();
+    harness.run_steps(2);
+    let tab = harness.state_mut().current().unwrap().id;
+    let end = text.chars().count();
+    sloth_core::editor::set_selection(&harness.ctx.clone(), tab, end..end);
+    harness.run_steps(1);
+    (harness, doc, berger)
+}
+
+#[test]
+fn typing_double_brackets_suggests_profiles() {
+    let dir = TempDir::new("suggest-ui");
+    let (mut harness, ..) = essay_with_sources(&dir, "The gaze ");
+    harness.event(egui::Event::Text("[[way".into()));
+    harness.run_steps(3);
+    harness.get_by_label("Ways of Seeing   Source");
+    harness.key_press(egui::Key::Enter);
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("The gaze [[Ways of Seeing]]"));
+    assert!(harness.state().suggesting.is_none());
+    // Typing on carries on after the reference.
+    harness.event(egui::Event::Text(" applies.".into()));
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("The gaze [[Ways of Seeing]] applies."));
+}
+
+#[test]
+fn a_new_profile_can_be_made_from_a_reference() {
+    let dir = TempDir::new("suggest-new");
+    let (mut harness, ..) = essay_with_sources(&dir, "It sells ");
+    harness.event(egui::Event::Text("[[envy".into()));
+    harness.run_steps(3);
+    harness.get_by_label_contains("New Concept").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("It sells [[envy]]"));
+    let app = harness.state();
+    let project = app.project.as_ref().unwrap();
+    let envy = project.profile_items("concepts");
+    assert_eq!(envy.iter().map(|n| n.title.as_str()).collect::<Vec<_>>(), ["envy"]);
+    // Esc puts the suggestions away.
+    harness.event(egui::Event::Text(" [[w".into()));
+    harness.run_steps(3);
+    assert!(harness.state().suggesting.is_some());
+    harness.key_press(egui::Key::Escape);
+    harness.run_steps(2);
+    assert!(harness.state().suggesting.is_none());
+}
+
+#[test]
+fn renaming_a_profile_renames_references_to_it() {
+    let dir = TempDir::new("rename-refs");
+    let (mut harness, doc, berger) = essay_with_sources(&dir, "The gaze [[Ways of Seeing|p. 8]].");
+    // In This Scene shows it, from the text.
+    harness.get_by_label("[[Ways of Seeing]]");
+    harness.state_mut().apply(BinderAction::FinishRename { id: berger, title: "Berger 1972".into() });
+    harness.run_steps(2);
+    let app = harness.state_mut();
+    assert_eq!(app.tab_of(&doc).unwrap().doc.text, "The gaze [[Berger 1972|p. 8]].");
+}
+
+#[test]
 fn a_folder_with_another_name_keeps_it() {
     let dir = TempDir::new("rename-title-only");
     let p = Project::create(&dir.0.join("my-novel"), "Working Title").unwrap();
@@ -1347,7 +1451,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.11.0");
+    harness.get_by_label("1.12.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));

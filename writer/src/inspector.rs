@@ -63,10 +63,11 @@ impl WordCache {
 }
 
 /// Words as targets and compile count them: inline notes (`<!-- … -->`)
-/// aren't part of the manuscript, so they don't count.
+/// and references (`[[…]]`) aren't part of the manuscript, so they don't
+/// count.
 pub fn count_words(text: &str) -> usize {
-    if text.contains("<!--") {
-        crate::compile::strip_notes(text).split_whitespace().count()
+    if text.contains("<!--") || text.contains("[[") {
+        crate::compile::strip_notes(&sloth_core::markdown::strip_references(text)).split_whitespace().count()
     } else {
         text.split_whitespace().count()
     }
@@ -261,10 +262,16 @@ impl WriterApp {
             // Who and what appears here (not for the profiles themselves).
             if !is_profile && self.project.as_ref().is_some_and(|p| !p.manifest.profiles.is_empty()) {
                 ui.add_space(4.0);
-                egui::CollapsingHeader::new(RichText::new("In This Scene").strong())
+                let referenced = self.referenced_by(&id);
+                let open = egui::CollapsingHeader::new(RichText::new("In This Scene").strong())
                     .id_salt("in-this-scene")
                     .default_open(true)
-                    .show(ui, |ui| self.scene_profiles(ui, &mut meta));
+                    .show(ui, |ui| self.scene_profiles(ui, &mut meta, &referenced))
+                    .body_returned
+                    .flatten();
+                if let Some(profile) = open {
+                    self.open_in_split(profile);
+                }
             }
         }
 

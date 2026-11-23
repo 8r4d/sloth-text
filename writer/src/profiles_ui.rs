@@ -49,6 +49,9 @@ impl WriterApp {
         let appearances: Vec<(String, String)> =
             project.appearances(&kind.id, id).into_iter().map(|n| (n.id.clone(), n.title.clone())).collect();
         let Some(text) = self.tab_of(id).map(|t| t.doc.text.clone()) else { return };
+        let target = crate::references::Target { kind: kind.id.clone(), id: id.to_owned() };
+        let links = self.backlinks(ui.input(|i| i.time), &target);
+        let mut jump = None;
         // The form edits its own copy, exactly as typed: re-reading the file
         // every frame would trim a space typed at the end before the next
         // word arrives. The file is read again only if it changed from
@@ -164,6 +167,8 @@ impl WriterApp {
                             open = Some(scene.clone());
                         }
                     }
+                    // Where its [[references]] are, by sub-essay.
+                    jump = Self::referenced_in(ui, &title, &links);
                 });
             });
         });
@@ -180,6 +185,9 @@ impl WriterApp {
         }
         if let Some(scene) = open {
             self.select(scene);
+        }
+        if let Some(link) = jump {
+            self.go_to_backlink(&ui.ctx().clone(), &link);
         }
     }
 
@@ -280,8 +288,13 @@ impl WriterApp {
 
     /// A scene's inspector: who and what appears in it, a part per kind
     /// (Characters, Locations…).
-    pub(super) fn scene_profiles(&self, ui: &mut egui::Ui, meta: &mut Meta) {
-        let Some(project) = &self.project else { return };
+    ///
+    /// Profiles the text refers to (`referenced`) are listed too, fainter:
+    /// they come and go with their `[[references]]`. Clicking one opens it
+    /// in the split pane (returned).
+    pub(super) fn scene_profiles(&self, ui: &mut egui::Ui, meta: &mut Meta, referenced: &[crate::references::Target]) -> Option<String> {
+        let Some(project) = &self.project else { return None };
+        let mut open = None;
         for kind in &project.manifest.profiles {
             let all: Vec<(String, String)> =
                 project.profile_items(&kind.id).into_iter().map(|n| (n.id.clone(), n.title.clone())).collect();
@@ -294,6 +307,14 @@ impl WriterApp {
                 for (id, title) in all.iter().filter(|(id, _)| linked.contains(id)) {
                     if ui.button(format!("{title}  \u{d7}")).on_hover_text("Remove from this scene").clicked() {
                         remove = Some(id.clone());
+                    }
+                }
+                let in_text = referenced.iter().filter(|t| t.kind == kind.id && !linked.contains(&t.id));
+                for target in in_text {
+                    let Some(title) = project.node(&target.id).map(|n| n.title.clone()) else { continue };
+                    let chip = egui::Button::new(RichText::new(format!("[[{title}]]")).small().color(ui.visuals().hyperlink_color)).frame(false);
+                    if ui.add(chip).on_hover_text("Referenced in the text: click to open it").clicked() {
+                        open = Some(target.id.clone());
                     }
                 }
                 ui.menu_button(format!("+ {}", kind.item), |ui| {
@@ -322,5 +343,6 @@ impl WriterApp {
                 }
             }
         }
+        open
     }
 }

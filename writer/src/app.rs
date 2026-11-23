@@ -24,6 +24,8 @@ mod compile_window;
 pub(crate) mod inspector;
 #[path = "projects_ui.rs"]
 mod projects_ui;
+#[path = "references_ui.rs"]
+mod references_ui;
 #[path = "search.rs"]
 mod search;
 #[path = "settings_ui.rs"]
@@ -133,6 +135,14 @@ pub struct WriterApp {
     profile_name: HashMap<String, String>,
     /// Open profiles as typed, by profile (see profiles_ui.rs).
     profile_sheet: HashMap<String, profiles_ui::ProfileSheet>,
+    /// The shown profile's backlinks, as last gathered (references_ui.rs).
+    backlinks: Option<references_ui::BacklinkCache>,
+    /// Suggestions for a `[[reference]]` being typed, and the one put away
+    /// with Esc (by document and where its `[[` is).
+    suggesting: Option<references_ui::Suggesting>,
+    suggest_dismissed: Option<(String, usize)>,
+    /// New … for a ⌘-clicked reference to no profile yet.
+    create_menu: Option<references_ui::CreateMenu>,
     editing_sections: Option<profiles_ui::EditingSections>,
     /// The New Profile Folder window for a folder of your own: its name, and
     /// what one item in it is called.
@@ -237,6 +247,10 @@ impl WriterApp {
             renaming_project: None,
             profile_name: HashMap::new(),
             profile_sheet: HashMap::new(),
+            backlinks: None,
+            suggesting: None,
+            suggest_dismissed: None,
+            create_menu: None,
             editing_sections: None,
             new_profile_folder: None,
             split_open: false,
@@ -830,12 +844,17 @@ impl WriterApp {
             BinderAction::CancelRename => self.renaming = None,
             BinderAction::FinishRename { id, title } => {
                 self.renaming = None;
-                let Some(project) = self.project.as_mut() else { return };
-                if project.node(&id).is_some_and(|n| n.title == title.trim()) {
+                if self.project.as_ref().is_none_or(|p| p.node(&id).is_some_and(|n| n.title == title.trim())) {
                     return;
                 }
+                // A profile's [[references]] follow it to its new name.
+                let rewrites = self.reference_rewrites(&id, &title);
+                let Some(project) = self.project.as_mut() else { return };
                 match project.rename(&id, &title) {
-                    Ok(change) => self.follow(change.as_slice()),
+                    Ok(change) => {
+                        self.follow(change.as_slice());
+                        self.apply_rewrites(rewrites);
+                    }
                     Err(e) => self.error = Some(e.to_string()),
                 }
             }
@@ -986,7 +1005,9 @@ impl WriterApp {
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::F) {
             self.set_focus_mode(ctx, !self.focus_mode);
         }
-        if self.focus_mode && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+        // (Not while Esc is putting away suggestions or a menu.)
+        let esc_taken = self.suggesting.is_some() || self.create_menu.is_some();
+        if self.focus_mode && !esc_taken && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             self.set_focus_mode(ctx, false);
         }
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::B) {
@@ -1016,6 +1037,7 @@ impl WriterApp {
         }
         // Escape closes the find bar, unless it's ending a rename or a dialog.
         if self.find.visible
+            && !esc_taken
             && self.renaming.is_none()
             && !self.confirm_empty_trash
             && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
@@ -1267,6 +1289,8 @@ impl WriterApp {
                 {
                     self.notes_panel(ui, &id, settings.max_text_width);
                 }
+                let doc = self.selected.clone().unwrap_or_default();
+                self.suggestion_keys(ui.ctx(), &doc);
                 match self.current() {
                     Some(tab) => {
                         if focus {
@@ -1274,6 +1298,9 @@ impl WriterApp {
                         }
                         let info = editor::show(ui, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None);
                         split = info.split_at;
+                        let (hovered, clicked) = references_ui::reported(&tab.doc.text, &info);
+                        self.reference_events(ui, hovered, clicked);
+                        self.suggestions_ui(ui, &doc, &info);
                     }
                     None => {
                         ui.weak("Select a document in the binder.");
@@ -1363,11 +1390,19 @@ impl WriterApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 24, right: 24, top: 48, bottom: 0 }))
             .show(ui, |ui| {
+                if let Some(doc) = self.selected.clone() {
+                    self.suggestion_keys(ui.ctx(), &doc);
+                }
                 if let Some(tab) = self.current() {
                     if focus {
                         ui.memory_mut(|m| m.request_focus(editor::editor_id(tab.id)));
                     }
-                    editor::show(ui, tab.id, &mut tab.doc.text, &settings, Highlights::default(), None, None);
+                    let info = editor::show(ui, tab.id, &mut tab.doc.text, &settings, Highlights::default(), None, None);
+                    let (hovered, clicked) = references_ui::reported(&tab.doc.text, &info);
+                    self.reference_events(ui, hovered, clicked);
+                    if let Some(doc) = self.selected.clone() {
+                        self.suggestions_ui(ui, &doc, &info);
+                    }
                 }
             });
     }
@@ -1436,6 +1471,7 @@ impl eframe::App for WriterApp {
             }
             self.main_view(ui);
         }
+        self.create_menu_ui(&ctx);
         self.empty_trash_dialog(&ctx);
         self.labels_window(&ctx);
         self.statuses_window(&ctx);

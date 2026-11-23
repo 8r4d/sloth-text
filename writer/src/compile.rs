@@ -11,10 +11,16 @@
 //! Text is read the way people write in the editor: each line is a
 //! paragraph (blank lines are just spacing), `*italic*` and `**bold**` are
 //! kept, and a line of `#`, `***` or `---` is a scene break.
+//!
+//! `[[References]]` are margin notes, left out like the rest. Except, if
+//! asked: a reference to a profile with a Citation section (a Source) can
+//! become a note (a footnote in Word, a note at the chapter's end in an
+//! e-book, a pandoc footnote in Markdown), and the sources cited can be
+//! listed at the end as Works Cited.
 
 use docx_rs::{
-    AlignmentType, BreakType, Docx, Header, LineSpacing, LineSpacingType, PageMargin, PageNum, Paragraph, Run,
-    RunFonts, SpecialIndentType, Tab, TabValueType,
+    AlignmentType, BreakType, Docx, Footnote, Header, LineSpacing, LineSpacingType, PageMargin, PageNum, Paragraph,
+    Run, RunFonts, SpecialIndentType, Style, StyleType, Tab, TabValueType, VertAlignType,
 };
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
@@ -109,6 +115,17 @@ pub enum ChapterHeadings {
     NumbersAndTitles,
 }
 
+/// What becomes of references to sources.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Citations {
+    /// Left out, like every other reference.
+    #[default]
+    LeaveOut,
+    /// A numbered note each: footnotes in Word, notes at the end of each
+    /// chapter in an e-book, pandoc footnotes in Markdown.
+    Notes,
+}
+
 /// Compile choices, kept in the project so they're there next time.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -122,6 +139,10 @@ pub struct CompileSettings {
     pub paper: Paper,
     pub typeface: Typeface,
     pub scene_break: SceneBreak,
+    /// What becomes of references to sources.
+    pub citations: Citations,
+    /// List the sources cited, at the end.
+    pub works_cited: bool,
     /// Saved setups ("Agent submission", "Beta readers"…).
     pub presets: Vec<Preset>,
 }
@@ -136,6 +157,8 @@ pub struct Preset {
     pub paper: Paper,
     pub typeface: Typeface,
     pub scene_break: SceneBreak,
+    pub citations: Citations,
+    pub works_cited: bool,
 }
 
 impl Default for Preset {
@@ -153,6 +176,8 @@ impl Preset {
             paper: s.paper,
             typeface: s.typeface,
             scene_break: s.scene_break,
+            citations: s.citations,
+            works_cited: s.works_cited,
         }
     }
 
@@ -163,6 +188,8 @@ impl Preset {
         s.paper = self.paper;
         s.typeface = self.typeface;
         s.scene_break = self.scene_break;
+        s.citations = self.citations;
+        s.works_cited = self.works_cited;
     }
 
     /// Whether the settings are as this setup has them.
@@ -177,6 +204,93 @@ pub struct Manuscript {
     pub title: String,
     pub author: String,
     pub chapters: Vec<Chapter>,
+    /// The notes, in order: note 1 first. Where each goes in the text is
+    /// marked by `note_mark`.
+    pub notes: Vec<String>,
+    /// The sources cited, for Works Cited (empty if not asked for).
+    pub works_cited: Vec<String>,
+}
+
+/// Where note `n` (from 1) goes in a scene's text: characters no one types
+/// (Unicode's private use area) around its number.
+const NOTE_OPEN: char = '\u{e000}';
+const NOTE_CLOSE: char = '\u{e001}';
+
+fn note_mark(n: usize) -> String {
+    format!("{NOTE_OPEN}{n}{NOTE_CLOSE}")
+}
+
+/// A piece of text: words, or where a note goes.
+#[derive(Debug, PartialEq)]
+enum Piece<'a> {
+    Text(&'a str),
+    Note(usize),
+}
+
+/// Text split at its note marks.
+fn pieces(text: &str) -> Vec<Piece<'_>> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find(NOTE_OPEN) {
+        let after = &rest[open + NOTE_OPEN.len_utf8()..];
+        let Some(close) = after.find(NOTE_CLOSE) else { break };
+        let Ok(n) = after[..close].parse() else { break };
+        if open > 0 {
+            out.push(Piece::Text(&rest[..open]));
+        }
+        out.push(Piece::Note(n));
+        rest = &after[close + NOTE_CLOSE.len_utf8()..];
+    }
+    if !rest.is_empty() {
+        out.push(Piece::Text(rest));
+    }
+    out
+}
+
+/// Text with its note marks taken out (for counting words).
+fn without_marks(text: &str) -> String {
+    pieces(text).into_iter().filter_map(|p| if let Piece::Text(t) = p { Some(t) } else { None }).collect()
+}
+
+/// A citation as a reference makes it: the source's Citation section
+/// (its name, if that's empty), for the note and for Works Cited.
+struct Cited {
+    note: String,
+    entry: String,
+}
+
+/// What a reference cites, if it's to a profile whose kind has a Citation
+/// section (a Source). Any pinpoint is added to the note: "…, p. 47."
+fn citation(project: &Project, inner: &str, text: &impl Fn(&Node) -> String) -> Option<Cited> {
+    let target = crate::references::resolve(project, inner)?;
+    let kind = project.profile_kind(&target.kind)?;
+    let heading = kind.sections.iter().find(|s| s.eq_ignore_ascii_case("citation"))?;
+    let node = project.node(&target.id)?;
+    let sheet = crate::character::Sheet::parse(&text(node));
+    let written = sheet.sections.iter().find(|s| s.heading.eq_ignore_ascii_case(heading)).map(|s| s.text.split_whitespace().collect::<Vec<_>>().join(" "));
+    let entry = written.filter(|c| !c.is_empty()).unwrap_or_else(|| node.title.clone());
+    let note = match crate::references::split(inner).1 {
+        Some(pin) => format!("{}, {pin}.", entry.trim_end_matches('.')),
+        None => entry.clone(),
+    };
+    Some(Cited { note, entry })
+}
+
+/// A scene's references to sources as note marks (joined to the word
+/// before them, as note numbers are), the note texts added to `notes`.
+/// Other references are left for `strip_references`.
+fn mark_citations(scene: &str, notes: &mut Vec<String>, cite: &mut impl FnMut(&str) -> Option<Cited>) -> String {
+    let mut out = String::with_capacity(scene.len());
+    let mut from = 0;
+    for (range, inner) in sloth_core::markdown::references(scene) {
+        let Some(cited) = cite(inner) else { continue };
+        out.push_str(scene[from..range.start].trim_end_matches([' ', '\t']));
+        notes.push(cited.note);
+        out.push_str(&note_mark(notes.len()));
+        from = range.end;
+    }
+    out.push_str(&scene[from..]);
+    out
 }
 
 #[derive(Debug, PartialEq)]
@@ -188,7 +302,7 @@ pub struct Chapter {
 
 impl Manuscript {
     pub fn words(&self) -> usize {
-        self.chapters.iter().flat_map(|c| &c.scenes).map(|s| s.split_whitespace().count()).sum()
+        self.chapters.iter().flat_map(|c| &c.scenes).map(|s| without_marks(s).split_whitespace().count()).sum()
     }
 }
 
@@ -202,9 +316,24 @@ pub fn gather(project: &Project, settings: &CompileSettings, text: impl Fn(&Node
         .find(|n| n.role == Some(Role::Manuscript))
         .expect("every project has a Manuscript");
     let mut chapters = Vec::new();
+    let mut notes = Vec::new();
+    let mut cited: Vec<String> = Vec::new();
+    // Each scene: references to sources as notes (if asked), everything
+    // else in the margin taken out.
+    let mut prepare = |raw: &str| {
+        let mut cite = |inner: &str| {
+            let c = citation(project, inner, &text)?;
+            if settings.works_cited && !cited.contains(&c.entry) {
+                cited.push(c.entry.clone());
+            }
+            (settings.citations == Citations::Notes).then_some(c)
+        };
+        let marked = mark_citations(raw, &mut notes, &mut cite);
+        strip_notes(&sloth_core::markdown::strip_references(&marked))
+    };
     for item in manuscript.children.iter().filter(|n| !n.meta.exclude_from_compile) {
         let mut scenes = Vec::new();
-        collect_scenes(item, &text, &mut scenes);
+        collect_scenes(item, &text, &mut prepare, &mut scenes);
         if scenes.is_empty() && !item.is_document() && item.children.is_empty() {
             continue; // an empty folder
         }
@@ -216,22 +345,23 @@ pub fn gather(project: &Project, settings: &CompileSettings, text: impl Fn(&Node
         };
         chapters.push(Chapter { heading, scenes });
     }
-    Manuscript { title: project.title().to_owned(), author: settings.author.trim().to_owned(), chapters }
+    cited.sort_by_key(|c| c.to_lowercase());
+    Manuscript { title: project.title().to_owned(), author: settings.author.trim().to_owned(), chapters, notes, works_cited: cited }
 }
 
 /// The scenes in an item, in order, skipping anything not included.
-fn collect_scenes(node: &Node, text: &impl Fn(&Node) -> String, out: &mut Vec<String>) {
+fn collect_scenes(node: &Node, text: &impl Fn(&Node) -> String, prepare: &mut impl FnMut(&str) -> String, out: &mut Vec<String>) {
     if node.meta.exclude_from_compile {
         return;
     }
     if node.is_document() {
-        let scene = strip_notes(&text(node));
+        let scene = prepare(&text(node));
         if !scene.trim().is_empty() {
             out.push(scene.trim().to_owned());
         }
     }
     for child in &node.children {
-        collect_scenes(child, text, out);
+        collect_scenes(child, text, prepare, out);
     }
 }
 
@@ -365,9 +495,31 @@ pub fn to_markdown(m: &Manuscript, settings: &CompileSettings) -> String {
             for line in scene.lines().map(str::trim).filter(|l| !l.is_empty()) {
                 out.push('\n');
                 // A break typed in a scene: the same as between scenes.
-                out.push_str(if is_scene_break(line) { separator } else { line });
+                if is_scene_break(line) {
+                    out.push_str(separator);
+                } else {
+                    for piece in pieces(line) {
+                        match piece {
+                            Piece::Text(t) => out.push_str(t),
+                            Piece::Note(n) => out.push_str(&format!("[^{n}]")),
+                        }
+                    }
+                }
                 out.push('\n');
             }
+        }
+    }
+    // Pandoc footnotes: put where they're numbered, wherever these go.
+    if !m.notes.is_empty() {
+        out.push('\n');
+        for (i, note) in m.notes.iter().enumerate() {
+            out.push_str(&format!("[^{}]: {note}\n", i + 1));
+        }
+    }
+    if !m.works_cited.is_empty() {
+        out.push_str("\n# Works Cited\n");
+        for entry in &m.works_cited {
+            out.push_str(&format!("\n{entry}\n"));
         }
     }
     out
@@ -419,6 +571,10 @@ pub fn to_docx(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
         // No header on the title page.
         .first_header(Header::new())
         .title_pg();
+    // Note numbers in the text, raised.
+    let mut note_style = Style::new("FootnoteReference", StyleType::Character).name("footnote reference");
+    note_style.run_property = note_style.run_property.vert_align(VertAlignType::SuperScript);
+    doc = doc.add_style(note_style);
 
     // Title page: name top left, word count top right, title and byline
     // centred halfway down.
@@ -460,12 +616,27 @@ pub fn to_docx(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
             }
             for block in blocks(scene) {
                 doc = doc.add_paragraph(match block {
-                    Block::Paragraph(spans) => runs(body().indent(None, Some(SpecialIndentType::FirstLine(INCH / 2)), None, None), spans, face),
-                    Block::Quote(spans) => runs(body().indent(Some(INCH / 2), None, Some(INCH / 2), None), spans, face),
-                    Block::Heading(spans) => runs(body().align(AlignmentType::Center), spans, face),
+                    Block::Paragraph(spans) => runs(body().indent(None, Some(SpecialIndentType::FirstLine(INCH / 2)), None, None), spans, face, &m.notes),
+                    Block::Quote(spans) => runs(body().indent(Some(INCH / 2), None, Some(INCH / 2), None), spans, face, &m.notes),
+                    Block::Heading(spans) => runs(body().align(AlignmentType::Center), spans, face, &m.notes),
                     Block::SceneBreak => scene_break(mark, face),
                 });
             }
+        }
+    }
+
+    // Works Cited: on a page of its own, each entry with a hanging indent.
+    if !m.works_cited.is_empty() {
+        doc = doc.add_paragraph(
+            Paragraph::new()
+                .align(AlignmentType::Center)
+                .line_spacing(LineSpacing::new().after(480).line(480))
+                .add_run(page_break())
+                .add_run(run(face).add_text("Works Cited")),
+        );
+        for entry in &m.works_cited {
+            let hanging = body().indent(Some(INCH / 2), Some(SpecialIndentType::Hanging(INCH / 2)), None, None);
+            doc = doc.add_paragraph(runs(hanging, spans(entry), face, &[]));
         }
     }
 
@@ -489,18 +660,49 @@ fn scene_break(mark: &str, face: &str) -> Paragraph {
     body().align(AlignmentType::Center).add_run(run(face).add_text(mark))
 }
 
-fn runs(mut paragraph: Paragraph, spans: Vec<Span>, face: &str) -> Paragraph {
+fn runs(mut paragraph: Paragraph, spans: Vec<Span>, face: &str, notes: &[String]) -> Paragraph {
     for span in spans {
-        let mut run = run(face).add_text(span.text);
-        if span.italic {
-            run = run.italic();
+        for piece in pieces(&span.text) {
+            match piece {
+                Piece::Text(t) => {
+                    let mut run = run(face).add_text(t);
+                    if span.italic {
+                        run = run.italic();
+                    }
+                    if span.bold {
+                        run = run.bold();
+                    }
+                    paragraph = paragraph.add_run(run);
+                }
+                Piece::Note(n) => {
+                    let text = notes.get(n - 1).cloned().unwrap_or_default();
+                    paragraph = paragraph.add_run(Run::new().add_footnote_reference(footnote(n, &text, face)));
+                }
+            }
         }
-        if span.bold {
-            run = run.bold();
-        }
-        paragraph = paragraph.add_run(run);
     }
     paragraph
+}
+
+/// Note `n`'s text at the foot of the page: 10 pt, single spaced, with its
+/// number raised in front (Word numbers the notes in the text itself).
+fn footnote(n: usize, text: &str, face: &str) -> Footnote {
+    let mut number = run(face).size(20).add_text(n.to_string());
+    number.run_property = number.run_property.vert_align(VertAlignType::SuperScript);
+    let mut paragraph = Paragraph::new().line_spacing(LineSpacing::new().line_rule(LineSpacingType::Auto).line(240).after(0)).add_run(number).add_run(run(face).size(20).add_text(" "));
+    for span in spans(text) {
+        let mut piece = run(face).size(20).add_text(span.text);
+        if span.italic {
+            piece = piece.italic();
+        }
+        if span.bold {
+            piece = piece.bold();
+        }
+        paragraph = paragraph.add_run(piece);
+    }
+    let mut note = Footnote::new();
+    note.add_content(paragraph);
+    note
 }
 
 /// Starts a new page (more widely understood than "page break before").
@@ -515,12 +717,18 @@ fn xml(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
-/// A paragraph's text, with its emphasis, as XHTML.
+/// A paragraph's text, with its emphasis and note numbers, as XHTML.
 fn xhtml_spans(spans: &[Span]) -> String {
     spans
         .iter()
         .map(|s| {
-            let mut t = xml(&s.text);
+            let mut t: String = pieces(&s.text)
+                .into_iter()
+                .map(|p| match p {
+                    Piece::Text(t) => xml(t),
+                    Piece::Note(n) => format!("<a epub:type=\"noteref\" href=\"#note-{n}\" id=\"ref-{n}\"><sup>{n}</sup></a>"),
+                })
+                .collect();
             if s.italic {
                 t = format!("<em>{t}</em>");
             }
@@ -550,7 +758,11 @@ h1 + p, .break + p, h2 + p, blockquote + p { text-indent: 0; }\n\
 .break { text-align: center; text-indent: 0; margin: 1em 0; }\n\
 blockquote { margin: 0.5em 2em; font-style: italic; }\n\
 .title { text-align: center; margin-top: 30%; }\n\
-.title h1 { margin: 0 0 0.5em; font-size: 2em; }\n";
+.title h1 { margin: 0 0 0.5em; font-size: 2em; }\n\
+.notes { margin-top: 2em; border-top: 1px solid #999; font-size: 0.85em; }\n\
+.notes p, .cited p { text-indent: 0; margin: 0.3em 0; }\n\
+.cited p { padding-left: 2em; text-indent: -2em; }\n\
+sup { line-height: 0; }\n";
 
 /// An EPUB 3 e-book: a title page, then a page per chapter, with a table of
 /// contents. Readable in Apple Books, Kindle (via Send to Kindle) and others.
@@ -581,7 +793,26 @@ pub fn to_epub(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
                 });
             }
         }
+        // The chapter's notes, at its end, each linked back to its number.
+        let numbers: Vec<usize> = chapter
+            .scenes
+            .iter()
+            .flat_map(|s| pieces(s).into_iter().filter_map(|p| if let Piece::Note(n) = p { Some(n) } else { None }).collect::<Vec<_>>())
+            .collect();
+        if !numbers.is_empty() {
+            body.push_str("<section class=\"notes\" epub:type=\"footnotes\">\n");
+            for n in numbers {
+                let text = m.notes.get(n - 1).map(|t| xhtml_spans(&spans(t))).unwrap_or_default();
+                body.push_str(&format!("<aside epub:type=\"footnote\" id=\"note-{n}\"><p><a href=\"#ref-{n}\">{n}</a>. {text}</p></aside>\n"));
+            }
+            body.push_str("</section>\n");
+        }
         pages.push((format!("chapter-{}.xhtml", n + 1), chapter.heading.clone(), xhtml_page(&chapter.heading, &body)));
+    }
+    if !m.works_cited.is_empty() {
+        let entries: String = m.works_cited.iter().map(|e| format!("<p>{}</p>\n", xhtml_spans(&spans(e)))).collect();
+        let body = format!("<h1>Works Cited</h1>\n<div class=\"cited\">\n{entries}</div>");
+        pages.push(("works-cited.xhtml".into(), "Works Cited".into(), xhtml_page("Works Cited", &body)));
     }
 
     let toc: String = pages
@@ -750,6 +981,8 @@ mod tests {
             title: "T".into(),
             author: String::new(),
             chapters: vec![Chapter { heading: "One".into(), scenes: vec!["a\n#\nb".into()] }],
+            notes: Vec::new(),
+            works_cited: Vec::new(),
         };
         assert!(to_markdown(&m, &CompileSettings::default()).contains("\na\n\n* * *\n\nb\n"));
         let asterism = CompileSettings { scene_break: SceneBreak::Asterism, ..Default::default() };
@@ -869,5 +1102,82 @@ mod tests {
         assert_eq!((old.format, old.chapter_headings), (Format::Markdown, ChapterHeadings::Numbers));
         assert_eq!((old.paper, old.typeface, old.scene_break), (Paper::Letter, Typeface::Times, SceneBreak::Hash));
         assert!(old.presets.is_empty() && old.contact.is_empty());
+    }
+
+    /// A book with a Sources folder (one source with a citation, one
+    /// without) and a Concepts folder, and two chapters that refer to them.
+    fn essays(dir: &TempDir) -> Project {
+        let mut p = book(dir);
+        for id in ["sources", "concepts"] {
+            let kind = crate::project::profile_presets().into_iter().map(|(k, _)| k).find(|k| k.id == id).unwrap();
+            p.add_profile_folder(kind).unwrap();
+        }
+        let berger = p.add_document(&Place::Into("sources".into()), "Ways of Seeing").unwrap();
+        fs::write(p.file_path(&berger).unwrap(), "A classic.\n\n## Citation\n\nBerger, John. *Ways of Seeing*.\nPenguin, 1972.\n").unwrap();
+        p.add_document(&Place::Into("sources".into()), "Debord").unwrap();
+        p.add_document(&Place::Into("concepts".into()), "The gaze").unwrap();
+        let harbour = p.documents().into_iter().find(|n| n.title == "The Harbour").unwrap().id.clone();
+        fs::write(
+            p.file_path(&harbour).unwrap(),
+            "The harbour froze [[Ways of Seeing|p. 8]] and [[The gaze]] stayed.\nSo it goes [[Debord]].\nAgain [[Ways of Seeing]].",
+        )
+        .unwrap();
+        p
+    }
+
+    #[test]
+    fn references_to_sources_become_notes_and_works_cited() {
+        let dir = TempDir::new("cite");
+        let p = essays(&dir);
+
+        // Left out (the default): no notes, and no words from references.
+        let plain = gather(&p, &CompileSettings::default(), read(&p));
+        assert_eq!(plain.chapters[1].scenes, ["The harbour froze and stayed.\nSo it goes.\nAgain."]);
+        assert!(plain.notes.is_empty() && plain.works_cited.is_empty());
+
+        let settings = CompileSettings { citations: Citations::Notes, works_cited: true, ..Default::default() };
+        let m = gather(&p, &settings, read(&p));
+        assert_eq!(m.chapters[1].scenes, ["The harbour froze\u{e000}1\u{e001} and stayed.\nSo it goes\u{e000}2\u{e001}.\nAgain\u{e000}3\u{e001}."]);
+        assert_eq!(m.notes, ["Berger, John. *Ways of Seeing*. Penguin, 1972, p. 8.", "Debord", "Berger, John. *Ways of Seeing*. Penguin, 1972."]);
+        assert_eq!(m.works_cited, ["Berger, John. *Ways of Seeing*. Penguin, 1972.", "Debord"], "each once, alphabetically");
+        assert_eq!(m.words(), plain.words(), "notes aren't words");
+
+        // Works Cited alone, without notes.
+        let cited_only = gather(&p, &CompileSettings { works_cited: true, ..Default::default() }, read(&p));
+        assert!(cited_only.notes.is_empty() && cited_only.works_cited.len() == 2);
+
+        // Markdown: pandoc footnotes, and the list.
+        let md = to_markdown(&m, &settings);
+        assert!(md.contains("\nThe harbour froze[^1] and stayed.\n"), "{md}");
+        assert!(md.contains("\n[^1]: Berger, John. *Ways of Seeing*. Penguin, 1972, p. 8.\n[^2]: Debord\n"), "{md}");
+        assert!(md.ends_with("\n# Works Cited\n\nBerger, John. *Ways of Seeing*. Penguin, 1972.\n\nDebord\n"), "{md}");
+
+        // Word: real footnotes, and Works Cited at the end.
+        use std::io::Read;
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(to_docx(&m, &settings).unwrap())).unwrap();
+        let mut file = |name: &str| {
+            let mut text = String::new();
+            zip.by_name(name).unwrap().read_to_string(&mut text).unwrap();
+            text
+        };
+        let document = file("word/document.xml");
+        assert_eq!(document.matches("<w:footnoteReference").count(), 3);
+        assert!(document.contains("Works Cited"));
+        let footnotes = file("word/footnotes.xml");
+        assert!(footnotes.contains("Penguin, 1972, p. 8."), "{footnotes}");
+        assert!(file("word/styles.xml").contains("FootnoteReference"));
+
+        // ePub: linked notes at the chapter's end, and a Works Cited page.
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(to_epub(&m, &settings).unwrap())).unwrap();
+        let mut file = |name: &str| {
+            let mut text = String::new();
+            zip.by_name(name).unwrap().read_to_string(&mut text).unwrap();
+            text
+        };
+        let two = file("OEBPS/chapter-2.xhtml");
+        assert!(two.contains("froze<a epub:type=\"noteref\" href=\"#note-1\" id=\"ref-1\"><sup>1</sup></a> and"), "{two}");
+        assert!(two.contains("<aside epub:type=\"footnote\" id=\"note-1\"><p><a href=\"#ref-1\">1</a>. Berger, John. <em>Ways of Seeing</em>. Penguin, 1972, p. 8.</p></aside>"), "{two}");
+        assert!(file("OEBPS/works-cited.xhtml").contains("<p>Debord</p>"));
+        assert!(file("OEBPS/content.opf").contains("works-cited.xhtml"));
     }
 }
