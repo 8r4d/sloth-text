@@ -22,6 +22,9 @@ version is kept.
    Account**: enter the setup password from `writer-config.php`, then choose
    your username and password. (That's the only way to make an account, and
    it only works once: afterwards the page asks you to sign in.)
+   If you forget your password, **Forgot your password?** on the sign-in
+   page sets a new one with the same setup password. Change it any time
+   under **Account**.
 5. Under **Account**, make a token and paste it, with the page's address,
    into Sloth Writer's Settings (iPad helper).
 6. On the iPad, open the page in Safari, sign in, and choose **Share → Add

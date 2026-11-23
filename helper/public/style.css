@@ -50,3 +50,9 @@ textarea { display: block; width: 100%; min-height: 60vh; margin-top: 16px; bord
 ul.tokens { list-style: none; padding: 0; margin: 8px 0; }
 ul.tokens li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .token { font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; word-break: break-all; padding: 10px; border: 1px dashed var(--accent); border-radius: 8px; }
+
+/* The setup password: dotted like a password, but not one to save. */
+input.secret { -webkit-text-security: disc; text-security: disc; }
+/* There for password managers, not people. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+.saved { color: var(--quiet); }

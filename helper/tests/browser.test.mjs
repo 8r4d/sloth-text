@@ -5,7 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { URL_BASE, ACCOUNT, mac, newProject } from './lib.mjs';
+import { URL_BASE, ACCOUNT, SETUP_PASSWORD, mac, newProject } from './lib.mjs';
 import { chromePath, launch } from './chrome.mjs';
 
 const skip = !chromePath && 'Chrome or Chromium not found (set CHROME to its path)';
@@ -153,5 +153,35 @@ test('a new scene goes to the inbox for the Mac', { skip }, async () => {
   const inbox = (await theMac.call('inbox', undefined, `&p=${project}`)).body;
   assert.ok(inbox.some(i => i.title === 'On the quay' && i.text === 'A new idea.'));
   await page.waitFor(`document.body.textContent.includes('waiting for your Mac')`);
+  assert.deepEqual(page.errors, [], 'no errors on the page');
+});
+
+test('password managers see the account password, and Forgot Password works', { skip }, async () => {
+  await page.send('Network.clearBrowserCookies');
+  await page.goto(URL_BASE);
+  await page.waitFor(`document.getElementById('username')`, { what: 'the sign-in form' });
+  const kinds = () => page.eval(`[...document.querySelectorAll('input')].map(i => [i.name, i.type, i.autocomplete])`);
+  assert.deepEqual(await kinds(), [['username', 'text', 'username'], ['password', 'password', 'current-password']]);
+
+  await page.eval(`document.getElementById('forgot').click()`);
+  await page.waitFor(`document.getElementById('setupPassword')`, { what: 'the forgot-password form' });
+  // The setup password isn't a password field, so it's never saved as the account's.
+  assert.deepEqual(await kinds(), [
+    ['username', 'text', 'username'], ['setupPassword', 'text', 'off'], ['password', 'password', 'new-password'],
+  ]);
+  assert.equal(await page.eval(`getComputedStyle(document.getElementById('setupPassword')).webkitTextSecurity`), 'disc');
+  await snap('forgot-password');
+  await page.eval(`
+    document.getElementById('username').value = ${JSON.stringify(ACCOUNT.username)};
+    document.getElementById('setupPassword').value = ${JSON.stringify(SETUP_PASSWORD)};
+    document.getElementById('password').value = ${JSON.stringify(ACCOUNT.password)};
+    document.querySelector('form').requestSubmit();`);
+  await page.waitFor(`document.body.textContent.includes('The Long Winter')`, { what: 'signed in, the projects' });
+
+  // The account page offers a password change, with the username for password managers.
+  await go('#/account');
+  await page.waitFor(`document.getElementById('current')`, { what: 'the change-password form' });
+  const fields = await page.eval(`[...document.querySelectorAll('#password-form input')].map(i => [i.name, i.autocomplete])`);
+  assert.deepEqual(fields, [['username', 'username'], ['current', 'current-password'], ['password', 'new-password']]);
   assert.deepEqual(page.errors, [], 'no errors on the page');
 });

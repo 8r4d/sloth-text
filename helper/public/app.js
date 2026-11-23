@@ -6,7 +6,12 @@
 //                               #/p/ID            a project's scenes
 //                               #/p/ID/s/SCENE    writing a scene
 //                               #/p/ID/new        a new scene (goes to the Mac's inbox)
-//                               #/account         tokens for the Mac, sign out
+//                               #/account         tokens for the Mac, password, sign out
+//
+// Signed out: Sign In, with Forgot Password? (the setup password from
+// writer-config.php unlocks the account), or Create My Account on the first
+// visit. The forms tell password managers which field is which, so they save
+// the account's password, never the setup password.
 //
 // Writing saves itself a moment after you stop typing, naming the version it
 // was edited from. If the Mac changed the scene meanwhile, the helper says so
@@ -403,13 +408,36 @@ function showOffline() {
 
 // ----- signing in, and the account -----------------------------------------------------
 
-function form(fields, button, onSubmit) {
-  render(`<h1>Sloth Writer</h1>
+// The kinds of field, as password managers need to see them.
+const USERNAME = { type: 'text', autocomplete: 'username' };
+const CURRENT_PASSWORD = { type: 'password', autocomplete: 'current-password' };
+const NEW_PASSWORD = { type: 'password', autocomplete: 'new-password', minlength: 8 };
+// The setup password isn't the account's: a plain field, dotted by CSS, so
+// password managers neither save it nor fill it in.
+const SETUP_PASSWORD = { type: 'text', autocomplete: 'off', secret: true };
+
+function fieldHtml({ name, label, type, autocomplete, minlength, secret }) {
+  const attrs = [
+    `id="${name}"`, `name="${name}"`, `type="${type}"`, `autocomplete="${autocomplete}"`, 'required',
+    'autocapitalize="off"', 'spellcheck="false"',
+    minlength ? `minlength="${minlength}"` : '',
+    // Asks 1Password, LastPass and Bitwarden to leave it alone too.
+    secret ? 'class="secret" data-1p-ignore data-lpignore="true" data-bwignore' : '',
+  ];
+  return `<label for="${name}">${label}</label><input ${attrs.filter(Boolean).join(' ')}>`;
+}
+
+/// A form of `fields` ({name, label, ...one of the kinds above}); `after`
+/// goes below the button.
+function form(title, fields, button, onSubmit, { intro = '', after = '' } = {}) {
+  render(`<h1>${title}</h1>
+    ${intro}
     <form>
-      ${fields.map(([name, label, type]) => `<label for="${name}">${label}</label><input id="${name}" name="${name}" type="${type}" required>`).join('')}
+      ${fields.map(fieldHtml).join('')}
       <p class="error" id="error"></p>
       <button class="primary">${button}</button>
-    </form>`);
+    </form>
+    ${after}`);
   app.querySelector('form').addEventListener('submit', async e => {
     e.preventDefault();
     try {
@@ -421,22 +449,50 @@ function form(fields, button, onSubmit) {
 }
 
 function showSetup() {
-  form(
-    [['setupPassword', 'Setup password (from writer-config.php)', 'password'], ['username', 'Choose a username', 'text'], ['password', 'Choose a password (8 or more characters)', 'password']],
-    'Create My Account',
-    async v => { await api('setup', v); location.hash = '#/account'; route(); },
-  );
+  form('Sloth Writer', [
+    { name: 'username', label: 'Choose a username', ...USERNAME },
+    { name: 'password', label: 'Choose a password (8 or more characters)', ...NEW_PASSWORD },
+    { name: 'setupPassword', label: 'Setup password (from writer-config.php)', ...SETUP_PASSWORD },
+  ], 'Create My Account', async v => { await api('setup', v); location.hash = '#/account'; route(); });
 }
 
 function showSignIn() {
-  form([['username', 'Username', 'text'], ['password', 'Password', 'password']], 'Sign In', async v => {
+  form('Sloth Writer', [
+    { name: 'username', label: 'Username', ...USERNAME },
+    { name: 'password', label: 'Password', ...CURRENT_PASSWORD },
+  ], 'Sign In', async v => {
     await api('login', v);
     route();
+  }, { after: '<p><a href="#" id="forgot">Forgot your password?</a></p>' });
+  app.querySelector('#forgot').addEventListener('click', e => {
+    e.preventDefault();
+    showRecover();
   });
 }
 
-async function showAccount(newToken) {
-  const tokens = await api('tokens');
+/// Locked out: the setup password from writer-config.php sets a new password.
+function showRecover() {
+  form('Forgot Password', [
+    { name: 'username', label: 'Username', ...USERNAME },
+    { name: 'setupPassword', label: 'Setup password (from writer-config.php)', ...SETUP_PASSWORD },
+    { name: 'password', label: 'New password (8 or more characters)', ...NEW_PASSWORD },
+  ], 'Set New Password', async v => {
+    await api('recover', v);
+    location.hash = '#/';
+    route();
+  }, {
+    intro: `<p class="quiet">Enter the setup password from <code>writer-config.php</code> on your web host to choose a new password.
+      Sloth Writer on your Mac keeps syncing: its token doesn't change.</p>`,
+    after: '<p><a href="#" id="back">Back to Sign In</a></p>',
+  });
+  app.querySelector('#back').addEventListener('click', e => {
+    e.preventDefault();
+    showSignIn();
+  });
+}
+
+async function showAccount(newToken, message = '') {
+  const [tokens, me] = await Promise.all([api('tokens'), api('me')]);
   render(`${nav({ href: '#/', label: 'Projects' })}
     <h1>Account</h1>
     <p class="quiet">Sloth Writer on your Mac syncs with this helper using a token.
@@ -449,7 +505,26 @@ async function showAccount(newToken) {
     </ul>
     <form id="make"><label for="label">Name for a new token</label><input id="label" name="label" value="My Mac">
     <button class="primary">Make a Token</button></form>
+    <h2>Password</h2>
+    <form id="password-form">
+      <input class="visually-hidden" type="text" name="username" autocomplete="username" value="${esc(me.user.username)}" tabindex="-1" aria-hidden="true">
+      ${fieldHtml({ name: 'current', label: 'Current password', ...CURRENT_PASSWORD })}
+      ${fieldHtml({ name: 'password', label: 'New password (8 or more characters)', ...NEW_PASSWORD })}
+      <p class="error" id="password-error"></p>
+      ${message ? `<p class="saved">${esc(message)}</p>` : ''}
+      <button class="primary">Change Password</button>
+    </form>
+    <p class="quiet">Signed in as ${esc(me.user.username)}.</p>
     <p><button id="signout">Sign Out</button></p>`);
+  app.querySelector('#password-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      await api('change_password', { current: e.target.current.value, password: e.target.password.value });
+      showAccount(undefined, 'Password changed.');
+    } catch (err) {
+      app.querySelector('#password-error').textContent = err.message;
+    }
+  });
   app.querySelector('#make').addEventListener('submit', async e => {
     e.preventDefault();
     const { token } = await api('token_create', { label: e.target.label.value });

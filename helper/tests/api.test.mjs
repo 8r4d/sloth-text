@@ -152,3 +152,36 @@ test("its tables are prefixed, so it can share a database with other sites", asy
   assert.ok(tables.length >= 8);
   assert.ok(tables.every(t => t.startsWith('writer_')), tables.join(', '));
 });
+
+test('forgot password: the setup password sets a new one', async () => {
+  forgetTries();
+  await browser();
+  const c = new Client();
+  const wrong = await c.call('recover', { username: ACCOUNT.username, setupPassword: 'not-it', password: 'another-password-2' });
+  assert.equal(wrong.status, 403);
+  const right = await c.call('recover', { username: ACCOUNT.username, setupPassword: SETUP_PASSWORD, password: 'another-password-2' });
+  assert.equal(right.status, 200);
+  assert.equal((await c.call('me')).body.user.username, ACCOUNT.username, 'signed in afterwards');
+  assert.equal((await new Client().call('login', ACCOUNT)).status, 403, 'the old password no longer works');
+  // Back to the usual password for the other tests.
+  forgetTries();
+  await c.call('recover', { username: ACCOUNT.username, setupPassword: SETUP_PASSWORD, password: ACCOUNT.password });
+  forgetTries();
+});
+
+test('changing the password needs the current one, and signs out other browsers', async () => {
+  forgetTries();
+  const b = await browser();
+  const other = await browser();
+  assert.equal((await b.call('change_password', { current: 'wrong-one', password: 'another-password-3' })).status, 403);
+  assert.equal((await b.call('change_password', { current: ACCOUNT.password, password: 'short' })).status, 400);
+  assert.equal((await b.call('change_password', { current: ACCOUNT.password, password: 'another-password-3' })).status, 200);
+  assert.equal((await b.call('me')).body.user.username, ACCOUNT.username, 'still signed in here');
+  assert.equal((await other.call('me')).body.user, null, 'signed out elsewhere');
+  // A token isn't a password: it can't change one.
+  const theMac = await mac().catch(() => null);
+  if (theMac) assert.equal((await theMac.call('change_password', { current: 'x', password: 'y-long-enough' })).status, 403);
+  forgetTries();
+  await b.call('change_password', { current: 'another-password-3', password: ACCOUNT.password });
+  forgetTries();
+});
