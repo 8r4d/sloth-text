@@ -76,6 +76,8 @@ pub struct WriterSettings {
     pub theme: ThemeChoice,
     /// A small moment when the day's goal is reached (see goal_ui.rs).
     pub celebrate_goals: bool,
+    /// In Focus mode, fade all but the paragraph being written in.
+    pub focus_paragraph: bool,
 }
 
 impl Default for WriterSettings {
@@ -101,6 +103,7 @@ impl Default for WriterSettings {
             backup_folder: None,
             helper_url: String::new(),
             celebrate_goals: true,
+            focus_paragraph: true,
             theme: ThemeChoice::default(),
         }
     }
@@ -289,6 +292,8 @@ impl WriterApp {
                     });
                     ui.checkbox(&mut settings.spell_check, "Check spelling as you type")
                         .on_hover_text("Uses your Mac's spelling language and learned words. Right-click a word for suggestions.");
+                    ui.checkbox(&mut settings.focus_paragraph, "In Focus mode, fade all but the paragraph you're writing")
+                        .on_hover_text("The light moves with the cursor. Focus mode is \u{2325}\u{2318}F.");
                     ui.checkbox(&mut settings.celebrate_goals, "Celebrate reaching the day's goal")
                         .on_hover_text("Once a day: the goal ring pulses, and the sloth says so.");
                     ui.add_space(4.0);

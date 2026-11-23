@@ -69,6 +69,9 @@ pub struct EditorSettings {
     /// (bold, italics, headings) rather than Markdown; see
     /// `markdown::formatted` (Sloth Writer; off in Sloth).
     pub copy_formatted: bool,
+    /// Fade every paragraph but the one being written in (Sloth Writer's
+    /// Focus mode). Moving to another paragraph eases the light across.
+    pub focus_paragraph: bool,
 }
 
 impl EditorSettings {
@@ -107,6 +110,7 @@ impl Default for EditorSettings {
             first_line_indent: 0.0,
             hide_markers: false,
             copy_formatted: false,
+            focus_paragraph: false,
         }
     }
 }
@@ -643,6 +647,9 @@ pub fn show(
                         .flatten()
                         .map_or(usize::MAX..usize::MAX, |chars| lines_around(text, chars))
                 });
+                // Paragraph focus: which lines are lit, and how far the
+                // light has moved from where it was.
+                let focus = settings.focus_paragraph.then(|| paragraph_focus(ui, tab, text)).flatten();
                 // Placeholder for highlights drawn behind the text; filled in
                 // once we know where the cursor's row landed.
                 let behind_text = ui.painter().add(Shape::Noop);
@@ -691,6 +698,10 @@ pub fn show(
                         );
                         job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
                         let job = indent_paragraphs(job, indent);
+                        let job = match &focus {
+                            Some(f) => fade_paragraphs(job, f),
+                            None => job,
+                        };
                         space_paragraphs(ui.fonts_mut(|f| f.layout_job(job)), paragraph_gap)
                     };
                 let edit = edit.layouter(&mut layouter);
@@ -951,6 +962,92 @@ fn reference_at(output: &egui::text_edit::TextEditOutput, text: &str, pos: egui:
 const HIDDEN_SIZE: f32 = 0.01;
 
 /// The byte range of the whole lines a character range touches.
+/// How faint the paragraphs not being written in are.
+const FADED: f32 = 0.28;
+/// How long the light takes to move to another paragraph, in seconds.
+const FOCUS_MOVE: f64 = 0.25;
+
+/// Which lines (paragraphs) are lit for paragraph focus, by number: the
+/// ones the cursor or selection is on, and the ones that were, as the
+/// light moves from those to these (`moved`, 0 to 1).
+#[derive(Clone, Debug, PartialEq)]
+struct Lit {
+    now: Range<usize>,
+    before: Option<Range<usize>>,
+    moved: f32,
+}
+
+/// What's remembered between frames: the lines lit, and since when.
+#[derive(Clone, Default)]
+struct FocusMemory {
+    lines: Option<Range<usize>>,
+    before: Option<Range<usize>>,
+    since: f64,
+}
+
+/// The lit lines this frame, or `None` without a cursor (everything shows).
+fn paragraph_focus(ui: &egui::Ui, tab: TabId, text: &str) -> Option<Lit> {
+    let chars = selection(ui.ctx(), tab)?;
+    let bytes = lines_around(text, chars);
+    let line_of = |byte: usize| text[..byte.min(text.len())].matches('\n').count();
+    let lines = line_of(bytes.start)..line_of(bytes.end) + 1;
+    let id = editor_id(tab).with("paragraph-focus");
+    let now = ui.input(|i| i.time);
+    let mut memory: FocusMemory = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    if memory.lines.as_ref() != Some(&lines) {
+        memory = FocusMemory { before: memory.lines.take(), lines: Some(lines.clone()), since: now };
+        ui.data_mut(|d| d.insert_temp(id, memory.clone()));
+    }
+    let moved = crate::motion::ease(now, memory.since, FOCUS_MOVE);
+    if moved < 1.0 {
+        ui.ctx().request_repaint();
+    }
+    Some(Lit { now: lines, before: memory.before.filter(|_| moved < 1.0), moved })
+}
+
+/// Paragraph focus: the text's colour faded on the lines not lit. Sections
+/// are cut at each line's start, so each piece is on one line.
+fn fade_paragraphs(mut job: LayoutJob, lit: &Lit) -> LayoutJob {
+    let brightness = |line: usize| {
+        let on = |r: &Range<usize>| r.contains(&line);
+        let full = 1.0 - FADED;
+        match (on(&lit.now), lit.before.as_ref().is_some_and(on)) {
+            (true, true) => 1.0,
+            (true, false) => FADED + full * lit.moved,
+            (false, true) => 1.0 - full * lit.moved,
+            (false, false) => FADED,
+        }
+    };
+    let text = job.text.clone();
+    let mut sections = Vec::with_capacity(job.sections.len());
+    let mut line = 0;
+    for section in job.sections.drain(..) {
+        let range = section.byte_range.start.0..section.byte_range.end.0;
+        let mut from = range.start;
+        // Each line's piece of the section, ending after its newline.
+        while from < range.end {
+            let end = text[from..range.end].find('\n').map_or(range.end, |i| from + i + 1);
+            let mut piece = section.clone();
+            piece.byte_range = egui::text::ByteIndex(from)..egui::text::ByteIndex(end);
+            let alpha = brightness(line);
+            if alpha < 1.0 {
+                piece.format.color = piece.format.color.gamma_multiply(alpha);
+            }
+            // Only the first piece keeps the section's leading space (indent).
+            if from != range.start {
+                piece.leading_space = 0.0;
+            }
+            sections.push(piece);
+            if text[from..end].ends_with('\n') {
+                line += 1;
+            }
+            from = end;
+        }
+    }
+    job.sections = sections;
+    job
+}
+
 fn lines_around(text: &str, chars: Range<usize>) -> Range<usize> {
     let (start, end) = (crate::find::char_to_byte(text, chars.start), crate::find::char_to_byte(text, chars.end));
     let start = text[..start].rfind('\n').map_or(0, |i| i + 1);
@@ -1255,6 +1352,28 @@ fn line_col(text: &str, cursor: CCursor) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paragraph_focus_fades_the_other_lines() {
+        let text = "One.\nTwo is here.\nThree.";
+        let mut job = LayoutJob::default();
+        job.append(text, 0.0, TextFormat::simple(FontId::proportional(14.0), Color32::WHITE));
+        let brightness = |job: &LayoutJob| -> Vec<(String, u8)> {
+            job.sections.iter().map(|s| (job.text[s.byte_range.start.0..s.byte_range.end.0].to_owned(), s.format.color.a())).collect()
+        };
+        // The light on line 2 (index 1), settled.
+        let lit = Lit { now: 1..2, before: None, moved: 1.0 };
+        let faded = (255.0 * FADED).round() as u8;
+        let got = brightness(&fade_paragraphs(job.clone(), &lit));
+        assert_eq!(got.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["One.\n", "Two is here.\n", "Three."]);
+        assert_eq!(got.iter().map(|(_, a)| *a).collect::<Vec<_>>(), [faded, 255, faded]);
+
+        // Halfway from line 1 to line 3: both between.
+        let lit = Lit { now: 2..3, before: Some(0..1), moved: 0.5 };
+        let alphas: Vec<u8> = brightness(&fade_paragraphs(job, &lit)).into_iter().map(|(_, a)| a).collect();
+        assert!(alphas[0] > faded && alphas[0] < 255 && alphas[2] > faded && alphas[2] < 255);
+        assert_eq!(alphas[1], faded);
+    }
 
     #[test]
     fn layout_combines_code_colours_and_search_highlights() {

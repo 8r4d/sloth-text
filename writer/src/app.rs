@@ -178,6 +178,14 @@ pub struct WriterApp {
     celebration: Option<goal_ui::Celebration>,
     /// The sloth's poses, once shown (see sloth_ui.rs).
     sloth_art: sloth_ui::SlothArt,
+    // Softer motion (see `motion_style` and `view_fade`).
+    /// Animating, as last set in egui's style (`None` before the first frame).
+    animating: Option<bool>,
+    /// What the main area shows (document, folder view, Canvas), and since
+    /// when, for a short fade-in when it changes.
+    view_key: String,
+    view_since: f64,
+    view_opacity: f32,
     /// The Statistics window's goal fields as typed: daily, total, deadline.
     goal_fields: Option<[String; 3]>,
 
@@ -284,6 +292,10 @@ impl WriterApp {
             stats_open: false,
             celebration: None,
             sloth_art: Default::default(),
+            animating: None,
+            view_key: String::new(),
+            view_since: 0.0,
+            view_opacity: 1.0,
             goal_fields: None,
         };
         app.apply_settings(&cc.egui_ctx);
@@ -1325,6 +1337,7 @@ impl WriterApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color).inner_margin(egui::Margin::symmetric(24, 16)))
             .show(ui, |ui| {
+                ui.set_opacity(self.view_opacity);
                 if let Some(folder) = &folder {
                     self.folder_view(ui, folder);
                     return;
@@ -1363,8 +1376,44 @@ impl WriterApp {
         }
     }
 
+    /// Animate or not (the Mac's Reduce motion; never in tests): egui's own
+    /// animations (panels sliding, sections folding, scrolling to the
+    /// cursor) take their time from its style.
+    fn motion_style(&mut self, ctx: &egui::Context) {
+        let animate = !cfg!(test) && sloth_core::motion::animate();
+        if self.animating == Some(animate) {
+            return;
+        }
+        self.animating = Some(animate);
+        ctx.all_styles_mut(|style| {
+            style.animation_time = if animate { 0.18 } else { 0.0 };
+            style.scroll_animation = if animate { egui::style::ScrollAnimation::default() } else { egui::style::ScrollAnimation::none() };
+        });
+    }
+
+    /// A short fade-in when the main area changes what it shows: another
+    /// document, the corkboard or outline, the Canvas.
+    fn view_fade(&mut self, ctx: &egui::Context) {
+        let mode = self.selected.as_ref().and_then(|id| self.folder_views.get(id));
+        let key = format!("{:?}|{}|{mode:?}", self.selected, self.canvas_open);
+        let now = ctx.input(|i| i.time);
+        if key != self.view_key {
+            self.view_key = key;
+            self.view_since = now;
+        }
+        self.view_opacity = if self.animating == Some(true) {
+            0.15 + 0.85 * sloth_core::motion::ease(now, self.view_since, 0.18)
+        } else {
+            1.0
+        };
+        if self.view_opacity < 1.0 {
+            ctx.request_repaint();
+        }
+    }
+
     /// The usual window: toolbar, binder, inspector, editor…
     fn main_view(&mut self, ui: &mut egui::Ui) {
+        self.view_fade(&ui.ctx().clone());
         self.toolbar(ui);
         let mut actions = Vec::new();
         let binder = egui::Panel::left(egui::Id::unique("binder")).resizable(true).default_size(240.0).size_range(160.0..=480.0);
@@ -1422,6 +1471,7 @@ impl WriterApp {
     fn focus_view(&mut self, ui: &mut egui::Ui) {
         let mut settings = self.editor.clone();
         settings.typewriter = self.settings.typewriter != settings_ui::Typewriter::Never;
+        settings.focus_paragraph = self.settings.focus_paragraph;
         let words = self.current().map(|t| inspector::count_words(&t.doc.text)).unwrap_or(0);
         let today = self.today_summary();
         let fill = ui.visuals().extreme_bg_color;
@@ -1489,6 +1539,7 @@ impl eframe::App for WriterApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
         self.shortcuts(&ctx);
+        self.motion_style(&ctx);
 
         // Look for outside changes when the window comes to the front, and
         // every couple of seconds while it's there. Before autosave below,

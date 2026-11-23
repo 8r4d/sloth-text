@@ -25,7 +25,7 @@ impl WriterApp {
 
     /// The split pane, on the right of the editor (inside the inspector).
     pub(super) fn split_pane(&mut self, ui: &mut egui::Ui) {
-        if !self.split_open || self.project.is_none() {
+        if self.project.is_none() {
             return;
         }
         // Gone (deleted for good, say): show nothing rather than a stale id.
@@ -34,16 +34,19 @@ impl WriterApp {
         }
         let width = ui.available_width();
         let fill = ui.visuals().extreme_bg_color;
+        // Slides in and out (instantly with Reduce motion).
+        let mut open = self.split_open;
         egui::Panel::right(egui::Id::unique("split"))
             .resizable(true)
             .default_size(width * 0.45)
             .size_range(260.0..=(width * 0.75).max(300.0))
             .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin::symmetric(16, 10)))
-            .show(ui, |ui| {
+            .show_collapsible(ui, &mut open, |ui| {
                 self.split_header(ui);
                 ui.separator();
                 self.split_contents(ui);
             });
+        self.split_open = open;
     }
 
     fn split_header(&mut self, ui: &mut egui::Ui) {

@@ -221,7 +221,9 @@ impl WriterApp {
 
         let mut actions = Vec::new();
         let fill = ui.visuals().extreme_bg_color;
+        let opacity = self.view_opacity;
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(fill)).show(ui, |ui| {
+            ui.set_opacity(opacity);
             canvas_bar(ui, &mut state, &folders);
             ui.separator();
             if state.fit {

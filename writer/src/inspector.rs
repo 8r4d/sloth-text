@@ -90,19 +90,19 @@ impl WriterApp {
     }
 
     pub(super) fn inspector(&mut self, ui: &mut egui::Ui) {
-        if !self.show_inspector {
-            return;
-        }
+        // Slides in and out (instantly with Reduce motion).
+        let mut open = self.show_inspector;
         egui::Panel::right(egui::Id::unique("inspector"))
             .resizable(true)
             .default_size(280.0)
             .size_range(220.0..=480.0)
-            .show(ui, |ui| {
+            .show_collapsible(ui, &mut open, |ui| {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.add_space(6.0);
                     self.inspector_contents(ui);
                 });
             });
+        self.show_inspector = open;
     }
 
     fn inspector_contents(&mut self, ui: &mut egui::Ui) {

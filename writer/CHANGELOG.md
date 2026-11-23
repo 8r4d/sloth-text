@@ -2,6 +2,14 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.21.0
+
+Focus, and softer motion.
+
+- Paragraph focus: in Focus mode (⌥⌘F), every paragraph but the one you're writing fades back, and the light eases across as the cursor moves. Turn it off in Settings → Writing.
+- The inspector and the split pane slide in and out, the main area fades in when it changes (another document, the corkboard or outline, the Canvas), and scrolling to the cursor glides.
+- All of it follows your Mac's Reduce motion setting: with it on, everything changes at once.
+
 ## 1.20.0
 
 The sloth comes out to keep you company.

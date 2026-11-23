@@ -60,6 +60,7 @@ const TIPS: &[&str] = &[
     "Link to another document the same way, with [[its title]]: hover to see its synopsis, \u{2318}-click to open it beside. A document's inspector lists what it links to and what links to it, and renaming a document renames the links to it.",
     "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",
     "Double-click a binder item to rename it.",
+    "In Focus mode (\u{2325}\u{2318}F), the paragraph you're writing stays bright and the rest fade back. Turn that off in Settings \u{2192} Writing.",
     "To replace, choose Replace\u{2026} in the find bar (\u{2318}F). With the whole project's matches showing (\u{21e7}\u{2318}F), Replace All changes every document, after asking, and snapshots each one first.",
     "Mobile Notes (in More\u{2026}) is a notepad for jotting on your phone: on the web it's first in each project, with a New Entry button that adds the date and time. On the Mac it opens beside what you're writing. Any document can be the notepad: tick Mobile notepad in its inspector. Notes added on both sides between syncs are all kept.",
     "The Canvas (\u{2325}\u{2318}C) puts every document on one surface, strung to the profiles it refers to, whatever the binder's order. Double-click it for a note of your own; drag from a card's pin to another card to tie a string between them (right-click the string to say what it means). Right-click a note to make it a document.",
