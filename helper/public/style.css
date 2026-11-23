@@ -6,6 +6,8 @@
 @media (prefers-color-scheme: dark) {
   :root { --bg: #1d1b18; --text: #e9e2d6; --quiet: #9a9184; --line: #3a362f; --accent: #8fb0e6; --danger: #e8897d; --tint: rgba(143, 176, 230, 0.1); }
 }
+/* Sloth Writer's theme, when the page wears it (see applyColors in app.js). */
+:root[data-themed] ::selection { background: var(--selection); }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--text); font-size: 18px; line-height: 1.5; }

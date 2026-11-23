@@ -29,13 +29,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool, settings: &mut Settings, fonts
                     section(ui, "Appearance");
 
                     ui.label("Theme");
-                    egui::ComboBox::from_id_salt("theme")
-                        .selected_text(settings.theme.label())
-                        .show_ui(ui, |ui| {
-                            for &t in theme::ALL {
-                                changes.theme |= ui.selectable_value(&mut settings.theme, t, t.label()).changed();
-                            }
-                        });
+                    changes.theme |= theme::picker(ui, "theme", &mut settings.theme, 180.0);
                     ui.end_row();
 
                     let e = &mut settings.editor;

@@ -414,3 +414,46 @@ test('paragraphs: em dashes, and switching back to the plain box under Account',
   assert.match(await page.eval(`document.getElementById('text').value`), / Wait—what$/);
   await page.eval(`localStorage.setItem('writer-editor', JSON.stringify('paragraphs'))`);
 });
+
+// ----- colours ------------------------------------------------------------------------
+
+test("colours: the page wears Sloth Writer's theme, or this device's own", { skip }, async () => {
+  const background = () => page.eval(`getComputedStyle(document.body).backgroundColor`);
+  // The Mac's theme (Nord, as Sloth Writer sends it) comes with the day's figures.
+  const nord = { dark: true, bg: '#2e3440', text: '#d8dee9', quiet: '#9aa0ab', line: '#434c5e', accent: '#88c0d0',
+    tint: 'rgba(136, 192, 208, 0.12)', selection: '#434c5e', danger: '#e8897d' };
+  await theMac.call('index_put', {
+    title: 'The Long Winter',
+    index: [{ id: 'arrival', title: 'The arrival', chapter: 'Chapter 1', words: 4 }],
+    stats: { date: localDay(), today: 0, goal: null, total: 0, target: null, deadline: null, look: { spacing: 0, indent: 0, theme: nord } },
+  }, `&p=${project}`);
+  await go(`#/p/${project}`);
+  await page.waitFor(`getComputedStyle(document.body).backgroundColor === 'rgb(46, 52, 64)'`, { what: 'Nord' });
+  assert.equal(await page.eval(`getComputedStyle(document.querySelector('h1')).color`), 'rgb(216, 222, 233)');
+  assert.equal(await page.eval(`document.querySelector('meta[name="theme-color"]').content`), '#2e3440', 'the status bar too');
+  assert.equal(await page.eval(`getComputedStyle(document.documentElement).colorScheme`), 'dark');
+  await snap('colours-nord');
+
+  // Remembered for next time, before anything's loaded.
+  await page.goto(URL_BASE);
+  assert.equal(await background(), 'rgb(46, 52, 64)');
+  await go('#/account');
+  await page.waitFor(`document.getElementById('match-colors')`);
+
+  // This device's own colours instead (the tests' browser is in light mode)…
+  await page.eval(`document.getElementById('match-colors').click()`);
+  assert.equal(await background(), 'rgb(246, 241, 231)');
+  assert.equal(await page.eval(`document.querySelector('meta[name="theme-color"]').content`), '#f6f1e7');
+  // …and back.
+  await page.eval(`document.getElementById('match-colors').click()`);
+  assert.equal(await background(), 'rgb(46, 52, 64)');
+
+  // Match System on the Mac sends none: the device's own again.
+  await theMac.call('index_put', {
+    title: 'The Long Winter',
+    index: [{ id: 'arrival', title: 'The arrival', chapter: 'Chapter 1', words: 4 }],
+    stats: { date: localDay(), today: 0, goal: null, total: 0, target: null, deadline: null, look: { spacing: 0, indent: 0, theme: null } },
+  }, `&p=${project}`);
+  await go(`#/p/${project}`);
+  await page.waitFor(`getComputedStyle(document.body).backgroundColor === 'rgb(246, 241, 231)'`, { what: 'the device colours' });
+});

@@ -70,8 +70,11 @@ pick Sloth under **Open with**, and click **Change All**.
   extension if you type a name without one
 - Native macOS menu bar (Sloth, File, Edit, View, Window, Help menus)
 - About window (version and build) and Help window (shortcuts and release notes)
-- Colour themes (View → Theme): Match System, Light, Dark, Solarized Light,
-  Solarized Dark, Sepia, Midnight
+- 26 colour themes (View → Theme, shared with Sloth Writer), as well as Match
+  System. Light: Light, Paper, Sepia, Solarized, GitHub, One, Gruvbox, Catppuccin
+  Latte, Rosé Pine Dawn, Everforest, High Contrast. Dark: Dark, Midnight,
+  Solarized, Lamplight, GitHub, One, Nord, Dracula, Gruvbox, Tokyo Night,
+  Catppuccin Mocha, Rosé Pine, Everforest, Monokai, High Contrast
 - Remembers theme, line numbers, word wrap, text size and window size between launches
 - Line-number gutter (also works with word wrap on)
 - Cursor line/column and line count in the status bar
@@ -234,7 +237,7 @@ to include Writer.
 | `sloth/src/app_ui_tests.rs` | UI tests that run the app in memory (`cargo test`) |
 | `sloth/macos/document-types.plist` | File types declared in Sloth.app, so Finder offers it |
 | `core/src/editor.rs`   | The text area and line-number gutter |
-| `core/src/theme.rs`    | Colour themes: each one is a small palette of colours |
+| `core/src/theme.rs`    | Colour themes: each one is a small palette of colours, and the Settings windows' theme menu |
 | `sloth/src/native_menu.rs` | macOS menu bar, built from `commands::MENUS` (other platforms get an in-window menu) |
 | `core/src/markdown.rs` | Markdown styling as you type (Writer) |
 | `core/src/spell.rs`    | Spell checking with the macOS spell checker (Writer) |
@@ -273,7 +276,9 @@ The menu item and keyboard shortcut are created from that automatically. If the
 shortcut uses a key that isn't mapped yet, add it to `to_accelerator` in `native_menu.rs`.
 
 To add a theme, add a variant to `ThemeChoice` in `theme.rs` with a label and
-palette, add it to `ALL` there, and add it to `THEME_MENU` in `commands.rs`.
+palette, add it to `ALL` there (with the light or the dark ones), and add it to
+`THEME_MENU` in `commands.rs` in the same place. Tests check every palette's
+text can be read on its background, and that the menu lists every theme.
 
 Settings are saved to `~/Library/Application Support/Sloth/app.ron`, and
 crash-recovery copies to the `recovery` folder next to it.

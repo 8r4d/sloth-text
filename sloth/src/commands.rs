@@ -208,16 +208,38 @@ const FIND_MENU: &[MenuEntry] = &[
     Item(Command::FindInTabs),
 ];
 
+/// Match System, then the light themes, then the dark ones (as
+/// `theme::ALL` has them; a test checks none is missing).
 const THEME_MENU: &[MenuEntry] = &[
     Item(Command::SetTheme(ThemeChoice::System)),
     Separator,
     Item(Command::SetTheme(ThemeChoice::Light)),
-    Item(Command::SetTheme(ThemeChoice::Dark)),
-    Separator,
-    Item(Command::SetTheme(ThemeChoice::SolarizedLight)),
-    Item(Command::SetTheme(ThemeChoice::SolarizedDark)),
+    Item(Command::SetTheme(ThemeChoice::Paper)),
     Item(Command::SetTheme(ThemeChoice::Sepia)),
+    Item(Command::SetTheme(ThemeChoice::SolarizedLight)),
+    Item(Command::SetTheme(ThemeChoice::GithubLight)),
+    Item(Command::SetTheme(ThemeChoice::OneLight)),
+    Item(Command::SetTheme(ThemeChoice::GruvboxLight)),
+    Item(Command::SetTheme(ThemeChoice::CatppuccinLatte)),
+    Item(Command::SetTheme(ThemeChoice::RosePineDawn)),
+    Item(Command::SetTheme(ThemeChoice::EverforestLight)),
+    Item(Command::SetTheme(ThemeChoice::HighContrastLight)),
+    Separator,
+    Item(Command::SetTheme(ThemeChoice::Dark)),
     Item(Command::SetTheme(ThemeChoice::Midnight)),
+    Item(Command::SetTheme(ThemeChoice::SolarizedDark)),
+    Item(Command::SetTheme(ThemeChoice::Lamplight)),
+    Item(Command::SetTheme(ThemeChoice::GithubDark)),
+    Item(Command::SetTheme(ThemeChoice::OneDark)),
+    Item(Command::SetTheme(ThemeChoice::Nord)),
+    Item(Command::SetTheme(ThemeChoice::Dracula)),
+    Item(Command::SetTheme(ThemeChoice::GruvboxDark)),
+    Item(Command::SetTheme(ThemeChoice::TokyoNight)),
+    Item(Command::SetTheme(ThemeChoice::CatppuccinMocha)),
+    Item(Command::SetTheme(ThemeChoice::RosePine)),
+    Item(Command::SetTheme(ThemeChoice::EverforestDark)),
+    Item(Command::SetTheme(ThemeChoice::Monokai)),
+    Item(Command::SetTheme(ThemeChoice::HighContrastDark)),
 ];
 
 /// Every command, in menu order.
@@ -427,5 +449,19 @@ impl Command {
 
     pub fn from_id(id: &str) -> Option<Command> {
         all().into_iter().find(|c| c.id() == id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_theme_menu_has_every_theme_in_order() {
+        let listed: Vec<ThemeChoice> = all()
+            .into_iter()
+            .filter_map(|c| if let Command::SetTheme(t) = c { Some(t) } else { None })
+            .collect();
+        assert_eq!(listed, crate::theme::ALL);
     }
 }

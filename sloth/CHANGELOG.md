@@ -2,6 +2,10 @@
 
 Sloth uses semantic versioning (major.minor.patch).
 
+## 1.2.0
+
+- Twenty more colour themes, 26 in all, in View → Theme and Settings, grouped into light and dark. New light ones: Paper, GitHub Light, One Light, Gruvbox Light, Catppuccin Latte, Rosé Pine Dawn, Everforest Light and High Contrast Light. New dark ones: Lamplight (warm and low-glare), GitHub Dark, One Dark, Nord, Dracula, Gruvbox Dark, Tokyo Night, Catppuccin Mocha, Rosé Pine, Everforest Dark, Monokai and High Contrast Dark.
+
 ## 1.1.0
 
 - Untitled documents are kept when you quit: no "Save changes?" for them. They're back, still unsaved, in their place among the tabs at the next launch (while Settings → "Reopen the windows and tabs from last time" is on; with it off, Sloth asks as before).

@@ -2,6 +2,12 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.17.0
+
+- Twenty more colour themes, 26 in all (Settings → Appearance → Theme), grouped into light and dark. For writing: Paper (a soft white page) and Lamplight (warm and low-glare, for night). Also GitHub, One, Gruvbox, Catppuccin, Rosé Pine and Everforest in light and dark, Nord, Dracula, Tokyo Night and Monokai, and a High Contrast pair.
+- The web editor wears the same theme: its colours come over with each sync, down to the phone's status bar. With Match System, or with Account → "Colours from Sloth Writer's theme" turned off on a device, it follows that device's light or dark mode as before.
+- Saving keeps a file's Finder tags, other extended attributes and its creation date.
+
 ## 1.16.0
 
 Links between documents.

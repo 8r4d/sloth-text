@@ -1,8 +1,16 @@
-//! Colour themes.
+//! Colour themes, shared by Sloth and Sloth Writer.
 //!
 //! Each theme is a small `Palette`; `Palette::visuals` turns it into egui's
-//! styling. To add a theme: add a variant to `ThemeChoice`, list it in `ALL`,
-//! give it a label and a palette. It then shows up in View → Theme.
+//! styling. To add a theme: add a variant to `ThemeChoice`, list it in `ALL`
+//! (with the light or the dark ones), and give it a label and a palette. It
+//! then shows up in both apps' Settings (see `picker`); in Sloth's View →
+//! Theme menu too, once it's added to that list (sloth/src/commands.rs).
+//! The tests check every palette's text can be read on its background.
+//!
+//! Besides Sloth's own (Light, Dark, Paper, Sepia, Midnight, Lamplight and
+//! the High Contrast pair), the palettes follow well-known open themes:
+//! Solarized, GitHub, One, Gruvbox, Catppuccin, Rosé Pine, Everforest,
+//! Tokyo Night, Nord, Dracula and Monokai.
 
 use eframe::egui::{self, Color32, SystemTheme, Theme, ThemePreference, ViewportCommand, Visuals};
 
@@ -19,16 +27,57 @@ pub enum ThemeChoice {
     SolarizedDark,
     Sepia,
     Midnight,
+    Paper,
+    GithubLight,
+    OneLight,
+    GruvboxLight,
+    CatppuccinLatte,
+    RosePineDawn,
+    EverforestLight,
+    HighContrastLight,
+    Lamplight,
+    GithubDark,
+    OneDark,
+    Nord,
+    Dracula,
+    GruvboxDark,
+    TokyoNight,
+    CatppuccinMocha,
+    RosePine,
+    EverforestDark,
+    Monokai,
+    HighContrastDark,
 }
 
+/// Every theme: Match System, then the light ones, then the dark ones.
 pub const ALL: &[ThemeChoice] = &[
     ThemeChoice::System,
     ThemeChoice::Light,
-    ThemeChoice::Dark,
-    ThemeChoice::SolarizedLight,
-    ThemeChoice::SolarizedDark,
+    ThemeChoice::Paper,
     ThemeChoice::Sepia,
+    ThemeChoice::SolarizedLight,
+    ThemeChoice::GithubLight,
+    ThemeChoice::OneLight,
+    ThemeChoice::GruvboxLight,
+    ThemeChoice::CatppuccinLatte,
+    ThemeChoice::RosePineDawn,
+    ThemeChoice::EverforestLight,
+    ThemeChoice::HighContrastLight,
+    ThemeChoice::Dark,
     ThemeChoice::Midnight,
+    ThemeChoice::SolarizedDark,
+    ThemeChoice::Lamplight,
+    ThemeChoice::GithubDark,
+    ThemeChoice::OneDark,
+    ThemeChoice::Nord,
+    ThemeChoice::Dracula,
+    ThemeChoice::GruvboxDark,
+    ThemeChoice::TokyoNight,
+    ThemeChoice::CatppuccinMocha,
+    ThemeChoice::RosePine,
+    ThemeChoice::EverforestDark,
+    ThemeChoice::Monokai,
+    ThemeChoice::HighContrastDark,
 ];
 
 impl ThemeChoice {
@@ -41,6 +90,26 @@ impl ThemeChoice {
             ThemeChoice::SolarizedDark => "Solarized Dark",
             ThemeChoice::Sepia => "Sepia",
             ThemeChoice::Midnight => "Midnight",
+            ThemeChoice::Paper => "Paper",
+            ThemeChoice::GithubLight => "GitHub Light",
+            ThemeChoice::OneLight => "One Light",
+            ThemeChoice::GruvboxLight => "Gruvbox Light",
+            ThemeChoice::CatppuccinLatte => "Catppuccin Latte",
+            ThemeChoice::RosePineDawn => "Rosé Pine Dawn",
+            ThemeChoice::EverforestLight => "Everforest Light",
+            ThemeChoice::HighContrastLight => "High Contrast Light",
+            ThemeChoice::Lamplight => "Lamplight",
+            ThemeChoice::GithubDark => "GitHub Dark",
+            ThemeChoice::OneDark => "One Dark",
+            ThemeChoice::Nord => "Nord",
+            ThemeChoice::Dracula => "Dracula",
+            ThemeChoice::GruvboxDark => "Gruvbox Dark",
+            ThemeChoice::TokyoNight => "Tokyo Night",
+            ThemeChoice::CatppuccinMocha => "Catppuccin Mocha",
+            ThemeChoice::RosePine => "Rosé Pine",
+            ThemeChoice::EverforestDark => "Everforest Dark",
+            ThemeChoice::Monokai => "Monokai",
+            ThemeChoice::HighContrastDark => "High Contrast Dark",
         }
     }
 
@@ -131,7 +200,372 @@ impl ThemeChoice {
                     type_: hex(0xffc777),
                 },
             },
+            ThemeChoice::Paper => Palette {
+                dark: false,
+                editor_bg: hex(0xfbfaf7),
+                chrome_bg: hex(0xf1efe9),
+                text: hex(0x2b2b2b),
+                muted: hex(0x9b978e),
+                border: hex(0xdedad0),
+                accent: hex(0x3b6ea5),
+                selection: hex(0xdce6f2),
+                syntax: SyntaxColors {
+                    comment: hex(0x8a857a),
+                    keyword: hex(0xa23b72),
+                    string: hex(0x3d7a3a),
+                    number: hex(0xb5541c),
+                    function: hex(0x2b5f9e),
+                    type_: hex(0x7a5c00),
+                },
+            },
+            ThemeChoice::GithubLight => Palette {
+                dark: false,
+                editor_bg: hex(0xffffff),
+                chrome_bg: hex(0xf6f8fa),
+                text: hex(0x1f2328),
+                muted: hex(0x8c959f),
+                border: hex(0xd0d7de),
+                accent: hex(0x0969da),
+                selection: hex(0xb6e3ff),
+                syntax: SyntaxColors {
+                    comment: hex(0x6e7781),
+                    keyword: hex(0xcf222e),
+                    string: hex(0x0a3069),
+                    number: hex(0x0550ae),
+                    function: hex(0x8250df),
+                    type_: hex(0x953800),
+                },
+            },
+            ThemeChoice::OneLight => Palette {
+                dark: false,
+                editor_bg: hex(0xfafafa),
+                chrome_bg: hex(0xf0f0f1),
+                text: hex(0x383a42),
+                muted: hex(0xa0a1a7),
+                border: hex(0xdbdbdc),
+                accent: hex(0x4078f2),
+                selection: hex(0xd7e0f5),
+                syntax: SyntaxColors {
+                    comment: hex(0xa0a1a7),
+                    keyword: hex(0xa626a4),
+                    string: hex(0x50a14f),
+                    number: hex(0x986801),
+                    function: hex(0x4078f2),
+                    type_: hex(0xc18401),
+                },
+            },
+            ThemeChoice::GruvboxLight => Palette {
+                dark: false,
+                editor_bg: hex(0xfbf1c7),
+                chrome_bg: hex(0xf2e5bc),
+                text: hex(0x3c3836),
+                muted: hex(0x928374),
+                border: hex(0xd5c4a1),
+                accent: hex(0x076678),
+                selection: hex(0xebdbb2),
+                syntax: SyntaxColors {
+                    comment: hex(0x928374),
+                    keyword: hex(0x9d0006),
+                    string: hex(0x79740e),
+                    number: hex(0x8f3f71),
+                    function: hex(0xb57614),
+                    type_: hex(0x427b58),
+                },
+            },
+            ThemeChoice::CatppuccinLatte => Palette {
+                dark: false,
+                editor_bg: hex(0xeff1f5),
+                chrome_bg: hex(0xe6e9ef),
+                text: hex(0x4c4f69),
+                muted: hex(0x9ca0b0),
+                border: hex(0xccd0da),
+                accent: hex(0x1e66f5),
+                selection: hex(0xccd0da),
+                syntax: SyntaxColors {
+                    comment: hex(0x8c8fa1),
+                    keyword: hex(0x8839ef),
+                    string: hex(0x40a02b),
+                    number: hex(0xfe640b),
+                    function: hex(0x1e66f5),
+                    type_: hex(0xdf8e1d),
+                },
+            },
+            ThemeChoice::RosePineDawn => Palette {
+                dark: false,
+                editor_bg: hex(0xfaf4ed),
+                chrome_bg: hex(0xfffaf3),
+                text: hex(0x575279),
+                muted: hex(0x9893a5),
+                border: hex(0xdfdad9),
+                accent: hex(0x907aa9),
+                selection: hex(0xdfdad9),
+                syntax: SyntaxColors {
+                    comment: hex(0x9893a5),
+                    keyword: hex(0x286983),
+                    string: hex(0xea9d34),
+                    number: hex(0xb4637a),
+                    function: hex(0xd7827e),
+                    type_: hex(0x56949f),
+                },
+            },
+            ThemeChoice::EverforestLight => Palette {
+                dark: false,
+                editor_bg: hex(0xfdf6e3),
+                chrome_bg: hex(0xf4f0d9),
+                text: hex(0x5c6a72),
+                muted: hex(0xa6b0a0),
+                border: hex(0xe0dcc7),
+                accent: hex(0x8da101),
+                selection: hex(0xe6e2cc),
+                syntax: SyntaxColors {
+                    comment: hex(0x939f91),
+                    keyword: hex(0xf85552),
+                    string: hex(0x8da101),
+                    number: hex(0xdf69ba),
+                    function: hex(0x35a77c),
+                    type_: hex(0xdfa000),
+                },
+            },
+            ThemeChoice::HighContrastLight => Palette {
+                dark: false,
+                editor_bg: hex(0xffffff),
+                chrome_bg: hex(0xf0f0f0),
+                text: hex(0x000000),
+                muted: hex(0x555555),
+                border: hex(0x767676),
+                accent: hex(0x0000cc),
+                selection: hex(0xadd6ff),
+                syntax: SyntaxColors {
+                    comment: hex(0x006400),
+                    keyword: hex(0x0000cd),
+                    string: hex(0xa31515),
+                    number: hex(0x098658),
+                    function: hex(0x795e26),
+                    type_: hex(0x267f99),
+                },
+            },
+            ThemeChoice::Lamplight => Palette {
+                dark: true,
+                editor_bg: hex(0x1f1d1a),
+                chrome_bg: hex(0x26231f),
+                text: hex(0xe3dccf),
+                muted: hex(0x7d7466),
+                border: hex(0x38332c),
+                accent: hex(0xd9a55b),
+                selection: hex(0x4a3f2e),
+                syntax: SyntaxColors {
+                    comment: hex(0x8a8072),
+                    keyword: hex(0xd4876a),
+                    string: hex(0xa8b878),
+                    number: hex(0xc9a0dc),
+                    function: hex(0x7fb4c9),
+                    type_: hex(0xd9b85b),
+                },
+            },
+            ThemeChoice::GithubDark => Palette {
+                dark: true,
+                editor_bg: hex(0x0d1117),
+                chrome_bg: hex(0x161b22),
+                text: hex(0xe6edf3),
+                muted: hex(0x6e7681),
+                border: hex(0x30363d),
+                accent: hex(0x2f81f7),
+                selection: hex(0x1c3a5e),
+                syntax: SyntaxColors {
+                    comment: hex(0x8b949e),
+                    keyword: hex(0xff7b72),
+                    string: hex(0xa5d6ff),
+                    number: hex(0x79c0ff),
+                    function: hex(0xd2a8ff),
+                    type_: hex(0xffa657),
+                },
+            },
+            ThemeChoice::OneDark => Palette {
+                dark: true,
+                editor_bg: hex(0x282c34),
+                chrome_bg: hex(0x21252b),
+                text: hex(0xabb2bf),
+                muted: hex(0x5c6370),
+                border: hex(0x3e4451),
+                accent: hex(0x61afef),
+                selection: hex(0x3e4451),
+                syntax: SyntaxColors {
+                    comment: hex(0x7f848e),
+                    keyword: hex(0xc678dd),
+                    string: hex(0x98c379),
+                    number: hex(0xd19a66),
+                    function: hex(0x61afef),
+                    type_: hex(0xe5c07b),
+                },
+            },
+            ThemeChoice::Nord => Palette {
+                dark: true,
+                editor_bg: hex(0x2e3440),
+                chrome_bg: hex(0x3b4252),
+                text: hex(0xd8dee9),
+                muted: hex(0x616e88),
+                border: hex(0x434c5e),
+                accent: hex(0x88c0d0),
+                selection: hex(0x434c5e),
+                syntax: SyntaxColors {
+                    comment: hex(0x616e88),
+                    keyword: hex(0x81a1c1),
+                    string: hex(0xa3be8c),
+                    number: hex(0xb48ead),
+                    function: hex(0x88c0d0),
+                    type_: hex(0x8fbcbb),
+                },
+            },
+            ThemeChoice::Dracula => Palette {
+                dark: true,
+                editor_bg: hex(0x282a36),
+                chrome_bg: hex(0x21222c),
+                text: hex(0xf8f8f2),
+                muted: hex(0x6272a4),
+                border: hex(0x44475a),
+                accent: hex(0xbd93f9),
+                selection: hex(0x44475a),
+                syntax: SyntaxColors {
+                    comment: hex(0x6272a4),
+                    keyword: hex(0xff79c6),
+                    string: hex(0xf1fa8c),
+                    number: hex(0xbd93f9),
+                    function: hex(0x50fa7b),
+                    type_: hex(0x8be9fd),
+                },
+            },
+            ThemeChoice::GruvboxDark => Palette {
+                dark: true,
+                editor_bg: hex(0x282828),
+                chrome_bg: hex(0x1d2021),
+                text: hex(0xebdbb2),
+                muted: hex(0x928374),
+                border: hex(0x3c3836),
+                accent: hex(0x83a598),
+                selection: hex(0x504945),
+                syntax: SyntaxColors {
+                    comment: hex(0x928374),
+                    keyword: hex(0xfb4934),
+                    string: hex(0xb8bb26),
+                    number: hex(0xd3869b),
+                    function: hex(0xfabd2f),
+                    type_: hex(0x8ec07c),
+                },
+            },
+            ThemeChoice::TokyoNight => Palette {
+                dark: true,
+                editor_bg: hex(0x1a1b26),
+                chrome_bg: hex(0x16161e),
+                text: hex(0xc0caf5),
+                muted: hex(0x565f89),
+                border: hex(0x292e42),
+                accent: hex(0x7aa2f7),
+                selection: hex(0x283457),
+                syntax: SyntaxColors {
+                    comment: hex(0x565f89),
+                    keyword: hex(0xbb9af7),
+                    string: hex(0x9ece6a),
+                    number: hex(0xff9e64),
+                    function: hex(0x7aa2f7),
+                    type_: hex(0x2ac3de),
+                },
+            },
+            ThemeChoice::CatppuccinMocha => Palette {
+                dark: true,
+                editor_bg: hex(0x1e1e2e),
+                chrome_bg: hex(0x181825),
+                text: hex(0xcdd6f4),
+                muted: hex(0x6c7086),
+                border: hex(0x313244),
+                accent: hex(0x89b4fa),
+                selection: hex(0x45475a),
+                syntax: SyntaxColors {
+                    comment: hex(0x7f849c),
+                    keyword: hex(0xcba6f7),
+                    string: hex(0xa6e3a1),
+                    number: hex(0xfab387),
+                    function: hex(0x89b4fa),
+                    type_: hex(0xf9e2af),
+                },
+            },
+            ThemeChoice::RosePine => Palette {
+                dark: true,
+                editor_bg: hex(0x191724),
+                chrome_bg: hex(0x1f1d2e),
+                text: hex(0xe0def4),
+                muted: hex(0x6e6a86),
+                border: hex(0x26233a),
+                accent: hex(0xc4a7e7),
+                selection: hex(0x403d52),
+                syntax: SyntaxColors {
+                    comment: hex(0x6e6a86),
+                    keyword: hex(0x31748f),
+                    string: hex(0xf6c177),
+                    number: hex(0xeb6f92),
+                    function: hex(0xebbcba),
+                    type_: hex(0x9ccfd8),
+                },
+            },
+            ThemeChoice::EverforestDark => Palette {
+                dark: true,
+                editor_bg: hex(0x2d353b),
+                chrome_bg: hex(0x272e33),
+                text: hex(0xd3c6aa),
+                muted: hex(0x859289),
+                border: hex(0x3d484d),
+                accent: hex(0xa7c080),
+                selection: hex(0x475258),
+                syntax: SyntaxColors {
+                    comment: hex(0x859289),
+                    keyword: hex(0xe67e80),
+                    string: hex(0xa7c080),
+                    number: hex(0xd699b6),
+                    function: hex(0x83c092),
+                    type_: hex(0xdbbc7f),
+                },
+            },
+            ThemeChoice::Monokai => Palette {
+                dark: true,
+                editor_bg: hex(0x272822),
+                chrome_bg: hex(0x1e1f1c),
+                text: hex(0xf8f8f2),
+                muted: hex(0x75715e),
+                border: hex(0x3e3d32),
+                accent: hex(0x66d9ef),
+                selection: hex(0x49483e),
+                syntax: SyntaxColors {
+                    comment: hex(0x75715e),
+                    keyword: hex(0xf92672),
+                    string: hex(0xe6db74),
+                    number: hex(0xae81ff),
+                    function: hex(0xa6e22e),
+                    type_: hex(0x66d9ef),
+                },
+            },
+            ThemeChoice::HighContrastDark => Palette {
+                dark: true,
+                editor_bg: hex(0x000000),
+                chrome_bg: hex(0x0a0a0a),
+                text: hex(0xffffff),
+                muted: hex(0xb0b0b0),
+                border: hex(0x6b6b6b),
+                accent: hex(0xffd700),
+                selection: hex(0x264f78),
+                syntax: SyntaxColors {
+                    comment: hex(0x8fd47a),
+                    keyword: hex(0x6cb6ff),
+                    string: hex(0xffa07a),
+                    number: hex(0xb5cea8),
+                    function: hex(0xfff59d),
+                    type_: hex(0x4ec9b0),
+                },
+            },
         })
+    }
+
+    /// Whether it's a dark theme (`None` for Match System, which is either).
+    pub fn is_dark(self) -> Option<bool> {
+        self.palette().map(|p| p.dark)
     }
 
     /// Code highlighting colours. "Match System" depends on whether macOS
@@ -277,4 +711,140 @@ impl Palette {
 
 const fn hex(rgb: u32) -> Color32 {
     Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
+}
+
+/// A theme's colours for Sloth Writer's web page (CSS colours), sent with
+/// each sync so writing on a phone looks like writing on the Mac.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct WebColors {
+    pub dark: bool,
+    /// The page.
+    pub bg: String,
+    pub text: String,
+    /// Secondary text (synopses, counts): softer than the text, still read.
+    pub quiet: String,
+    /// Rules and borders.
+    pub line: String,
+    /// Links and buttons.
+    pub accent: String,
+    /// A wash of the accent, behind panels.
+    pub tint: String,
+    pub selection: String,
+    /// Warnings ("not saved yet").
+    pub danger: String,
+}
+
+impl ThemeChoice {
+    /// This theme's colours for the web page; `None` for Match System (the
+    /// page then follows the device's light or dark mode).
+    pub fn web_colors(self) -> Option<WebColors> {
+        let p = self.palette()?;
+        let css = |c: Color32| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
+        let danger = if p.dark { hex(0xe8897d) } else { hex(0xa4362a) };
+        Some(WebColors {
+            dark: p.dark,
+            bg: css(p.editor_bg),
+            text: css(p.text),
+            quiet: css(readable(p.text.lerp_to_gamma(p.editor_bg, 0.4), p.text, p.editor_bg)),
+            line: css(p.border),
+            accent: css(readable(p.accent, p.text, p.editor_bg)),
+            tint: format!("rgba({}, {}, {}, {})", p.accent.r(), p.accent.g(), p.accent.b(), if p.dark { 0.12 } else { 0.08 }),
+            selection: css(p.selection),
+            danger: css(readable(danger, p.text, p.editor_bg)),
+        })
+    }
+}
+
+/// `color`, moved toward `text` just enough to be read on `bg` (a contrast
+/// of 3, as for large text and controls).
+fn readable(color: Color32, text: Color32, bg: Color32) -> Color32 {
+    (0..=10).map(|i| color.lerp_to_gamma(text, i as f32 / 10.0)).find(|&c| contrast(c, bg) >= 3.0).unwrap_or(text)
+}
+
+/// WCAG contrast ratio between two colours (1 to 21).
+fn contrast(a: Color32, b: Color32) -> f32 {
+    let lum = |c: Color32| {
+        let ch = |v: u8| {
+            let v = v as f32 / 255.0;
+            if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * ch(c.r()) + 0.7152 * ch(c.g()) + 0.0722 * ch(c.b())
+    };
+    let (x, y) = (lum(a), lum(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+/// The theme menu for a Settings window: Match System, then the light
+/// themes and the dark ones under headings. Returns whether it changed.
+pub fn picker(ui: &mut egui::Ui, id_salt: &str, choice: &mut ThemeChoice, width: f32) -> bool {
+    let mut changed = false;
+    egui::ComboBox::from_id_salt(id_salt).selected_text(choice.label()).width(width).height(520.0).show_ui(ui, |ui| {
+        changed |= ui.selectable_value(choice, ThemeChoice::System, ThemeChoice::System.label()).changed();
+        for (heading, dark) in [("Light", false), ("Dark", true)] {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(heading).small().weak());
+            for &t in ALL.iter().filter(|t| t.is_dark() == Some(dark)) {
+                changed |= ui.selectable_value(choice, t, t.label()).changed();
+            }
+        }
+    });
+    changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_theme_can_be_read_on_the_web() {
+        let parse = |css: &str| {
+            let v = u32::from_str_radix(css.trim_start_matches('#'), 16).unwrap();
+            hex(v)
+        };
+        assert_eq!(ThemeChoice::System.web_colors(), None, "the device's own light or dark");
+        for &t in ALL {
+            let Some(w) = t.web_colors() else { continue };
+            let bg = parse(&w.bg);
+            let name = t.label();
+            assert!(contrast(parse(&w.text), bg) >= 4.5, "{name}: text");
+            for (what, c) in [("quiet", &w.quiet), ("links", &w.accent), ("warnings", &w.danger)] {
+                assert!(contrast(parse(c), bg) >= 3.0, "{name}: {what} {}", contrast(parse(c), bg));
+            }
+            assert!(w.tint.starts_with("rgba("));
+        }
+    }
+
+    #[test]
+    fn every_theme_is_listed_once_and_saves_by_name() {
+        let mut keys: Vec<String> = ALL.iter().map(|t| t.key()).collect();
+        let count = keys.len();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), count, "no theme twice");
+        for &t in ALL {
+            assert_eq!(ThemeChoice::from_key(&t.key()), Some(t));
+        }
+        // Light ones first, then dark.
+        let dark: Vec<bool> = ALL.iter().filter_map(|t| t.is_dark()).collect();
+        assert!(dark.windows(2).all(|w| w[0] <= w[1]), "grouped: light, then dark");
+    }
+
+    #[test]
+    fn every_theme_can_be_read() {
+        for &t in ALL {
+            let Some(p) = t.palette() else { continue };
+            let name = t.label();
+            assert_eq!(p.dark, contrast(p.editor_bg, Color32::BLACK) < contrast(p.editor_bg, Color32::WHITE), "{name}: light or dark as it says");
+            assert!(contrast(p.text, p.editor_bg) >= 4.5, "{name}: text {}", contrast(p.text, p.editor_bg));
+            // (Labels, not reading: Solarized Light's are 4.4 by design.)
+            assert!(contrast(p.text, p.chrome_bg) >= 4.0, "{name}: text on the bars");
+            assert!(contrast(p.text, p.selection) >= 3.0, "{name}: selected text");
+            assert!(contrast(p.selection, p.editor_bg) >= 1.1, "{name}: the selection shows");
+            assert!(contrast(p.muted, p.editor_bg) >= 1.8, "{name}: line numbers {}", contrast(p.muted, p.editor_bg));
+            let s = p.syntax;
+            for (what, c) in [("comment", s.comment), ("keyword", s.keyword), ("string", s.string), ("number", s.number), ("function", s.function), ("type", s.type_)] {
+                assert!(contrast(c, p.editor_bg) >= 2.0, "{name}: {what} {}", contrast(c, p.editor_bg));
+            }
+        }
+    }
 }

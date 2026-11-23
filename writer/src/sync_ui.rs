@@ -81,7 +81,12 @@ impl WriterApp {
             "deadline": goals.deadline,
             // How paragraphs look in Settings, for the web's paragraph editor
             // (it rides along with the day's figures: the helper keeps them as sent).
-            "look": { "spacing": self.settings.paragraph_spacing, "indent": self.settings.first_line_indent },
+            // …and the theme's colours (null for Match System).
+            "look": {
+                "spacing": self.settings.paragraph_spacing,
+                "indent": self.settings.first_line_indent,
+                "theme": self.settings.theme.web_colors(),
+            },
         });
         if project.manifest.sync_id.is_none() {
             self.manifest_dirty = true;

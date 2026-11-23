@@ -226,6 +226,38 @@ const LOOK = 'writer-look';      // Sloth Writer's paragraph spacing and indent,
 
 const usesParagraphs = () => load(EDITOR, 'plain') === 'paragraphs';
 
+// ----- colours ---------------------------------------------------------------------
+//
+// Sloth Writer sends its theme's colours with each sync (look.theme; none
+// for Match System). The page wears them, unless this device is set (under
+// Account) to its own light or dark mode, the stylesheet's colours.
+
+const COLORS = 'writer-colors';  // 'writer' (Sloth Writer's theme) or 'device'
+const THEME_VARS = { bg: '--bg', text: '--text', quiet: '--quiet', line: '--line', accent: '--accent', tint: '--tint', danger: '--danger', selection: '--selection' };
+
+function applyColors() {
+  const theme = load(COLORS, 'writer') === 'writer' ? load(LOOK, {}).theme : null;
+  const root = document.documentElement;
+  for (const [key, name] of Object.entries(THEME_VARS)) {
+    if (theme?.[key]) root.style.setProperty(name, theme[key]);
+    else root.style.removeProperty(name);
+  }
+  root.toggleAttribute('data-themed', Boolean(theme));
+  // Form controls and scroll bars to match, and the phone's status bar.
+  root.style.colorScheme = theme ? (theme.dark ? 'dark' : 'light') : '';
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => {
+    if (!m.dataset.device) m.dataset.device = m.content;
+    m.content = theme ? theme.bg : m.dataset.device;
+  });
+}
+
+/// Keep the look (spacing, indent, colours) from a project's index.
+function keepLook(info) {
+  if (!info.stats?.look) return;
+  store(LOOK, info.stats.look);
+  applyColors();
+}
+
 /// The writing area's HTML: a paragraph editor or a plain text area.
 function writingArea({ label, placeholder = '' }) {
   const attrs = `id="text" spellcheck="true" autocapitalize="sentences" aria-label="${esc(label)}"`;
@@ -485,7 +517,7 @@ function entryHeading(at = new Date()) {
 
 async function showProject(project) {
   const [info, inbox] = await Promise.all([api('index', undefined, q(project)), api('inbox', undefined, q(project))]);
-  if (info.stats?.look) store(LOOK, info.stats.look);
+  keepLook(info);
   const { title } = info;
   const notepad = info.index.find(s => s.id === NOTEPAD);
   const index = info.index.filter(s => s.id !== NOTEPAD);
@@ -576,7 +608,7 @@ async function showScene(project, sceneId) {
   let scene;
   try {
     info = await api('index', undefined, q(project));
-    if (info.stats?.look) store(LOOK, info.stats.look);
+    keepLook(info);
     scene = await api('scene', undefined, q(project, sceneId));
   } catch (err) {
     if (!offline(err)) {
@@ -1040,6 +1072,9 @@ async function showAccount(newToken, message = '') {
       Paragraphs as in Sloth Writer</label>
     <p class="quiet">Each paragraph spaced and indented as Sloth Writer's Settings have them. Turn it off for the plain
       writing box.</p>
+    <label class="check"><input type="checkbox" id="match-colors" ${load(COLORS, 'writer') === 'writer' ? 'checked' : ''}>
+      Colours from Sloth Writer's theme</label>
+    <p class="quiet">Off: this device's own light or dark mode.</p>
     <h2>Password</h2>
     <form id="password-form">
       <input class="visually-hidden" type="text" name="username" autocomplete="username" value="${esc(me.user.username)}" tabindex="-1" aria-hidden="true">
@@ -1061,6 +1096,10 @@ async function showAccount(newToken, message = '') {
     }
   });
   app.querySelector('#paragraphs').addEventListener('change', e => store(EDITOR, e.target.checked ? 'paragraphs' : 'plain'));
+  app.querySelector('#match-colors').addEventListener('change', e => {
+    store(COLORS, e.target.checked ? 'writer' : 'device');
+    applyColors();
+  });
   app.querySelector('#make').addEventListener('submit', async e => {
     e.preventDefault();
     const { token } = await api('token_create', { label: e.target.label.value });
@@ -1090,6 +1129,8 @@ async function start() {
   }
 }
 
+// The last colours, at once, before anything's drawn in the wrong ones.
+applyColors();
 window.addEventListener('hashchange', route);
 // index.php names the worker with its files' versions (see sw.js).
 if ('serviceWorker' in navigator) navigator.serviceWorker.register(window.WORKER || 'sw.js').catch(() => {});

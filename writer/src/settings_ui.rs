@@ -298,11 +298,7 @@ impl WriterApp {
 
                     group(ui, "Appearance");
                     row(ui, "Theme", &mut |ui| {
-                        egui::ComboBox::from_id_salt("theme").selected_text(settings.theme.label()).width(160.0).show_ui(ui, |ui| {
-                            for choice in theme::ALL {
-                                ui.selectable_value(&mut settings.theme, *choice, choice.label());
-                            }
-                        });
+                        theme::picker(ui, "theme", &mut settings.theme, 180.0);
                     });
 
                     group(ui, "Backups");
