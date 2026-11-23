@@ -208,6 +208,205 @@ function preview(text) {
     .join('');
 }
 
+
+// ----- the paragraph editor -----------------------------------------------------------
+//
+// A writing area with each line its own paragraph, so it can be spaced and
+// indented as Sloth Writer shows it (a <textarea> can only show one block of
+// evenly spaced lines). It stays plain text: what's typed, pasted or dropped
+// is read back as lines, and any formatting the browser adds is dropped.
+//
+// To the rest of the page it looks like a <textarea>: `value`, `selectionStart`
+// and `selectionEnd`, `setSelectionRange` and `setRangeText`, and `input`
+// events, so the scene page (drafts, clashes, em dashes, the notepad) works the
+// same with either. It's switched on per device, under Account.
+
+const EDITOR = 'writer-editor';  // 'paragraphs' or 'plain', on this device
+const LOOK = 'writer-look';      // Sloth Writer's paragraph spacing and indent, as last synced
+
+const usesParagraphs = () => load(EDITOR, 'plain') === 'paragraphs';
+
+/// The writing area's HTML: a paragraph editor or a plain text area.
+function writingArea({ label, placeholder = '' }) {
+  const attrs = `id="text" spellcheck="true" autocapitalize="sentences" aria-label="${esc(label)}"`;
+  return usesParagraphs()
+    ? `<div ${attrs} class="writing" data-placeholder="${esc(placeholder)}"></div>`
+    : `<textarea ${attrs} placeholder="${esc(placeholder)}"></textarea>`;
+}
+
+/// Ready the writing area made by `writingArea`, holding `text`.
+function setUpWriting(el, text) {
+  if (el.tagName === 'TEXTAREA') {
+    el.value = text;
+    emDashes(el);
+    autoGrow(el);
+    return el;
+  }
+  paragraphEditor(el);
+  el.value = text;
+  const look = load(LOOK, {});
+  el.style.setProperty('--paragraph-space', String(Math.max(0, Number(look.spacing) || 0)));
+  el.style.setProperty('--first-indent', `${Math.max(0, Number(look.indent) || 0)}em`);
+  emDashes(el);
+  return el;
+}
+
+const BLOCKS = /^(P|DIV|H[1-6]|LI|UL|OL|BLOCKQUOTE|PRE|SECTION|ARTICLE)$/;
+
+/// The lines of text in an element, as the paragraph editor reads them: each
+/// block a line, each <br> a line break. A <br> that ends a block is only
+/// there to keep an empty line open, so it doesn't count.
+function readLines(root) {
+  const lines = [''];
+  let fresh = true;  // at the start of a line no text has gone into yet
+  const breakLine = () => { lines.push(''); fresh = true; };
+  const walk = node => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        lines[lines.length - 1] += child.data;
+        fresh = false;
+      } else if (child.nodeName === 'BR') {
+        const last = child === node.lastChild && BLOCKS.test(node.nodeName) && node !== root;
+        if (!last) breakLine();
+      } else if (child.nodeType === Node.ELEMENT_NODE && BLOCKS.test(child.nodeName)) {
+        if (!fresh || lines.length > 1 || lines[0] !== '') breakLine();
+        walk(child);
+        fresh = false;
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        walk(child);
+      }
+    }
+  };
+  walk(root);
+  // The first block doesn't start a new line.
+  if (root.firstChild && BLOCKS.test(root.firstChild.nodeName) && lines[0] === '' && lines.length > 1) lines.shift();
+  return lines;
+}
+
+/// Is the editor in its tidy shape: only <p>s, each holding text (and at most
+/// a closing <br>)?
+function tidy(root) {
+  if (!root.firstChild) return false;
+  for (const p of root.childNodes) {
+    if (p.nodeName !== 'P') return false;
+    const kids = [...p.childNodes];
+    for (let i = 0; i < kids.length; i++) {
+      const k = kids[i];
+      if (k.nodeType === Node.TEXT_NODE && !k.data.includes('\n')) continue;
+      if (k.nodeName === 'BR' && i === kids.length - 1) continue;
+      return false;
+    }
+  }
+  return true;
+}
+
+function paragraphEditor(el) {
+  el.contentEditable = 'true';
+  el.setAttribute('role', 'textbox');
+  el.setAttribute('aria-multiline', 'true');
+  try {
+    document.execCommand('defaultParagraphSeparator', false, 'p');
+  } catch {
+    // Older browsers: the tidying below copes with what they make instead.
+  }
+
+  const text = () => readLines(el).join('\n');
+  const build = value => {
+    el.replaceChildren(...value.split('\n').map(line => {
+      const p = document.createElement('p');
+      if (line) p.textContent = line;
+      else p.append(document.createElement('br'));
+      return p;
+    }));
+    el.toggleAttribute('data-empty', value === '');
+  };
+
+  /// Where a point in the editor is, as an offset into `value`.
+  const offsetOf = (node, offset) => {
+    const range = document.createRange();
+    range.setStart(el, 0);
+    range.setEnd(node, offset);
+    const box = document.createElement('div');
+    box.append(range.cloneContents());
+    return readLines(box).join('\n').length;
+  };
+  /// The point in the (tidy) editor at an offset into `value`.
+  const pointAt = offset => {
+    let left = Math.max(0, offset);
+    const paragraphs = [...el.children];
+    for (const [i, p] of paragraphs.entries()) {
+      const length = p.textContent.length;
+      if (left <= length || i === paragraphs.length - 1) {
+        const target = Math.min(left, length);
+        // Into its text, if it has any (it may be split into several nodes).
+        for (const t of p.childNodes) {
+          if (t.nodeType !== Node.TEXT_NODE) continue;
+          if (target <= t.data.length) return [t, target];
+          left -= t.data.length;
+        }
+        return [p, 0];
+      }
+      left -= length + 1;
+    }
+    return [el, 0];
+  };
+  const selection = () => {
+    const sel = window.getSelection();
+    if (!sel.rangeCount || !el.contains(sel.anchorNode)) return null;
+    return sel.getRangeAt(0);
+  };
+  let remembered = [0, 0];
+  const range = () => {
+    const r = selection();
+    if (r) remembered = [offsetOf(r.startContainer, r.startOffset), offsetOf(r.endContainer, r.endOffset)];
+    return remembered;
+  };
+  const select = (start, end = start) => {
+    remembered = [start, end];
+    const sel = window.getSelection();
+    const r = document.createRange();
+    r.setStart(...pointAt(start));
+    r.setEnd(...pointAt(end));
+    sel.removeAllRanges();
+    sel.addRange(r);
+  };
+
+  Object.defineProperties(el, {
+    value: { get: text, set: value => build(String(value ?? '')) },
+    selectionStart: { get: () => range()[0] },
+    selectionEnd: { get: () => range()[1] },
+  });
+  el.setSelectionRange = (start, end) => select(start, end);
+  // As a text area's, but through the browser's own editing, so Undo has it.
+  el.setRangeText = (replacement, start, end) => {
+    select(start, end);
+    document.execCommand('insertText', false, replacement);
+  };
+
+  // Plain text only: no bold from ⌘B, and pasting brings the words, not their look.
+  el.addEventListener('beforeinput', e => {
+    if (e.inputType.startsWith('format')) e.preventDefault();
+  });
+  el.addEventListener('paste', e => {
+    e.preventDefault();
+    const pasted = (e.clipboardData?.getData('text/plain') || '').replace(/\r\n?/g, '\n');
+    if (pasted) document.execCommand('insertText', false, pasted);
+  });
+  // After each change, back into tidy paragraphs if the browser made
+  // something else (a <div> for a new line, a pasted <span>…), keeping the
+  // cursor where it was. (Registered first, so the page sees the tidy text.)
+  el.addEventListener('input', () => {
+    if (!tidy(el)) {
+      const r = selection();
+      const at = r ? offsetOf(r.endContainer, r.endOffset) : null;
+      build(text());
+      if (at !== null) select(at);
+    }
+    el.toggleAttribute('data-empty', el.textContent === '' && el.children.length <= 1);
+  });
+  return el;
+}
+
 // ----- pages ---------------------------------------------------------------------------
 
 /// Leaving a page: anything it needs to finish (a scene's last save).
@@ -286,6 +485,7 @@ function entryHeading(at = new Date()) {
 
 async function showProject(project) {
   const [info, inbox] = await Promise.all([api('index', undefined, q(project)), api('inbox', undefined, q(project))]);
+  if (info.stats?.look) store(LOOK, info.stats.look);
   const { title } = info;
   const notepad = info.index.find(s => s.id === NOTEPAD);
   const index = info.index.filter(s => s.id !== NOTEPAD);
@@ -376,6 +576,7 @@ async function showScene(project, sceneId) {
   let scene;
   try {
     info = await api('index', undefined, q(project));
+    if (info.stats?.look) store(LOOK, info.stats.look);
     scene = await api('scene', undefined, q(project, sceneId));
   } catch (err) {
     if (!offline(err)) {
@@ -431,19 +632,16 @@ async function showScene(project, sceneId) {
       <textarea id="notes" readonly placeholder="Notes about this scene: not part of the book. They sync with Sloth Writer's notes."
         aria-label="Notes"></textarea>
     </details>`}
-    <textarea id="text" spellcheck="true" autocapitalize="sentences" aria-label="${esc(title)}"></textarea>
+    ${writingArea({ label: title })}
     <article id="preview" class="preview" hidden></article>
     <nav class="scene-nav">
       ${prev ? `<a href="${sceneLink(prev)}" class="prev">‹ ${esc(prev.title)}</a>` : '<span></span>'}
       ${next ? `<a href="${sceneLink(next)}" class="next">${esc(next.title)} ›</a>` : '<span></span>'}
     </nav>`);
-  const textarea = document.getElementById('text');
+  const textarea = setUpWriting(document.getElementById('text'), text);
   const stateEl = document.getElementById('state');
   const countEl = document.getElementById('count');
   const todayEl = document.getElementById('today');
-  textarea.value = text;
-  emDashes(textarea);
-  autoGrow(textarea);
 
   const show = state => (stateEl.textContent = state);
   // Words saved here since the page opened, for today's figure.
@@ -708,14 +906,11 @@ function showNewScene(project) {
     <h1>New Scene</h1>
     <p class="quiet">It goes to your Mac, which puts it in the Manuscript at its next sync.</p>
     <input id="title" placeholder="Title" value="${esc(draft.title)}">
-    <textarea id="text" placeholder="Write…" aria-label="New scene"></textarea>
+    ${writingArea({ label: 'New scene', placeholder: 'Write…' })}
     <p class="error" id="error"></p>
     <button id="send" class="primary">Send to My Mac</button>`);
-  const textarea = document.getElementById('text');
+  const textarea = setUpWriting(document.getElementById('text'), draft.text);
   const titleEl = document.getElementById('title');
-  textarea.value = draft.text;
-  emDashes(textarea);
-  autoGrow(textarea);
   const keep = () => setDraft(key, { title: titleEl.value, text: textarea.value });
   textarea.addEventListener('input', keep);
   titleEl.addEventListener('input', keep);
@@ -840,6 +1035,11 @@ async function showAccount(newToken, message = '') {
     </ul>
     <form id="make"><label for="label">Name for a new token</label><input id="label" name="label" value="My Mac">
     <button class="primary">Make a Token</button></form>
+    <h2>Writing on this device</h2>
+    <label class="check"><input type="checkbox" id="paragraphs" ${usesParagraphs() ? 'checked' : ''}>
+      Paragraphs as in Sloth Writer</label>
+    <p class="quiet">Each paragraph spaced and indented as Sloth Writer's Settings have them. Turn it off for the plain
+      writing box.</p>
     <h2>Password</h2>
     <form id="password-form">
       <input class="visually-hidden" type="text" name="username" autocomplete="username" value="${esc(me.user.username)}" tabindex="-1" aria-hidden="true">
@@ -860,6 +1060,7 @@ async function showAccount(newToken, message = '') {
       app.querySelector('#password-error').textContent = err.message;
     }
   });
+  app.querySelector('#paragraphs').addEventListener('change', e => store(EDITOR, e.target.checked ? 'paragraphs' : 'plain'));
   app.querySelector('#make').addEventListener('submit', async e => {
     e.preventDefault();
     const { token } = await api('token_create', { label: e.target.label.value });

@@ -49,6 +49,17 @@ textarea { display: block; width: 100%; min-height: 60vh; margin-top: 16px; bord
   overflow: hidden; overflow-anchor: none;
   background: transparent; color: inherit; font: inherit; font-size: 1.1em; line-height: 1.65; }
 
+/* The paragraph editor: the same look as the text area, with each line a
+   paragraph, spaced and indented as Sloth Writer has them (in lines and ems). */
+.writing { min-height: 60vh; margin-top: 16px; outline: none; position: relative; white-space: pre-wrap; overflow-wrap: break-word;
+  font-size: 1.1em; line-height: 1.65; }
+.writing p { margin: 0 0 calc(var(--paragraph-space, 0) * 1.65em); text-indent: var(--first-indent, 0); }
+.writing p:has(> br:only-child) { margin-bottom: 0; }
+.writing[data-empty]::before { content: attr(data-placeholder); position: absolute; color: var(--quiet); pointer-events: none; }
+#title + .writing { border-top: 1px solid var(--line); padding-top: 12px; }
+label.check { display: flex; align-items: center; gap: 10px; font-size: 1em; color: inherit; }
+label.check input { width: auto; margin: 0; }
+
 /* A scene's notes, folded above it. */
 .notes { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--tint); }
 .notes summary { cursor: pointer; font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

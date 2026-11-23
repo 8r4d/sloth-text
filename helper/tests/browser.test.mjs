@@ -9,6 +9,9 @@ import { URL_BASE, ACCOUNT, SETUP_PASSWORD, mac, newProject } from './lib.mjs';
 import { chromePath, launch } from './chrome.mjs';
 
 const skip = !chromePath && 'Chrome or Chromium not found (set CHROME to its path)';
+// Which writing area to test: the paragraph editor, or (HELPER_EDITOR=plain) the text area.
+const EDITOR = process.env.HELPER_EDITOR === 'plain' ? 'plain' : 'paragraphs';
+const paragraphsOnly = skip || (EDITOR !== 'paragraphs' && 'for the paragraph editor');
 let page, theMac, project;
 
 const snap = async name => {
@@ -63,6 +66,7 @@ after(async () => { if (page) await page.close(); });
 
 test('sign in, and the project and its scenes', { skip }, async () => {
   await page.goto(URL_BASE);
+  await page.eval(`localStorage.setItem('writer-editor', ${JSON.stringify(JSON.stringify(EDITOR))})`);
   // Each script and stylesheet is addressed by its file's version (Cloudflare).
   const assets = await page.eval(`[...document.querySelectorAll('script[src], link[rel=stylesheet]')].map(e => e.getAttribute('src') || e.getAttribute('href'))`);
   assert.ok(assets.every(a => /\?v=\d{9,}$/.test(a)), JSON.stringify(assets));
@@ -326,4 +330,87 @@ test('the mobile notepad: added to on the Mac meanwhile, both are kept', { skip 
   const merged = (await onHelper('notepad')).text;
   assert.match(merged, /Second thought\.\n\nFrom the Mac: check the tides\.\n\nAnd the lighthouse\.\n?$/);
   assert.equal(await page.eval(`document.getElementById('text').value`), merged);
+});
+
+// ----- the paragraph editor ---------------------------------------------------------
+
+/// Press a key, as a keyboard would.
+async function press(key, code, keyCode, text) {
+  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode, text });
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode });
+}
+
+test('paragraphs: each line its own, spaced and indented as Sloth Writer has them', { skip: paragraphsOnly }, async () => {
+  // The Mac sends its settings with the day's figures, and a scene of three paragraphs.
+  await theMac.call('index_put', {
+    title: 'The Long Winter',
+    index: [
+      { id: 'arrival', title: 'The arrival', chapter: 'Chapter 1', words: 4 },
+      { id: 'letter', title: 'A letter', chapter: 'Chapter 1', words: 2 },
+      { id: 'ice', title: 'Ice', chapter: 'Chapter 2', words: 9 },
+    ],
+    stats: { date: localDay(), today: 0, goal: null, total: 0, target: null, deadline: null, look: { spacing: 1, indent: 1.5 } },
+  }, `&p=${project}`);
+  await theMac.call('scene_put', { text: 'The harbour froze.\n\nNobody came.\nNot even Tom.', base: 0 }, `&p=${project}&id=ice`);
+
+  await go(`#/p/${project}/s/ice`);
+  await page.waitFor(`document.querySelectorAll('#text p').length === 4`, { what: 'four paragraphs (one empty)' });
+  assert.equal(await page.eval(`document.getElementById('text').value`), 'The harbour froze.\n\nNobody came.\nNot even Tom.');
+  const look = await page.eval(`(() => {
+    const [first, empty] = document.querySelectorAll('#text p');
+    const s = getComputedStyle(first), size = parseFloat(s.fontSize);
+    return { gap: parseFloat(s.marginBottom) / size, indent: parseFloat(s.textIndent) / size, emptyGap: parseFloat(getComputedStyle(empty).marginBottom) };
+  })()`);
+  assert.ok(Math.abs(look.gap - 1.65) < 0.05, `a line's space after: ${JSON.stringify(look)}`);
+  assert.ok(Math.abs(look.indent - 1.5) < 0.05, `indented 1.5 em: ${JSON.stringify(look)}`);
+  assert.equal(look.emptyGap, 0, 'no extra space after an empty line');
+  await snap('paragraphs');
+});
+
+test('paragraphs: Return starts one, typing keeps plain spaces, and it all saves as lines', { skip: paragraphsOnly }, async () => {
+  await typeAtEnd(' He waited.');
+  await press('Enter', 'Enter', 13, '\r');
+  await typeAtEnd('Then  the  bell.');
+  const value = await page.eval(`document.getElementById('text').value`);
+  assert.equal(value, 'The harbour froze.\n\nNobody came.\nNot even Tom. He waited.\nThen  the  bell.');
+  assert.equal(await page.eval(`document.querySelectorAll('#text p').length`), 5);
+  assert.ok(!value.includes(' '), 'ordinary spaces, not non-breaking ones');
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { what: 'the autosave', timeout: 8000 });
+  assert.equal((await onHelper('ice')).text, value);
+});
+
+test('paragraphs: pasting brings plain text, and nothing can be made bold', { skip: paragraphsOnly }, async () => {
+  await page.eval(`(() => {
+    const t = document.getElementById('text');
+    t.focus();
+    t.setSelectionRange(t.value.length, t.value.length);
+    const data = new DataTransfer();
+    data.setData('text/html', '<p><b>Bold</b> words</p><p>and more</p>');
+    data.setData('text/plain', ' Bold words\\nand more');
+    t.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  })()`);
+  assert.match(await page.eval(`document.getElementById('text').value`), /bell\. Bold words\nand more$/);
+  assert.equal(await page.eval(`document.querySelector('#text b, #text strong, #text span, #text div')`), null, 'no formatting');
+  assert.equal(await page.eval(`[...document.getElementById('text').children].every(c => c.tagName === 'P')`), true);
+
+  await page.eval(`(() => { const t = document.getElementById('text'); t.setSelectionRange(0, 3); })()`);
+  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'b', code: 'KeyB', windowsVirtualKeyCode: 66, modifiers: 4 });
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'b', code: 'KeyB', windowsVirtualKeyCode: 66, modifiers: 4 });
+  assert.equal(await page.eval(`document.querySelector('#text b, #text strong')`), null);
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
+});
+
+test('paragraphs: em dashes, and switching back to the plain box under Account', { skip: paragraphsOnly }, async () => {
+  await typeAtEnd(' Wait--what');
+  assert.match(await page.eval(`document.getElementById('text').value`), / Wait—what$/);
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
+
+  await go('#/account');
+  await page.waitFor(`document.getElementById('paragraphs')`);
+  assert.equal(await page.eval(`document.getElementById('paragraphs').checked`), true);
+  await page.eval(`document.getElementById('paragraphs').click()`);
+  await go(`#/p/${project}/s/ice`);
+  await page.waitFor(`document.getElementById('text')?.tagName === 'TEXTAREA'`, { what: 'the plain box' });
+  assert.match(await page.eval(`document.getElementById('text').value`), / Wait—what$/);
+  await page.eval(`localStorage.setItem('writer-editor', JSON.stringify('paragraphs'))`);
 });

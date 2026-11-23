@@ -2,6 +2,14 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.15.0
+
+Writing on the web, with paragraphs as Sloth Writer shows them.
+
+- A new writing area for the web editor: each paragraph spaced and indented as in Settings → Text (paragraph spacing and first-line indent come over with each sync). It looks and saves as before: plain Markdown, one line a paragraph, with em dashes, drafts, notes and clashes all working the same.
+- It's switched on one device at a time: Account → Writing on this device → Paragraphs as in Sloth Writer. Turn it off for the plain writing box.
+- Pasting brings plain text (no fonts or bold from elsewhere), and the formatting keys do nothing, so what's saved is always what you typed.
+
 ## 1.14.0
 
 Mobile Notes: a notepad for jotting on your phone when you're out and about.

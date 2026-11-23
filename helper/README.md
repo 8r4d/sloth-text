@@ -48,7 +48,7 @@ The database tables are created on the first request.
 |------|--------------|
 | `public/api.php` | The whole service: accounts, tokens, projects, scenes with versions, history, the inbox |
 | `public/index.php` | The page's HTML, with each script and stylesheet versioned for Cloudflare |
-| `public/app.js`, `style.css` | The web editor page: projects, scenes, writing with autosave, clashes, offline drafts, new scenes, each project's Mobile Notes (the scene `notepad`), account |
+| `public/app.js`, `style.css` | The web editor page: projects, scenes, writing with autosave, clashes, offline drafts, new scenes, each project's Mobile Notes (the scene `notepad`), a paragraph editor (switched on per device under Account), account |
 | `public/sw.js`, `manifest.json`, icons | Opening without a connection, and Add to Home Screen |
 | `writer-config.example.php` | The settings to copy and fill in |
 | `tests/run.sh` | Runs the API and browser tests, then Sloth Writer's sync, against a throwaway MariaDB and PHP server |
