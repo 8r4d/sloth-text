@@ -18,10 +18,12 @@ const FADE_OUT: f64 = 0.8;
 /// How long the ring pulses.
 const PULSE: f64 = 0.9;
 
-/// The day's goal reached, being celebrated: since when, and the goal.
+/// A moment being celebrated (the day's goal reached, a sprint done):
+/// since when, and what to say.
 pub(super) struct Celebration {
     start: f64,
-    goal: u32,
+    title: String,
+    detail: String,
     /// Where the ring is on screen, for the moment to rise from.
     ring: Option<egui::Rect>,
 }
@@ -91,7 +93,12 @@ impl WriterApp {
         }
         self.stats.celebrated = Some(today);
         self.stats_dirty = true;
-        self.celebration = Some(Celebration { start: now, goal, ring: None });
+        self.celebrate(now, "Today's goal reached", &format!("{} words. Well done.", thousands(goal)));
+    }
+
+    /// Show the moment: the cheering sloth, a title and a line.
+    pub(super) fn celebrate(&mut self, now: f64, title: &str, detail: &str) {
+        self.celebration = Some(Celebration { start: now, title: title.to_owned(), detail: detail.to_owned(), ring: None });
     }
 
     /// The moment itself: the sloth and a line, just above the ring (or the
@@ -116,7 +123,7 @@ impl WriterApp {
         };
         // Rises a little as it comes in.
         let rise = if animate { (1.0 - motion::ease(now, c.start, FADE_IN)) * 10.0 } else { 0.0 };
-        let goal = c.goal;
+        let (title, detail) = (c.title.clone(), c.detail.clone());
         let window = ctx.content_rect();
         let anchor = c.ring.map_or(Pos2::new(window.left() + 12.0, window.bottom() - 36.0), |r| Pos2::new(r.left() - 8.0, r.top() - 10.0));
         let icon = self.sloth(ctx, super::sloth_ui::Pose::Cheering);
@@ -131,8 +138,8 @@ impl WriterApp {
                     ui.horizontal(|ui| {
                         ui.add(egui::Image::new(&icon).fit_to_exact_size(Vec2::splat(44.0)));
                         ui.vertical(|ui| {
-                            ui.label(RichText::new("Today's goal reached").strong());
-                            ui.label(RichText::new(format!("{} words. Well done.", thousands(goal))).weak());
+                            ui.label(RichText::new(&title).strong());
+                            ui.label(RichText::new(&detail).weak());
                         });
                     });
                 });

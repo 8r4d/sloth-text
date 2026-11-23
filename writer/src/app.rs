@@ -40,6 +40,8 @@ mod sloth_ui;
 mod snapshots_ui;
 #[path = "stats_ui.rs"]
 mod stats_ui;
+#[path = "sprint_ui.rs"]
+mod sprint_ui;
 #[path = "split_ui.rs"]
 mod split_ui;
 #[path = "sync_ui.rs"]
@@ -176,6 +178,8 @@ pub struct WriterApp {
     stats_open: bool,
     /// The day's goal just reached, being celebrated (see goal_ui.rs).
     celebration: Option<goal_ui::Celebration>,
+    /// A writing sprint under way (see sprint_ui.rs).
+    sprint: Option<sprint_ui::Sprint>,
     /// The sloth's poses, once shown (see sloth_ui.rs).
     sloth_art: sloth_ui::SlothArt,
     // Softer motion (see `motion_style` and `view_fade`).
@@ -291,6 +295,7 @@ impl WriterApp {
             word_counts: HashMap::new(),
             stats_open: false,
             celebration: None,
+            sprint: None,
             sloth_art: Default::default(),
             animating: None,
             view_key: String::new(),
@@ -456,6 +461,7 @@ impl WriterApp {
         self.canvas = None;
         self.stats_open = false;
         self.goal_fields = None;
+        self.sprint = None;
         // The project just closed is newly written in.
         self.tile_facts.clear();
     }
@@ -1292,6 +1298,8 @@ impl WriterApp {
                 };
                 ui.separator();
                 self.goal_ring(ui, &today, written, goal);
+                ui.separator();
+                self.sprint_button(ui);
                 if let Some(message) = status {
                     ui.separator();
                     ui.label(message);
@@ -1482,6 +1490,10 @@ impl WriterApp {
                 ui.label(faint(format!("{} {}", crate::stats::thousands(words as u32), if words == 1 { "word" } else { "words" })));
                 ui.label(faint("\u{b7}".into()));
                 ui.label(faint(today));
+                if let Some(sprint) = self.sprint_summary(ui.input(|i| i.time)) {
+                    ui.label(faint("\u{b7}".into()));
+                    ui.label(faint(format!("Sprint {sprint}")));
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.add(egui::Button::new(faint("Esc to leave Focus".into())).frame(false)).clicked() {
                         let ctx = ui.ctx().clone();
@@ -1577,6 +1589,7 @@ impl eframe::App for WriterApp {
             self.main_view(ui);
         }
         self.check_goal(now);
+        self.sprint_tick(&ctx, now);
         self.celebration_ui(&ctx);
         self.create_menu_ui(&ctx);
         self.empty_trash_dialog(&ctx);

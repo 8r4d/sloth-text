@@ -2,6 +2,13 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.23.0
+
+Writing sprints.
+
+- Sprint, in the status bar beside the goal ring: write for 10, 15, 25, 45 or 60 minutes. The time left (as a ring emptying) and the sprint's words show while it's on, in Focus mode too; click it to stop early.
+- When the time's up, the sloth says how it went ("412 words in 25 minutes"), and the sprint is kept: Statistics shows this week's sprints, their words, and the best.
+
 ## 1.22.2
 
 - Strings stay attached to a card while it's lifted (under the pointer, or being carried).

@@ -2280,3 +2280,49 @@ fn the_start_screen_greets_and_tiles_show_progress() {
     let facts = harness.state().tile_facts.get(&dir.0).cloned().flatten().unwrap();
     assert_eq!(facts, super::projects_ui::TileFacts::for_test(250, Some(1000), Some(crate::stats::today()), 3));
 }
+
+// ----- writing sprints -------------------------------------------------------------------
+
+#[test]
+fn a_sprint_counts_its_words_and_says_how_it_went() {
+    let dir = TempDir::new("sprint");
+    let mut harness = harness(project(&dir, "Already here."));
+    harness.run_steps(2);
+    harness.get_by_label("Sprint").click();
+    harness.run_steps(2);
+    harness.get_by_label("25 minutes").click();
+    harness.run_steps(2);
+    assert!(harness.state().sprint.is_some());
+    harness.get_by_label_contains("\u{b7} 0 words");
+
+    harness.event(egui::Event::Text(" Then the snow came.".into()));
+    harness.run_steps(2);
+    assert_eq!(harness.state().sprint_words(), 4);
+    harness.get_by_label_contains("\u{b7} 4 words");
+
+    // Time's up.
+    let now = harness.ctx.input(|i| i.time);
+    harness.state_mut().sprint.as_mut().unwrap().start = now - 25.0 * 60.0 - 1.0;
+    harness.run_steps(2);
+    assert!(harness.state().sprint.is_none());
+    harness.get_by_label("Sprint done");
+    harness.get_by_label("4 words in 25 minutes.");
+    let kept = &harness.state().stats.sprints;
+    assert_eq!((kept.len(), kept[0].minutes, kept[0].words), (1, 25, 4));
+}
+
+#[test]
+fn a_sprint_stopped_early_isnt_kept() {
+    let dir = TempDir::new("sprint-stop");
+    let mut harness = harness(project(&dir, ""));
+    let now = harness.ctx.input(|i| i.time);
+    harness.state_mut().start_sprint(now, 10);
+    harness.run_steps(2);
+    harness.get_by_label_contains("\u{b7} 0 words").click();
+    harness.run_steps(2);
+    harness.get_by_label("Stop Sprint").click();
+    harness.run_steps(2);
+    assert!(harness.state().sprint.is_none());
+    assert!(harness.state().stats.sprints.is_empty());
+    assert!(harness.state().celebration.is_none());
+}

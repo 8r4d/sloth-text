@@ -39,6 +39,17 @@ pub struct Stats {
     /// The last day reaching the goal was celebrated, so it's only once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub celebrated: Option<String>,
+    /// Writing sprints finished, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sprints: Vec<Sprint>,
+}
+
+/// A writing sprint, finished: the day, how long it was, and the words.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Sprint {
+    pub date: String,
+    pub minutes: u32,
+    pub words: u32,
 }
 
 impl Stats {
@@ -116,6 +127,19 @@ impl Stats {
         start.iter_days().take_while(|d| *d <= today).map(|d| (d, self.written(d))).collect()
     }
 
+    /// Sprints in the last seven days (today among them): how many, their
+    /// words, and the most words in one.
+    pub fn sprints_this_week(&self, today: NaiveDate) -> (usize, u32, u32) {
+        let since = today - Days::new(6);
+        let week: Vec<&Sprint> = self.sprints.iter().filter(|s| parse_date(&s.date).is_some_and(|d| d >= since && d <= today)).collect();
+        (week.len(), week.iter().map(|s| s.words).sum(), week.iter().map(|s| s.words).max().unwrap_or(0))
+    }
+
+    /// Every word written, net, on every day logged.
+    pub fn all_written(&self) -> i64 {
+        self.days.values().sum()
+    }
+
     /// Days with any words written.
     pub fn days_written(&self) -> usize {
         self.days.values().filter(|&&w| w > 0).count()
@@ -188,6 +212,17 @@ pub fn thousands(n: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sprints_this_week() {
+        let d = |s: &str| parse_date(s).unwrap();
+        let mut st = Stats::default();
+        for (date, words) in [("2026-11-10", 900), ("2026-11-17", 300), ("2026-11-20", 612), ("2026-11-23", 292)] {
+            st.sprints.push(Sprint { date: date.into(), minutes: 25, words });
+        }
+        assert_eq!(st.sprints_this_week(d("2026-11-23")), (3, 1204, 612), "the 10th is too long ago");
+        assert_eq!(Stats::default().sprints_this_week(d("2026-11-23")), (0, 0, 0));
+    }
 
     #[test]
     fn longest_streak_and_a_year_of_days() {

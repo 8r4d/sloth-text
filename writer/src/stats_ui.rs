@@ -138,6 +138,13 @@ impl WriterApp {
                         ui.label("Average");
                         ui.label(format!("{} words a writing day", thousands(stats.average())));
                         ui.end_row();
+                        let (sprints, words, best) = stats.sprints_this_week(today);
+                        if sprints > 0 {
+                            ui.label("Sprints this week");
+                            let what = if sprints == 1 { "sprint" } else { "sprints" };
+                            ui.label(format!("{sprints} {what}, {} words (best {})", thousands(words), thousands(best)));
+                            ui.end_row();
+                        }
                     });
                     target_section(ui, goals, total, written, today);
                     ui.add_space(8.0);
