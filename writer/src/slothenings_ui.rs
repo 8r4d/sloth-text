@@ -22,6 +22,22 @@ impl Crossing {
 }
 
 impl WriterApp {
+    /// The documents with an editor in the main area: the one open, or a
+    /// folder's in Slothenings. (Not while the Canvas is showing.)
+    pub(super) fn main_editor_documents(&self) -> Vec<String> {
+        let Some(selected) = self.selected.as_deref() else { return Vec::new() };
+        let Some(node) = self.project.as_ref().and_then(|p| p.node(selected)) else { return Vec::new() };
+        if self.canvas_open {
+            Vec::new()
+        } else if node.is_document() {
+            vec![selected.to_owned()]
+        } else if self.folder_views.get(selected) == Some(&super::views::FolderView::Slothenings) {
+            self.slothenings_documents(selected).into_iter().map(|(id, _)| id).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
     /// The documents under a folder, in binder order (any depth).
     fn slothenings_documents(&self, folder: &str) -> Vec<(String, String)> {
         let Some(project) = &self.project else { return Vec::new() };
@@ -42,10 +58,18 @@ impl WriterApp {
         let column = settings.max_text_width.unwrap_or(f32::INFINITY);
         let mut open_alone = None;
         let crossing = self.crossing.take();
+        // In the split pane, a folder's documents the main area already has.
+        let elsewhere = if self.selected.as_deref() == Some(folder) { Vec::new() } else { self.main_editor_documents() };
         egui::ScrollArea::vertical().id_salt(("slothenings", folder)).auto_shrink([false, false]).show(ui, |ui| {
             for (i, (id, title, tab_id)) in tabs.iter().enumerate() {
                 if divider(ui, title, column, i == 0).clicked() {
                     open_alone = Some(id.clone());
+                }
+                // Shown here in the split pane, but open in the main area:
+                // one editor of it is enough.
+                if elsewhere.contains(id) {
+                    ui.weak("Open in the main editor.");
+                    continue;
                 }
                 let mut reveal = None;
                 if let Some(c) = crossing.as_ref().filter(|c| c.id == *id) {

@@ -2471,3 +2471,27 @@ fn command_1_shows_a_documents_folder_as_slothenings_where_it_was() {
     harness.run_steps(2);
     assert_eq!(harness.state().folder_views.get(&chapter), Some(&super::views::FolderView::Corkboard));
 }
+
+#[test]
+fn the_split_pane_never_opens_a_second_editor_on_a_document() {
+    let dir = TempDir::new("slothenings-split");
+    let (p, chapter, scenes) = slothenings_project(&dir);
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    let editors = |h: &Harness<'static, WriterApp>| h.get_all_by_label("Document text").count();
+
+    // The chapter as Slothenings, and one of its scenes in the split pane.
+    harness.state_mut().folder_views.insert(chapter.clone(), super::views::FolderView::Slothenings);
+    harness.state_mut().select(chapter.clone());
+    harness.state_mut().open_in_split(scenes[1].clone());
+    harness.run_steps(3);
+    harness.get_by_label("This is open in the main editor.");
+    assert_eq!(editors(&harness), 4, "one each, in the main area");
+
+    // A scene open in the main editor, and its chapter as Slothenings beside it.
+    harness.state_mut().select(scenes[0].clone());
+    harness.state_mut().open_in_split(chapter);
+    harness.run_steps(3);
+    harness.get_by_label("Open in the main editor.");
+    assert_eq!(editors(&harness), 4, "the main one, and the other three beside it");
+}

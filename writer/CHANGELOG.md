@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.26.1
+
+- Fixed: with a folder as Slothenings, opening one of its documents in the split pane (or the folder in the split pane beside one of its documents) made two editors of the same text, which clashed. The split pane now says it's open in the main editor, as it does for the open document.
+
 ## 1.26.0
 
 Slothenings.

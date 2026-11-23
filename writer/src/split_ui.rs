@@ -97,8 +97,9 @@ impl WriterApp {
             ui.weak("Choose what to show here with Show\u{2026}, or \u{2325}-click something in the binder.");
             return;
         };
-        // The same item twice would be two editors of one text, fighting.
-        if self.selected.as_deref() == Some(id.as_str()) {
+        // The same item twice would be two editors of one text, fighting
+        // (and sharing an id): the main editor has it, or its Slothenings do.
+        if self.selected.as_deref() == Some(id.as_str()) || self.main_editor_documents().contains(&id) {
             ui.add_space(12.0);
             ui.weak("This is open in the main editor.");
             return;
