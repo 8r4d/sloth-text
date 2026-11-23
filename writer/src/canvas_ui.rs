@@ -63,6 +63,9 @@ pub(super) struct CanvasState {
     menu: Option<(Option<usize>, Pos2)>,
     /// Cards just dropped or tied to, and when: their strings sway a moment.
     sway: HashMap<String, f64>,
+    /// How far each card is lifted (under the pointer, or carried), as
+    /// last drawn, so its strings stay attached.
+    lifts: HashMap<String, f32>,
     /// Put the keyboard focus in this note's text on the next frame.
     edit_note: Option<String>,
     /// From the canvas to the screen, as last drawn.
@@ -86,6 +89,7 @@ impl CanvasState {
             menu: None,
             edit_note: None,
             sway: HashMap::new(),
+            lifts: HashMap::new(),
             to_screen: TSTransform::IDENTITY,
         }
     }
@@ -504,7 +508,11 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     }
     dot_grid(ui, Pos2::ZERO, step, 1.0 / scale);
 
-    let rects: HashMap<&str, Rect> = cards.iter().map(|c| (c.id.as_str(), c.rect)).collect();
+    // Where the cards are drawn: lifted ones a little higher.
+    let rects: HashMap<&str, Rect> = cards
+        .iter()
+        .map(|c| (c.id.as_str(), c.rect.translate(Vec2::new(0.0, -state.lifts.get(&c.id).copied().unwrap_or(0.0)))))
+        .collect();
     let corners: HashMap<&str, f32> = cards.iter().map(|c| (c.id.as_str(), corner_radius(c))).collect();
     let shape = |id: &str, rect: &Rect| (*rect, corners.get(id).copied().unwrap_or(0.0));
     let focus = state.focus.clone().filter(|f| rects.contains_key(f.as_str()));
@@ -650,6 +658,11 @@ fn card_ui(
     let hover = ui.ctx().animate_bool_with_time(id.with("hover"), response.hovered() || response.dragged(), time);
     let carry = ui.ctx().animate_bool_with_time(id.with("carry"), response.dragged(), time);
     let lift = 1.5 * hover + 2.5 * carry;
+    if lift > 0.0 {
+        state.lifts.insert(card.id.clone(), lift);
+    } else {
+        state.lifts.remove(&card.id);
+    }
     let rect = card.rect.translate(Vec2::new(0.0, -lift));
     let corner = corner_radius(card) as u8;
     let shadow = egui::epaint::Shadow {
