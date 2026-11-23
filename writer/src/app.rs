@@ -278,6 +278,49 @@ impl WriterApp {
         }
     }
 
+    /// Import from Scrivener…: a `.scriv` (only read), saved as a new
+    /// Writer project, which then opens. See scrivener.rs.
+    fn import_scrivener_dialog(&mut self, now: f64) {
+        let Some(picked) = rfd::FileDialog::new()
+            .set_title("Import a Scrivener Project")
+            .add_filter("Scrivener project", &["scriv", "scrivx"])
+            .pick_file()
+        else {
+            return;
+        };
+        // The .scriv itself, if its .scrivx was picked.
+        let scriv = if picked.extension().is_some_and(|x| x == "scrivx") { picked.parent().map(Path::to_path_buf) } else { Some(picked) };
+        let Some(scriv) = scriv else { return };
+        let name = scriv.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Imported".into());
+        let Some(dest) = rfd::FileDialog::new().set_title("Save the Writer Project As").set_file_name(&name).save_file() else {
+            return;
+        };
+        self.import_scrivener(&scriv, &dest, now);
+    }
+
+    fn import_scrivener(&mut self, scriv: &Path, dest: &Path, now: f64) {
+        let existed = dest.exists();
+        match crate::scrivener::import(scriv, dest) {
+            Ok((project, report)) => {
+                self.set_project(project);
+                self.set_status(
+                    format!(
+                        "Imported {} documents from Scrivener. What came across (and what didn't) is in Notes \u{2192} Imported from Scrivener.",
+                        report.documents
+                    ),
+                    now,
+                );
+            }
+            Err(e) => {
+                // Don't leave a half-made project behind.
+                if !existed {
+                    let _ = std::fs::remove_dir_all(dest);
+                }
+                self.error = Some(format!("Couldn't import {}: {e}", scriv.display()));
+            }
+        }
+    }
+
     fn open_project_dialog(&mut self) {
         if let Some(root) = rfd::FileDialog::new().set_title("Open Project").pick_folder() {
             self.open_project(&root);
@@ -1013,6 +1056,10 @@ impl WriterApp {
                 }
                 if ui.button("Open Project…  (⌘O)").clicked() {
                     self.open_project_dialog();
+                }
+                if ui.button("Import from Scrivener\u{2026}").on_hover_text("Make a Writer project from a Scrivener 3 project (which isn't changed)").clicked() {
+                    let now = ui.input(|i| i.time);
+                    self.import_scrivener_dialog(now);
                 }
                 self.recent_list(ui);
                 ui.add_space(20.0);

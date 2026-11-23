@@ -50,7 +50,7 @@ pub fn take(root: &Path, doc_id: &str, text: &str, name: &str) -> io::Result<Sna
     take_at(root, doc_id, text, name, Local::now().naive_local())
 }
 
-fn take_at(root: &Path, doc_id: &str, text: &str, name: &str, taken: NaiveDateTime) -> io::Result<Snapshot> {
+pub fn take_at(root: &Path, doc_id: &str, text: &str, name: &str, taken: NaiveDateTime) -> io::Result<Snapshot> {
     let dir = folder(root, doc_id);
     fs::create_dir_all(&dir)?;
     let name = clean_name(name);

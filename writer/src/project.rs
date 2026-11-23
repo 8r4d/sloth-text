@@ -307,6 +307,13 @@ impl Project {
     /// Make a new project in `root`, which must be missing or empty. It
     /// starts with one empty document in the Manuscript, ready to type in.
     pub fn create(root: &Path, title: &str) -> io::Result<Self> {
+        let mut project = Self::create_empty(root, title)?;
+        project.add_document(&Place::Into(Role::Manuscript.folder().into()), "Untitled")?;
+        Ok(project)
+    }
+
+    /// A new project with nothing in it yet (for an import to fill).
+    pub fn create_empty(root: &Path, title: &str) -> io::Result<Self> {
         if root.exists() && fs::read_dir(root)?.next().is_some() {
             return Err(invalid("That folder already has files in it. Choose a new or empty folder."));
         }
@@ -331,7 +338,7 @@ impl Project {
             },
         };
         project.repair();
-        project.add_document(&Place::Into(Role::Manuscript.folder().into()), "Untitled")?;
+        project.save()?;
         Ok(project)
     }
 

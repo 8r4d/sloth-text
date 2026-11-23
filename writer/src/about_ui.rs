@@ -55,6 +55,7 @@ const TIPS: &[&str] = &[
     "A line with only # on it is a scene break.",
     "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",
     "Double-click a binder item to rename it.",
+    "Coming from Scrivener? Close the project and choose Import from Scrivener… on the start screen.",
     "Click \"Today\" in the status bar for writing statistics and goals.",
     "Right-click an underlined word for spelling suggestions, Learn Spelling or Ignore Spelling.",
 ];

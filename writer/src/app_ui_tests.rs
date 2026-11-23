@@ -1315,7 +1315,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.5.0");
+    harness.get_by_label("1.6.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
@@ -1624,4 +1624,33 @@ fn when_another_copy_takes_the_project_nothing_is_saved_over_it() {
     assert_eq!(kept[0].text().unwrap(), "Words. Written here.");
     assert!(kept[0].name.contains("Studio iMac"));
     assert!(matches!(crate::lock::holder(&dir.0), crate::lock::Holder::Other(_)), "their lock is left alone");
+}
+
+// ----- importing from Scrivener ------------------------------------------------------
+
+#[test]
+fn a_scrivener_project_is_imported_and_opened() {
+    let dir = TempDir::new("import-here");
+    let src = TempDir::new("import-src");
+    fs::create_dir_all(&src.0).unwrap();
+    let scriv = crate::scrivener::tests::make_scriv(&src.0);
+    let mut harness = harness(project(&dir, "Before."));
+    let dest = src.0.join("The Long Winter");
+    harness.state_mut().import_scrivener(&scriv, &dest, 0.0);
+    harness.run_steps(3);
+    assert_eq!(harness.state().project.as_ref().unwrap().root, dest);
+    // The first document in the Manuscript is open: the chapter's own text.
+    let selected = harness.state().selected.clone().unwrap();
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.node(&selected).unwrap().title, "Chapter One");
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Words in the chapter folder itself."));
+    assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m.starts_with("Imported 7 documents")));
+
+    // A failed import leaves nothing behind.
+    let bad = src.0.join("Empty.scriv");
+    fs::create_dir_all(&bad).unwrap();
+    let nowhere = src.0.join("Nothing");
+    harness.state_mut().import_scrivener(&bad, &nowhere, 0.0);
+    assert!(harness.state().error.as_ref().is_some_and(|e| e.contains("isn't a Scrivener project")));
+    assert!(!nowhere.exists());
 }

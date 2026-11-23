@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.6.0
+
+- Import from Scrivener… (on the start screen): makes a Writer project from a Scrivener 3 project, which isn't changed. The Draft becomes the Manuscript, chapters and all; Research, Trash, and Characters and Places folders keep their places; the rest goes into Notes. Text keeps its bold, italics, headings, quotes and lists; synopses, notes, labels, statuses, keywords, include-in-compile, targets and snapshots come across; comments, annotations and footnotes become notes in the text. PDFs, pictures and sound files are copied into the project folder. An import report in Notes says what came across and what didn't.
+
 ## 1.5.0
 
 Keeping your work safe.
