@@ -1077,6 +1077,25 @@ fn scenes_written_on_the_ipad_land_in_the_manuscript() {
 }
 
 #[test]
+fn notes_written_on_the_ipad_come_in_and_both_sides_are_kept_in_a_clash() {
+    let dir = TempDir::new("sync-notes");
+    let mut harness = harness(project(&dir, "Words."));
+    let id = harness.state().selected.clone().unwrap();
+    let notes = |h: &Harness<'static, WriterApp>| h.state().project.as_ref().unwrap().node(&id).unwrap().meta.notes.clone();
+    let notes_id = crate::sync::notes_id(&id);
+
+    // Changed only on the iPad: taken as they are.
+    finish(&mut harness, vec![Action::Replace { id: notes_id.clone(), was: String::new(), text: "Check the ferry times.".into() }]);
+    assert_eq!(notes(&harness), "Check the ferry times.");
+    assert!(harness.state().manifest_dirty);
+    assert!(!dir.0.join("snapshots").exists() || fs::read_dir(dir.0.join("snapshots")).unwrap().count() == 0, "no snapshot for notes");
+
+    // Changed on both: the Mac's, then the iPad's.
+    finish(&mut harness, vec![Action::Snapshot { id: notes_id, text: "Rain, not snow?".into(), name: "x".into() }]);
+    assert_eq!(notes(&harness), "Check the ferry times.\n\nFrom the iPad:\nRain, not snow?");
+}
+
+#[test]
 fn the_inspector_marks_scenes_for_the_ipad() {
     let dir = TempDir::new("sync-mark");
     let mut harness = harness(project(&dir, ""));
@@ -1102,7 +1121,7 @@ fn app_syncs_with_the_real_helper() {
         app.settings.helper_url = std::env::var("HELPER_URL").unwrap();
         app.helper_token = std::env::var("HELPER_TOKEN").unwrap();
         let project = app.project.as_mut().unwrap();
-        project.set_meta(&id, crate::project::Meta { on_ipad: true, ..Default::default() });
+        project.set_meta(&id, crate::project::Meta { on_ipad: true, notes: "Check the dates.".into(), ..Default::default() });
     }
     // Run frames until the background sync has come back.
     for _ in 0..600 {
@@ -1115,6 +1134,7 @@ fn app_syncs_with_the_real_helper() {
     assert!(harness.state().sync_message.starts_with("Synced"), "{}", harness.state().sync_message);
     let state = SyncState::load(&dir.0);
     assert_eq!(state.scenes[&id].text, "Written on the Mac.");
+    assert_eq!(state.scenes[&crate::sync::notes_id(&id)].text, "Check the dates.", "its notes go too");
     assert!(harness.state().project.as_ref().unwrap().manifest.sync_id.is_some());
 }
 
@@ -1295,7 +1315,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.3.0");
+    harness.get_by_label("1.4.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));

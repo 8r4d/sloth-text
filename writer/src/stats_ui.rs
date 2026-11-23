@@ -61,7 +61,7 @@ impl WriterApp {
     }
 
     /// Today's words, and the Manuscript's length, up to the last keystroke.
-    fn today_and_total(&self) -> (u32, u32) {
+    pub(super) fn today_and_total(&self) -> (u32, u32) {
         let today = stats::today();
         let mut net = self.stats.days.get(&stats::key(today)).copied().unwrap_or(0);
         let mut total = 0;

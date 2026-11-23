@@ -3,8 +3,9 @@
 // the same helper, so the two never talk directly.
 //
 // Pages (in the address's #):  #/                projects
-//                               #/p/ID            a project's scenes
-//                               #/p/ID/s/SCENE    writing a scene
+//                               #/p/ID            a project's scenes by chapter (folding, finding,
+//                                                 words against targets, today against the goal)
+//                               #/p/ID/s/SCENE    writing a scene, with its notes above it
 //                               #/p/ID/new        a new scene (goes to the Mac's inbox)
 //                               #/account         tokens for the Mac, password, sign out
 //
@@ -53,6 +54,66 @@ const q = (project, scene) => `&p=${encodeURIComponent(project)}` + (scene ? `&i
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const when = ms => (ms ? new Date(ms).toLocaleString() : 'never');
 const words = text => (text.replace(/<!--[\s\S]*?(-->|$)/g, ' ').match(/\S+/g) || []).length;
+const fmt = n => Number(n || 0).toLocaleString();
+const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
+
+/// Remembered on this iPad (not important if lost).
+function load(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function store(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage full or blocked: only a convenience.
+  }
+}
+
+/// A progress bar, `done` of `of`.
+const meter = (done, of) => `<span class="meter"><span style="width:${Math.min(100, Math.round((done / of) * 100))}%"></span></span>`;
+
+// ----- today's words ------------------------------------------------------------------
+//
+// The Mac sends its count of today's words with each sync. It includes what
+// the iPad wrote up to the sync before (countedFrom); this iPad adds what it
+// has saved since, from its own record of each save.
+
+const WRITTEN = 'writer-written';
+
+function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function noteWritten(project, change, at) {
+  if (!change) return;
+  const day = localDay();
+  const kept = load(WRITTEN, []).filter(w => w.date === day);
+  kept.push({ project, words: change, at, date: day });
+  store(WRITTEN, kept);
+}
+
+/// {words, goal} today for a project, from its index (as `api('index')` gives it).
+function today(project, info) {
+  const day = localDay();
+  const mac = info.stats && info.stats.date === day ? info.stats.today || 0 : 0;
+  const from = info.countedFrom || 0;
+  const here = load(WRITTEN, []).filter(w => w.project === project && w.date === day && w.at > from)
+    .reduce((sum, w) => sum + w.words, 0);
+  return { words: Math.max(0, mac + here), goal: info.stats?.goal || null };
+}
+
+function todayHtml({ words: done, goal }) {
+  return goal
+    ? `<span class="today">Today ${fmt(done)} / ${fmt(goal)}${meter(done, goal)}</span>`
+    : `<span class="today">Today ${plural(done, 'word', 'words')}</span>`;
+}
+
+const LAST = 'writer-last';      // the scene last opened, by project
+const CLOSED = 'writer-closed';  // folded chapters, by project
 
 function render(html) {
   app.innerHTML = html;
@@ -106,10 +167,17 @@ function emDashes(textarea) {
 }
 
 /// Grow the text area with its text, so the page scrolls rather than the box.
+/// Measuring means shrinking it for a moment; the page keeps its height
+/// meanwhile, or Safari would scroll up to fit the shorter page (the text
+/// jumping about while typing).
 function autoGrow(textarea) {
   const fit = () => {
+    const y = window.scrollY;
+    app.style.minHeight = `${app.offsetHeight}px`;
     textarea.style.height = 'auto';
     textarea.style.height = `${textarea.scrollHeight + 4}px`;
+    app.style.minHeight = '';
+    if (window.scrollY !== y) window.scrollTo(0, y);
   };
   textarea.addEventListener('input', fit);
   requestAnimationFrame(fit);
@@ -175,8 +243,11 @@ async function showProjects() {
 }
 
 async function showProject(project) {
-  const [{ title, index }, inbox] = await Promise.all([api('index', undefined, q(project)), api('inbox', undefined, q(project))]);
+  const [info, inbox] = await Promise.all([api('index', undefined, q(project)), api('inbox', undefined, q(project))]);
+  const { title, index } = info;
   const local = drafts();
+  const hasDraft = s => Boolean(local[`${project}/${s.id}`]);
+  const wordsOf = s => (hasDraft(s) ? words(local[`${project}/${s.id}`].text) : s.words || 0);
   // Grouped by the folder each is in, in the binder's order.
   const groups = [];
   for (const scene of index) {
@@ -184,33 +255,86 @@ async function showProject(project) {
     if (last && last.chapter === scene.chapter) last.scenes.push(scene);
     else groups.push({ chapter: scene.chapter, scenes: [scene] });
   }
+  const closed = new Set(load(CLOSED, {})[project] || []);
+  const lastScene = index.find(s => s.id === load(LAST, {})[project]);
+  const stats = info.stats || {};
+  const href = s => `#/p/${encodeURIComponent(project)}/s/${encodeURIComponent(s.id)}`;
+
+  const row = s => {
+    const w = wordsOf(s);
+    return `<li data-find="${esc(`${s.title} ${s.synopsis || ''} ${s.status || ''}`.toLowerCase())}"><a href="${href(s)}">
+      <span class="row-top"><strong>${esc(s.title)}</strong>${s.status ? `<span class="pill">${esc(s.status)}</span>` : ''}</span>
+      ${s.synopsis ? `<span class="synopsis">${esc(s.synopsis)}</span>` : ''}
+      <span class="meta">${s.target ? `${fmt(w)} / ${fmt(s.target)} words${meter(w, s.target)}` : plural(w, 'word', 'words')}
+        ${hasDraft(s) ? '<span class="unsaved">not saved yet</span>' : ''}</span></a></li>`;
+  };
+
   render(`${nav({ href: '#/', label: 'Projects' })}
-    <h1>${esc(title)}</h1>
-    ${groups.map(g => `<h2>${esc(g.chapter)}</h2><ul class="list">
-      ${g.scenes.map(s => `<li><a href="#/p/${encodeURIComponent(project)}/s/${encodeURIComponent(s.id)}">
-        <strong>${esc(s.title)}</strong>
-        ${s.synopsis ? `<span class="synopsis">${esc(s.synopsis)}</span>` : ''}
-        <span class="quiet">${[s.status, `${s.words} words`].filter(Boolean).map(esc).join(' · ')}
-          ${local[`${project}/${s.id}`] ? ' · <span class="unsaved">not saved yet</span>' : ''}</span></a></li>`).join('')}
-    </ul>`).join('')}
-    ${index.length ? '' : '<p class="quiet">No scenes are on the iPad for this project.</p>'}
-    <p><a class="button" href="#/p/${encodeURIComponent(project)}/new">New Scene</a></p>
-    ${inbox.length ? `<p class="quiet">${inbox.length} new ${inbox.length === 1 ? 'scene is' : 'scenes are'}
+    <header class="project-head">
+      <h1>${esc(title)}</h1>
+      <p class="figures">
+        ${stats.total != null ? `<span>${fmt(stats.total)}${stats.target ? ` of ${fmt(stats.target)}` : ''} words${stats.target ? meter(stats.total, stats.target) : ''}</span>` : ''}
+        ${todayHtml(today(project, info))}
+      </p>
+    </header>
+    <div class="project-tools">
+      ${lastScene ? `<a class="continue" href="${href(lastScene)}">Continue <strong>${esc(lastScene.title)}</strong></a>` : '<span></span>'}
+      <a class="button" href="#/p/${encodeURIComponent(project)}/new">New Scene</a>
+    </div>
+    ${index.length > 5 ? '<input id="find" type="search" placeholder="Find a scene" autocomplete="off" aria-label="Find a scene">' : ''}
+    ${groups.map(g => {
+      const total = g.scenes.reduce((sum, s) => sum + wordsOf(s), 0);
+      return `<details class="chapter" data-chapter="${esc(g.chapter)}" ${closed.has(g.chapter) ? '' : 'open'}>
+        <summary><span class="name">${esc(g.chapter || title)}</span>
+          <span class="quiet">${plural(g.scenes.length, 'scene', 'scenes')} · ${fmt(total)} words</span></summary>
+        <ol class="scenes">${g.scenes.map(row).join('')}</ol></details>`;
+    }).join('')}
+    <p id="none" class="quiet" ${index.length ? 'hidden' : ''}>${index.length ? 'No scenes match.' : 'No scenes are on the iPad for this project.'}</p>
+    ${inbox.length ? `<p class="quiet">${plural(inbox.length, 'new scene is', 'new scenes are')}
       waiting for your Mac to take into the Manuscript.</p>` : ''}`);
+
+  // Folding a chapter is remembered.
+  app.querySelectorAll('details.chapter').forEach(d => d.addEventListener('toggle', () => {
+    if (app.querySelector('#find')?.value) return;  // opened by finding, not by hand
+    const all = load(CLOSED, {});
+    const set = new Set(all[project] || []);
+    if (d.open) set.delete(d.dataset.chapter);
+    else set.add(d.dataset.chapter);
+    all[project] = [...set];
+    store(CLOSED, all);
+  }));
+  // Finding: titles, synopses and statuses.
+  const find = app.querySelector('#find');
+  find?.addEventListener('input', () => {
+    const wanted = find.value.trim().toLowerCase();
+    let shown = 0;
+    app.querySelectorAll('details.chapter').forEach(d => {
+      let here = 0;
+      d.querySelectorAll('li').forEach(li => {
+        const match = !wanted || li.dataset.find.includes(wanted);
+        li.hidden = !match;
+        here += match;
+      });
+      d.hidden = here === 0;
+      if (wanted && here) d.open = true;
+      shown += here;
+    });
+    app.querySelector('#none').hidden = shown > 0;
+  });
 }
 
 async function showScene(project, sceneId) {
   const key = `${project}/${sceneId}`;
-  let info = { title: 'Scene' };
+  let info = { index: [] };
   let scene;
   try {
-    const { index } = await api('index', undefined, q(project));
-    info = index.find(s => s.id === sceneId) || info;
+    info = await api('index', undefined, q(project));
     scene = await api('scene', undefined, q(project, sceneId));
   } catch (err) {
     if (!offline(err)) {
       if (err.status === 404) {
-        render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: 'Back' })}<h1>${esc(info.title)}</h1>
+        const known = info.index.find(s => s.id === sceneId);
+        render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: 'Back' })}<h1>${esc(known?.title || 'Scene')}</h1>
           <p class="quiet">This scene hasn't reached the helper yet: Sloth Writer sends it at its next sync.</p>`);
         return;
       }
@@ -219,32 +343,59 @@ async function showScene(project, sceneId) {
   }
   const draft = drafts()[key];
   if (!scene && !draft) throw new TypeError('offline');
+  const at = info.index.findIndex(s => s.id === sceneId);
+  const entry = info.index[at] || {};
+  const [prev, next] = [info.index[at - 1], info.index[at + 1]];
+  store(LAST, { ...load(LAST, {}), [project]: sceneId });
 
   // Where to start: the helper's text, unless this iPad has unsaved words.
   let base = scene ? scene.version : draft.base;
   let saved = scene ? scene.text : draft.text;
   let text = draft && (!scene || draft.base === scene.version || draft.text !== scene.text) ? draft.text : saved;
-  const title = info.title || draft?.title || 'Scene';
+  const title = entry.title || draft?.title || 'Scene';
+  // Today's words when the page opened; what's typed here is added as it goes.
+  const todayAtOpen = today(project, info);
+  const sceneLink = s => `#/p/${encodeURIComponent(project)}/s/${encodeURIComponent(s.id)}`;
 
-  render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: 'Back' })}
+  render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: entry.chapter || 'Back' })}
     <header class="scene-head">
       <h1>${esc(title)}</h1>
-      <div class="tools"><span id="state" class="quiet"></span>
-        <span id="count" class="quiet"></span>
-        <button id="toggle">Preview</button></div>
+      <div class="tools">
+        <span id="state" class="quiet"></span>
+        <span id="count"></span>
+        <span id="today"></span>
+        <button id="toggle">Preview</button>
+      </div>
     </header>
     <div id="clash" class="clash" hidden></div>
+    <details id="notes-box" class="notes">
+      <summary>Notes <span id="notes-glimpse" class="quiet"></span></summary>
+      <textarea id="notes" readonly placeholder="Notes about this scene: not part of the book. They sync with Sloth Writer's notes."
+        aria-label="Notes"></textarea>
+    </details>
     <textarea id="text" spellcheck="true" autocapitalize="sentences" aria-label="${esc(title)}"></textarea>
-    <article id="preview" class="preview" hidden></article>`);
+    <article id="preview" class="preview" hidden></article>
+    <nav class="scene-nav">
+      ${prev ? `<a href="${sceneLink(prev)}" class="prev">‹ ${esc(prev.title)}</a>` : '<span></span>'}
+      ${next ? `<a href="${sceneLink(next)}" class="next">${esc(next.title)} ›</a>` : '<span></span>'}
+    </nav>`);
   const textarea = document.getElementById('text');
   const stateEl = document.getElementById('state');
   const countEl = document.getElementById('count');
+  const todayEl = document.getElementById('today');
   textarea.value = text;
   emDashes(textarea);
   autoGrow(textarea);
 
   const show = state => (stateEl.textContent = state);
-  const count = () => (countEl.textContent = `${words(textarea.value)} words`);
+  // Words saved here since the page opened, for today's figure.
+  let savedHere = 0;
+  const count = () => {
+    const n = words(textarea.value);
+    countEl.innerHTML = entry.target ? `${fmt(n)} / ${fmt(entry.target)} words${meter(n, entry.target)}` : plural(n, 'word', 'words');
+    const typed = n - words(saved);
+    todayEl.innerHTML = todayHtml({ ...todayAtOpen, words: Math.max(0, todayAtOpen.words + savedHere + typed) });
+  };
   count();
 
   let timer = null;
@@ -262,8 +413,12 @@ async function showScene(project, sceneId) {
     show('Saving…');
     try {
       const r = await api('scene_put', { text: sending, base }, q(project, sceneId), { keepalive });
+      const change = words(sending) - words(saved);
+      noteWritten(project, change, r.savedAt);
+      savedHere += change;
       base = r.version;
       saved = sending;
+      count();
       if (textarea.value === saved) {
         setDraft(key, null);
         show('Saved');
@@ -341,16 +496,25 @@ async function showScene(project, sceneId) {
     if (!showing) previewEl.innerHTML = preview(textarea.value);
   };
 
+  const notes = sceneNotes(project, sceneId, title);
+
   // Back online, or every so often: send what's waiting.
-  const retry = () => textarea.value !== saved && !clash && save();
+  const retry = () => {
+    if (textarea.value !== saved && !clash) save();
+    notes.save();
+  };
   window.addEventListener('online', retry);
   const every = setInterval(retry, 20000);
   // Leaving the page or the app: save what's typed (keepalive lets it
   // finish even as Safari puts the page away).
-  const flush = () => document.visibilityState === 'hidden' && save({ keepalive: true });
+  const flush = () => {
+    if (document.visibilityState !== 'hidden') return;
+    save({ keepalive: true });
+    notes.save({ keepalive: true });
+  };
   document.addEventListener('visibilitychange', flush);
   leaving = async () => {
-    await save();
+    await Promise.all([save(), notes.save()]);
     clearInterval(every);
     window.removeEventListener('online', retry);
     document.removeEventListener('visibilitychange', flush);
@@ -364,6 +528,96 @@ async function showScene(project, sceneId) {
   } else {
     show('Saved');
   }
+}
+
+/// A scene's notes, in the folding panel above its text. They're kept on
+/// the helper as the scene "<id>-notes" and sync with the notes in Sloth
+/// Writer. If the Mac changed them meanwhile, both are kept: the Mac's,
+/// then these.
+function sceneNotes(project, sceneId, title) {
+  const id = `${sceneId}-notes`;
+  const key = `${project}/${id}`;
+  const box = document.getElementById('notes-box');
+  const field = document.getElementById('notes');
+  const glimpse = document.getElementById('notes-glimpse');
+  let base = 0;
+  let saved = '';
+  let ready = false;
+  let timer = null;
+  let saving = false;
+
+  const showGlimpse = () => {
+    const first = field.value.split('\n').find(l => l.trim()) || '';
+    glimpse.textContent = box.open || !first ? '' : `— ${first}`;
+  };
+  box.addEventListener('toggle', () => {
+    showGlimpse();
+    if (box.open) requestAnimationFrame(() => autoGrowOnce(field));
+  });
+
+  (async () => {
+    let fromHelper = null;
+    try {
+      fromHelper = await api('scene', undefined, q(project, id));
+    } catch (err) {
+      if (err.status !== 404 && !offline(err)) throw err;
+    }
+    base = fromHelper ? fromHelper.version : 0;
+    saved = fromHelper ? fromHelper.text : '';
+    const draft = drafts()[key];
+    field.value = draft ? draft.text : saved;
+    field.readOnly = false;
+    ready = true;
+    if (field.value.trim()) box.open = true;
+    showGlimpse();
+    autoGrow(field);
+    if (draft && draft.text !== saved) schedule();
+  })().catch(() => {});
+
+  async function save({ keepalive = false } = {}) {
+    clearTimeout(timer);
+    if (!ready || saving || field.value === saved) return;
+    saving = true;
+    const sending = field.value;
+    try {
+      const r = await api('scene_put', { text: sending, base }, q(project, id), { keepalive });
+      base = r.version;
+      saved = sending;
+      if (field.value === saved) setDraft(key, null);
+      else schedule();
+    } catch (err) {
+      if (err.status === 409) {
+        // Changed on the Mac too: keep both.
+        const theirs = err.data.current ? err.data.current.text.trim() : '';
+        const mine = field.value.trim();
+        field.value = !theirs || mine.includes(theirs) ? field.value : `${theirs}\n\n${field.value}`;
+        base = err.data.current ? err.data.current.version : base;
+        saving = false;
+        return save();
+      }
+      // Offline: kept as a draft, sent later.
+    } finally {
+      saving = false;
+    }
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(save, 1500);
+  }
+
+  field.addEventListener('input', () => {
+    if (!ready) return;
+    setDraft(key, { text: field.value, base, title: `${title} (notes)` });
+    schedule();
+  });
+  return { save };
+}
+
+/// Size a text area to its text now (for one that was hidden).
+function autoGrowOnce(textarea) {
+  textarea.style.height = 'auto';
+  textarea.style.height = `${textarea.scrollHeight + 4}px`;
 }
 
 function showNewScene(project) {
@@ -397,7 +651,7 @@ function showNewScene(project) {
 
 /// No connection: the scenes with unsaved words can still be opened.
 function showOffline() {
-  const waiting = Object.entries(drafts()).filter(([key]) => !key.endsWith('/new'));
+  const waiting = Object.entries(drafts()).filter(([key]) => !key.endsWith('/new') && !key.endsWith('-notes'));
   render(`<h1>Sloth Writer</h1><p class="quiet">Offline. Scenes you were writing here can still be opened;
     they're saved when you're back online.</p>
     <ul class="list">${waiting.map(([key, d]) => {

@@ -64,7 +64,8 @@ test('the index: the scenes marked for the iPad', async () => {
   // The web editor sees it.
   const b = await browser();
   const got = await b.call('index', undefined, `&p=${p}`);
-  assert.deepEqual(got.body, { title: 'The Long Winter', index, seq: 0 });
+  assert.deepEqual([got.body.title, got.body.index, got.body.seq, got.body.stats], ['The Long Winter', index, 0, null]);
+  assert.ok(got.body.syncedAt > 0);
   assert.ok((await b.call('projects')).body.some(x => x.id === p && x.title === 'The Long Winter'));
 
   assert.equal((await m.call('index_put', { title: 'X', index: 'nope' }, `&p=${p}`)).status, 400);
@@ -80,7 +81,8 @@ test('scenes: saved against the version they were edited from', async () => {
 
   // The Mac uploads it (new here: base 0).
   const first = await scene(m, { text: 'The ferry had gone.', base: 0 });
-  assert.deepEqual(first.body, { version: 1, seq: 1 });
+  assert.deepEqual([first.body.version, first.body.seq], [1, 1]);
+  assert.ok(Math.abs(first.body.savedAt - Date.now()) < 60000, "the time it was saved, by the helper's clock");
 
   // The iPad edits version 1.
   const fromIpad = await scene(b, { text: 'The last ferry had gone.', base: 1 });
@@ -94,7 +96,8 @@ test('scenes: saved against the version they were edited from', async () => {
   assert.equal((await m.call('scene', undefined, `&p=${p}&id=abc123`)).body.text, 'The last ferry had gone.');
 
   // Saving the same text again changes nothing.
-  assert.deepEqual((await scene(b, { text: 'The last ferry had gone.', base: 2 })).body, { version: 2, seq: 2 });
+  const same = (await scene(b, { text: 'The last ferry had gone.', base: 2 })).body;
+  assert.deepEqual([same.version, same.seq], [2, 2]);
 
   // A new scene can't be "created" over one that exists.
   assert.equal((await scene(b, { text: 'x', base: 0 })).status, 409);
@@ -184,4 +187,31 @@ test('changing the password needs the current one, and signs out other browsers'
   forgetTries();
   await b.call('change_password', { current: 'another-password-3', password: ACCOUNT.password });
   forgetTries();
+});
+
+test("the Mac's count of today's words goes with the index, and when it counted to", async () => {
+  const m = await mac();
+  const p = newProject();
+  const stats = { date: '2026-11-22', today: 812, goal: 1000, total: 42000, target: 90000, deadline: null };
+  await m.call('index_put', { title: 'Book', index: [], stats }, `&p=${p}`);
+  const first = (await m.call('index', undefined, `&p=${p}`)).body;
+  assert.deepEqual(first.stats, stats);
+  assert.equal(first.countedFrom, null, 'nothing counted before the first sync');
+  await m.call('index_put', { title: 'Book', index: [], stats: { ...stats, today: 900 } }, `&p=${p}`);
+  const second = (await m.call('index', undefined, `&p=${p}`)).body;
+  assert.equal(second.stats.today, 900);
+  assert.equal(second.countedFrom, first.syncedAt, "the Mac's count covers up to its sync before");
+});
+
+test("a scene's notes are a scene of their own, not counted as one", async () => {
+  const m = await mac();
+  const b = await browser();
+  const p = newProject();
+  await m.call('index_put', { title: 'Notes Book', index: [{ id: 's1', title: 'One' }] }, `&p=${p}`);
+  await m.call('scene_put', { text: 'Words.', base: 0 }, `&p=${p}&id=s1`);
+  await b.call('scene_put', { text: 'Check the ferry times.', base: 0 }, `&p=${p}&id=s1-notes`);
+  const changes = (await m.call('changes', undefined, `&p=${p}&since=0`)).body;
+  assert.deepEqual(changes.scenes.map(s => s.id), ['s1', 's1-notes']);
+  const listed = (await b.call('projects')).body.find(x => x.id === p);
+  assert.equal(listed.scenes, 1);
 });

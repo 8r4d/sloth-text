@@ -65,7 +65,19 @@ impl WriterApp {
     /// start it on a background thread so the window never waits on the network.
     fn start_sync(&mut self, now: f64) {
         self.last_sync = Some(now);
+        // The day's writing, for the iPad to show (and add its own to).
+        let (written, total) = self.today_and_total();
         let Some(project) = self.project.as_mut() else { return };
+        let today = crate::stats::today();
+        let goals = &project.manifest.goals;
+        let stats = json!({
+            "date": crate::stats::key(today),
+            "today": written,
+            "goal": goals.today(total, written, today),
+            "total": total,
+            "target": goals.total,
+            "deadline": goals.deadline,
+        });
         if project.manifest.sync_id.is_none() {
             self.manifest_dirty = true;
         }
@@ -92,8 +104,10 @@ impl WriterApp {
                 "words": count_words(&text),
             }));
             scenes.insert(node.id.clone(), text);
+            // Its notes, as a scene of their own (see sync::notes_id).
+            scenes.insert(sync::notes_id(&node.id), node.meta.notes.clone());
         }
-        let input = Input { project: id, title: project.title().to_owned(), index, scenes, state: SyncState::load(&project.root) };
+        let input = Input { project: id, title: project.title().to_owned(), index, scenes, state: SyncState::load(&project.root), stats };
         let (url, token) = (self.settings.helper_url.clone(), self.helper_token.clone());
         let (send, result) = mpsc::channel();
         std::thread::spawn(move || {
@@ -125,6 +139,11 @@ impl WriterApp {
         for action in std::mem::take(&mut outcome.actions) {
             match action {
                 Action::Replace { id, was, text } => self.take_ipad_text(root, &id, &was, &text),
+                // Notes changed on both: the Mac's stay, with the iPad's added.
+                Action::Snapshot { id, text, .. } if sync::notes_of(&id).is_some() => {
+                    let scene = sync::notes_of(&id).expect("just checked").to_owned();
+                    self.merge_ipad_notes(&scene, &text);
+                }
                 Action::Snapshot { id, text, name } => {
                     let _ = snapshots::take(root, &id, &text, &name);
                     clashed.push(self.title_of(&id));
@@ -168,6 +187,10 @@ impl WriterApp {
     /// read it (typing meanwhile), the Mac's text stays and the iPad's is
     /// kept as a snapshot; the next sync sends the Mac's.
     fn take_ipad_text(&mut self, root: &Path, id: &str, was: &str, text: &str) {
+        if let Some(scene) = sync::notes_of(id) {
+            self.take_ipad_notes(scene, was, text);
+            return;
+        }
         if let Some(tab) = self.open.get(id).and_then(|&t| self.docs.get_mut(t)) {
             if tab.doc.text == was {
                 tab.doc.text = text.to_owned();
@@ -189,6 +212,35 @@ impl WriterApp {
             _ => {
                 let _ = snapshots::take(root, id, text, "from the iPad (changed here too)");
             }
+        }
+    }
+
+    /// Notes edited on the iPad. If they changed here too meanwhile, both
+    /// are kept (see `merge_ipad_notes`).
+    fn take_ipad_notes(&mut self, scene: &str, was: &str, text: &str) {
+        let Some(project) = self.project.as_mut() else { return };
+        let Some(node) = project.node(scene) else { return };
+        if node.meta.notes == was {
+            let meta = Meta { notes: text.to_owned(), ..node.meta.clone() };
+            if project.set_meta(scene, meta) {
+                self.manifest_dirty = true;
+            }
+        } else {
+            self.merge_ipad_notes(scene, text);
+        }
+    }
+
+    /// Both sides changed a scene's notes: the iPad's go under the Mac's.
+    fn merge_ipad_notes(&mut self, scene: &str, theirs: &str) {
+        let Some(project) = self.project.as_mut() else { return };
+        let Some(node) = project.node(scene) else { return };
+        let mine = node.meta.notes.trim_end();
+        if theirs.trim().is_empty() || mine.contains(theirs.trim()) {
+            return;
+        }
+        let notes = if mine.is_empty() { theirs.to_owned() } else { format!("{mine}\n\nFrom the iPad:\n{theirs}") };
+        if project.set_meta(scene, Meta { notes, ..node.meta.clone() }) {
+            self.manifest_dirty = true;
         }
     }
 

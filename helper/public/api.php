@@ -24,10 +24,14 @@
 //
 // Projects and scenes (signed in, or a token). p = the project's id from Writer.
 //   GET  api.php?action=projects                       [{id, title, scenes, updatedAt}]
-//   POST api.php?action=index_put&p=P                  {title, index}  the scenes marked for the iPad
-//   GET  api.php?action=index&p=P                      {title, index, seq}
+//   POST api.php?action=index_put&p=P                  {title, index, stats?}  the scenes marked for the iPad,
+//        and the day's writing on the Mac: {date, today, goal, total, target, deadline}
+//   GET  api.php?action=index&p=P                      {title, index, seq, stats, syncedAt, countedFrom}
+//        countedFrom: the Mac's words today include what reached it before this
+//        time (its sync before last), so the iPad adds only what it wrote after.
+//   A scene's notes are the scene "<id>-notes", saved and synced like any other.
 //   GET  api.php?action=scene&p=P&id=S                 {id, text, version}
-//   POST api.php?action=scene_put&p=P&id=S             {text, base} → {version, seq}
+//   POST api.php?action=scene_put&p=P&id=S             {text, base} → {version, seq, savedAt}
 //        base: the version the text was edited from (0: a scene new here). If
 //        the scene has moved on since, nothing is saved: 409 with {current}.
 //   GET  api.php?action=changes&p=P&since=N            {seq, scenes: [{id, text, version, by, updatedAt}]}
@@ -497,7 +501,7 @@ function scene_id(): string {
 
 function list_projects(int $userId): array {
     $stmt = db()->prepare('SELECT p.uid, p.title, UNIX_TIMESTAMP(p.updated_at) AS updated,
-                                  (SELECT COUNT(*) FROM {scenes} s WHERE s.project_id = p.id) AS scenes
+                                  (SELECT COUNT(*) FROM {scenes} s WHERE s.project_id = p.id AND s.scene_id NOT LIKE \'%-notes\') AS scenes
                            FROM {projects} p WHERE p.user_id = ? ORDER BY p.updated_at DESC');
     $stmt->execute([$userId]);
     return array_map(fn($p) => [
@@ -513,13 +517,43 @@ function put_index(int $userId, array $b): array {
         fail('index must be a list', 400);
     }
     $project = project_row($userId, (string) ($_GET['p'] ?? ''), true, $title);
+    $before = stored_index($project);
+    $stored = [
+        'scenes' => array_values($b['index']),
+        'stats' => is_array($b['stats'] ?? null) ? $b['stats'] : null,
+        'syncedAt' => now_ms(),
+        // The Mac counted what it had brought in by its last sync.
+        'countedFrom' => $before['syncedAt'],
+    ];
     db()->prepare('UPDATE {projects} SET title = ?, index_json = ? WHERE id = ?')
-        ->execute([$title, json_encode(array_values($b['index'])), $project['id']]);
+        ->execute([$title, json_encode($stored), $project['id']]);
     return ['ok' => true, 'seq' => (int) $project['seq']];
 }
 
+function now_ms(): int {
+    return (int) round(microtime(true) * 1000);
+}
+
+// The index as kept: once a plain list of scenes, now with the day's writing.
+function stored_index(array $project): array {
+    $kept = json_decode($project['index_json'], true) ?: [];
+    if (!array_key_exists('scenes', $kept)) {
+        $kept = ['scenes' => array_values($kept)];  // the old shape: just the list
+    }
+    return [
+        'scenes' => $kept['scenes'] ?? [],
+        'stats' => $kept['stats'] ?? null,
+        'syncedAt' => $kept['syncedAt'] ?? null,
+        'countedFrom' => $kept['countedFrom'] ?? null,
+    ];
+}
+
 function get_index(array $project): array {
-    return ['title' => $project['title'], 'index' => json_decode($project['index_json'], true) ?: [], 'seq' => (int) $project['seq']];
+    $kept = stored_index($project);
+    return [
+        'title' => $project['title'], 'index' => $kept['scenes'], 'seq' => (int) $project['seq'],
+        'stats' => $kept['stats'], 'syncedAt' => $kept['syncedAt'], 'countedFrom' => $kept['countedFrom'],
+    ];
 }
 
 function get_scene(array $project, string $id): array {
@@ -553,7 +587,7 @@ function put_scene(array $user, array $project, string $id, array $b): array {
     }
     if ($now && $now['text'] === $b['text']) {
         $pdo->rollBack();  // nothing new
-        return ['version' => $current, 'seq' => (int) $project['seq']];
+        return ['version' => $current, 'seq' => (int) $project['seq'], 'savedAt' => now_ms()];
     }
     $pdo->prepare('UPDATE {projects} SET seq = seq + 1 WHERE id = ?')->execute([$project['id']]);
     $seq = (int) $pdo->query('SELECT seq FROM {projects} WHERE id = ' . (int) $project['id'])->fetchColumn();
@@ -567,7 +601,7 @@ function put_scene(array $user, array $project, string $id, array $b): array {
             ->execute([$project['id'], $id, $b['text'], $seq, $user['by']]);
     }
     $pdo->commit();
-    return ['version' => $current + 1, 'seq' => $seq];
+    return ['version' => $current + 1, 'seq' => $seq, 'savedAt' => now_ms()];
 }
 
 // Scenes saved since sync point $since, text and all (scenes are small).

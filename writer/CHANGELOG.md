@@ -2,6 +2,13 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.4.0
+
+- A document's notes panel can be made taller or shorter: drag its bottom edge.
+- The iPad helper gets each scene's notes, editable there and synced back (if both sides changed them, both are kept), and today's words against your goal, with the manuscript's length and target.
+- The iPad's scene list is grouped by chapter (chapters fold away), with word counts against targets, a Continue link to where you were, and Find. Writing a scene shows its words and today's goal as you type, and links to the scenes before and after.
+- Fixed: on the iPad, the page no longer jumps back to the top while you type in a long scene.
+
 ## 1.3.0
 
 - Split at Cursor (⌘K, or right-click): the text after the cursor moves into a new document just after this one, ready to name.

@@ -16,6 +16,13 @@
 //! iPad saved in the meantime, the helper refuses and sends what it has
 //! instead (see put_scene in helper/public/api.php).
 //!
+//! A scene's notes travel the same way, as a companion scene `<id>-notes`
+//! (ids are letters and digits, so it can't be a real scene's), with the
+//! same versions and clash rules; see `notes_of`.
+//!
+//! With the index goes the day's writing (words today, the day's goal, the
+//! manuscript's length and target), for the iPad to show.
+//!
 //! The rules (`run`) work against `Remote`, so tests can use a stand-in;
 //! `Http` is the real helper.
 
@@ -77,6 +84,18 @@ pub struct Input {
     /// Each marked scene's text as it is now, by id.
     pub scenes: BTreeMap<String, String>,
     pub state: SyncState,
+    /// The day's writing, for the iPad: {date, today, goal, total, target, deadline}.
+    pub stats: Value,
+}
+
+/// The companion "scene" holding a scene's notes on the helper.
+pub fn notes_id(scene: &str) -> String {
+    format!("{scene}-notes")
+}
+
+/// If `id` is a scene's notes, that scene's id.
+pub fn notes_of(id: &str) -> Option<&str> {
+    id.strip_suffix("-notes")
 }
 
 /// What the main thread should do with a sync's results.
@@ -144,7 +163,7 @@ pub struct InboxItem {
 
 /// The helper, as a sync sees it.
 pub trait Remote {
-    fn put_index(&mut self, project: &str, title: &str, index: &[Value]) -> Result<(), SyncError>;
+    fn put_index(&mut self, project: &str, title: &str, index: &[Value], stats: &Value) -> Result<(), SyncError>;
     /// Scenes saved since `since`, and the counter now.
     fn changes(&mut self, project: &str, since: i64) -> Result<(Vec<Change>, i64), SyncError>;
     fn put_scene(&mut self, project: &str, id: &str, text: &str, base: u32) -> Result<Put, SyncError>;
@@ -154,10 +173,10 @@ pub trait Remote {
 
 /// Sync once. See the module's description for the rules.
 pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> {
-    let Input { project, title, index, scenes, state } = input;
+    let Input { project, title, index, scenes, state, stats } = input;
     let mut out = Outcome { state, ..Outcome::default() };
 
-    remote.put_index(&project, &title, &index)?;
+    remote.put_index(&project, &title, &index, &stats)?;
     // Inbox items taken in last time can now be marked collected.
     if !out.state.imported.is_empty() {
         let ids: Vec<i64> = out.state.imported.iter().copied().collect();
@@ -311,8 +330,9 @@ fn query(project: &str, id: Option<&str>) -> String {
 }
 
 impl Remote for Http {
-    fn put_index(&mut self, project: &str, title: &str, index: &[Value]) -> Result<(), SyncError> {
-        self.call("index_put", &query(project, None), Some(json!({ "title": title, "index": index }))).map(|_| ())
+    fn put_index(&mut self, project: &str, title: &str, index: &[Value], stats: &Value) -> Result<(), SyncError> {
+        let body = json!({ "title": title, "index": index, "stats": stats });
+        self.call("index_put", &query(project, None), Some(body)).map(|_| ())
     }
 
     fn changes(&mut self, project: &str, since: i64) -> Result<(Vec<Change>, i64), SyncError> {
@@ -393,7 +413,7 @@ pub mod fake {
     }
 
     impl Remote for Fake {
-        fn put_index(&mut self, _: &str, _: &str, index: &[Value]) -> Result<(), SyncError> {
+        fn put_index(&mut self, _: &str, _: &str, index: &[Value], _: &Value) -> Result<(), SyncError> {
             self.index = index.to_vec();
             Ok(())
         }
@@ -445,6 +465,7 @@ mod tests {
             index: scenes.iter().map(|(id, _)| json!({ "id": id })).collect(),
             scenes: scenes.iter().map(|(id, t)| (id.to_string(), t.to_string())).collect(),
             state,
+            stats: Value::Null,
         }
     }
 

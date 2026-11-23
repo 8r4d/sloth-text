@@ -26,6 +26,11 @@ async function typeAtEnd(text) {
 
 const state = () => page.eval(`document.getElementById('state').textContent`);
 
+/// Today, as the page counts days.
+function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /// Go to a page of the app. Only the address's # changes, which loads
 /// nothing, so this doesn't wait for a load the way goto does.
 const go = hash => page.eval(`location.hash = ${JSON.stringify(hash)}`);
@@ -38,9 +43,10 @@ before(async () => {
   await theMac.call('index_put', {
     title: 'The Long Winter',
     index: [
-      { id: 'arrival', title: 'The arrival', chapter: 'Chapter 1', synopsis: 'Too late.', status: 'First draft', words: 4 },
+      { id: 'arrival', title: 'The arrival', chapter: 'Chapter 1', synopsis: 'Too late.', status: 'First draft', words: 4, target: 2000 },
       { id: 'letter', title: 'A letter', chapter: 'Chapter 1', synopsis: '', status: null, words: 2 },
     ],
+    stats: { date: localDay(), today: 100, goal: 500, total: 6, target: 90000, deadline: null },
   }, `&p=${project}`);
   await theMac.call('scene_put', { text: 'Mara was late.', base: 0 }, `&p=${project}&id=arrival`);
   await theMac.call('scene_put', { text: 'Dear Mara,', base: 0 }, `&p=${project}&id=letter`);
@@ -65,11 +71,14 @@ test('sign in, and the project and its scenes', { skip }, async () => {
   await snap('projects');
 
   await go(`#/p/${project}`);
-  await page.waitFor(`document.querySelectorAll('ul.list li').length === 2`, { what: 'the scene list' });
-  const listed = await page.eval(`[...document.querySelectorAll('ul.list li strong')].map(s => s.textContent)`);
+  await page.waitFor(`document.querySelectorAll('ol.scenes li').length === 2`, { what: 'the scene list' });
+  const listed = await page.eval(`[...document.querySelectorAll('ol.scenes li strong')].map(s => s.textContent)`);
   assert.deepEqual(listed, ['The arrival', 'A letter']);
-  assert.ok(await page.eval(`document.querySelector('h2').textContent === 'Chapter 1'`));
-  assert.ok(await page.eval(`document.body.textContent.includes('First draft · 4 words')`));
+  assert.equal(await page.eval(`document.querySelector('details.chapter .name').textContent`), 'Chapter 1');
+  assert.equal(await page.eval(`document.querySelector('ol.scenes .pill').textContent`), 'First draft');
+  const meta = await page.eval(`[...document.querySelectorAll('ol.scenes .meta')].map(m => m.textContent.trim())`);
+  assert.deepEqual(meta, ['4 / 2,000 words', '2 words']);
+  assert.match(await page.eval(`document.querySelector('.figures').textContent`), /Today 100 \/ 500/);
   await snap('scenes');
 });
 
@@ -153,6 +162,88 @@ test('a new scene goes to the inbox for the Mac', { skip }, async () => {
   const inbox = (await theMac.call('inbox', undefined, `&p=${project}`)).body;
   assert.ok(inbox.some(i => i.title === 'On the quay' && i.text === 'A new idea.'));
   await page.waitFor(`document.body.textContent.includes('waiting for your Mac')`);
+  assert.deepEqual(page.errors, [], 'no errors on the page');
+});
+
+test("notes: in their panel, saved to the helper as the scene's notes", { skip }, async () => {
+  await go(`#/p/${project}/s/arrival`);
+  await page.waitFor(`document.getElementById('notes') && !document.getElementById('notes').readOnly`, { what: 'the notes, loaded' });
+  assert.equal(await page.eval(`document.getElementById('notes-box').open`), false, 'folded while there are none');
+  await page.eval(`document.getElementById('notes-box').open = true; document.getElementById('notes').focus()`);
+  for (const ch of 'Check the ferry times.') await page.send('Input.insertText', { text: ch });
+  await page.waitFor(`true`);
+  const deadline = Date.now() + 8000;
+  let notes;
+  while (Date.now() < deadline) {
+    notes = await onHelper('arrival-notes');
+    if (notes.text === 'Check the ferry times.') break;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  assert.equal(notes.text, 'Check the ferry times.');
+  // Opened again, they're shown straight away.
+  await go(`#/p/${project}`);
+  await go(`#/p/${project}/s/arrival`);
+  await page.waitFor(`document.getElementById('notes')?.value === 'Check the ferry times.' && document.getElementById('notes-box').open`);
+  await snap('notes');
+});
+
+test("today's words: the Mac's count, and what's written here since", { skip }, async () => {
+  await go(`#/p/${project}`);
+  await go(`#/p/${project}/s/letter`);
+  await page.waitFor(`document.getElementById('today')?.textContent.startsWith('Today')`);
+  const before = await page.eval(`document.getElementById('today').textContent`);
+  const n = Number(before.match(/Today ([\d,]+)/)[1].replace(/,/g, ''));
+  await typeAtEnd(' Three more words.');
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
+  assert.match(await page.eval(`document.getElementById('today').textContent`), new RegExp(`Today ${n + 3} / 500`));
+  // And on the scene list, after leaving.
+  await go(`#/p/${project}`);
+  await page.waitFor(`document.querySelector('.figures')`);
+  assert.match(await page.eval(`document.querySelector('.figures').textContent`), new RegExp(`Today ${n + 3} / 500`));
+});
+
+test('the scene list: continue where you were, find a scene, fold a chapter', { skip }, async () => {
+  await page.waitFor(`document.querySelector('.continue')`);
+  assert.match(await page.eval(`document.querySelector('.continue').textContent`), /Continue\s+A letter/);
+  // Prev and next on the scene itself.
+  await go(`#/p/${project}/s/arrival`);
+  await page.waitFor(`document.querySelector('.scene-nav .next')`);
+  assert.match(await page.eval(`document.querySelector('.scene-nav .next').textContent`), /A letter/);
+  assert.equal(await page.eval(`document.querySelector('.scene-nav .prev')`), null);
+  // Folding a chapter is remembered.
+  await go(`#/p/${project}`);
+  await page.waitFor(`document.querySelector('details.chapter')`);
+  await page.eval(`document.querySelector('details.chapter > summary').click()`);
+  await page.waitFor(`!document.querySelector('details.chapter').open`);
+  await go(`#/p/${project}/s/arrival`);
+  await go(`#/p/${project}`);
+  await page.waitFor(`document.querySelector('details.chapter')`);
+  assert.equal(await page.eval(`document.querySelector('details.chapter').open`), false);
+  await page.eval(`document.querySelector('details.chapter > summary').click()`);
+  await snap('scene-list');
+});
+
+test('typing at the end of a long scene keeps the page where it is', { skip }, async () => {
+  await go(`#/p/${project}/s/arrival`);
+  // Settled: the scene and its notes loaded.
+  await page.waitFor(`document.getElementById('state')?.textContent === 'Saved' && !document.getElementById('notes').readOnly`);
+  // A long scene, scrolled to its end.
+  await page.eval(`(() => {
+    const t = document.getElementById('text');
+    t.value += '\\n' + Array.from({ length: 150 }, (_, i) => 'Paragraph ' + i + ' of a long scene.').join('\\n');
+    t.dispatchEvent(new Event('input'));
+    t.focus();
+    t.setSelectionRange(t.value.length, t.value.length);
+    window.scrollTo(0, document.body.scrollHeight);
+  })()`);
+  await page.waitFor(`window.scrollY > 1000`, { what: 'scrolled to the end' });
+  const start = await page.eval(`window.scrollY`);
+  assert.ok(start > 1000, `scrolled down (${start})`);
+  for (const ch of ' more') await page.send('Input.insertText', { text: ch });
+  const after = await page.eval(`window.scrollY`);
+  assert.ok(after >= start - 2, `stayed put: ${start} → ${after}`);
+  await page.eval(`document.getElementById('text').value = document.getElementById('text').value.split('\\nParagraph 0')[0]; document.getElementById('text').dispatchEvent(new Event('input'))`);
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
   assert.deepEqual(page.errors, [], 'no errors on the page');
 });
 
