@@ -1318,7 +1318,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.8.0");
+    harness.get_by_label("1.9.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
@@ -1469,6 +1469,21 @@ fn change_case_from_the_right_click_menu() {
     harness.get_by_label("Title Case").click();
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("The Long Winter"));
+}
+
+#[test]
+fn remove_blank_lines_from_the_right_click_menu() {
+    let dir = TempDir::new("blank-lines");
+    let mut harness = harness(project(&dir, "One.\n\nTwo.\n   \nThree.\n\nFour."));
+    harness.run_steps(2);
+    let tab = harness.state_mut().current().unwrap().id;
+    let ctx = harness.ctx.clone();
+    sloth_core::editor::set_selection(&ctx, tab, 0..20);
+    harness.get_by_label("Document text").click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label("Remove Blank Lines").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("One.\nTwo.\nThree.\n\nFour."));
 }
 
 #[test]

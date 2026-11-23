@@ -354,6 +354,28 @@ pub fn change_case(text: &str, selection: Range<usize>, case: Case) -> Edit {
     edit
 }
 
+/// Remove the blank (empty or whitespace-only) lines among the lines the
+/// selection touches. What's left stays selected; if every line was blank,
+/// they go entirely, leaving the cursor where they were.
+pub fn remove_blank_lines(text: &str, selection: Range<usize>) -> Edit {
+    let lines = selected_lines(text, &selection);
+    let (mut start, mut end) = (lines[0].start, lines[lines.len() - 1].end);
+    let kept: Vec<&str> = lines.iter().map(|l| &text[l.clone()]).filter(|l| !l.trim().is_empty()).collect();
+    let insert = kept.join("\n");
+    if kept.is_empty() {
+        // Take a line break with them, so no empty line is left behind.
+        if end < text.len() {
+            end += 1;
+        } else if start > 0 {
+            start -= 1;
+        }
+    }
+    let chars = text[..start].chars().count()..text[..end].chars().count();
+    let mut edit = replace(text, chars.clone(), &insert);
+    edit.selection = chars.start..chars.start + insert.chars().count();
+    edit
+}
+
 /// The word (letters, digits, apostrophes) touching a character index.
 fn word_around(text: &str, at: usize) -> Range<usize> {
     let chars: Vec<char> = text.chars().collect();
@@ -630,5 +652,16 @@ mod tests {
         assert_eq!(case("[what it's for]", Case::Title), "[What It's For]");
         assert_eq!(case("[SHE RAN. i'm SURE i SAW IT!\nyes]", Case::Sentence), "[She ran. I'm sure I saw it!\nYes]");
         assert_eq!(case("one tw|o three", Case::Upper), "one [TWO] three", "no selection: the word at the cursor");
+    }
+
+    #[test]
+    fn blank_lines_are_removed_from_the_selection() {
+        let strip = |m: &str| show(&{ let (t, s) = parse(m); remove_blank_lines(&t, s) });
+        assert_eq!(strip("[one\n\ntwo\n  \n\tthree]"), "[one\ntwo\n\tthree]");
+        assert_eq!(strip("on[e\n\ntw]o\n\nthree"), "[one\ntwo]\n\nthree", "whole lines, and only those touched");
+        assert_eq!(strip("[one\n\n]two"), "[one]\ntwo", "ending at a line's start leaves that line alone");
+        assert_eq!(strip("one\n[\n\n]two"), "one\n|two", "all blank: gone, line breaks and all");
+        assert_eq!(strip("one\n[  ]"), "one|", "at the end: the break before them goes");
+        assert_eq!(strip("one\n|\ntwo"), "one\n|two", "no selection: the cursor's line");
     }
 }

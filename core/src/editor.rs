@@ -58,6 +58,10 @@ pub struct EditorSettings {
     /// Extra space after each paragraph (each line of the text), as a
     /// fraction of a line: 0 for none. Blank lines get none.
     pub paragraph_spacing: f32,
+    /// First-line indent for each paragraph (each line of the text), as a
+    /// multiple of the font size: 0 for none. Only how it looks; the text
+    /// doesn't change.
+    pub first_line_indent: f32,
 }
 
 impl EditorSettings {
@@ -93,6 +97,7 @@ impl Default for EditorSettings {
             split_menu: false,
             typewriter: false,
             paragraph_spacing: 0.0,
+            first_line_indent: 0.0,
         }
     }
 }
@@ -307,6 +312,34 @@ fn space_paragraphs(galley: std::sync::Arc<egui::Galley>, gap: f32) -> std::sync
     std::sync::Arc::new(spaced)
 }
 
+/// First-line indent: start each paragraph (each line) `indent` points in.
+/// egui only honours a section's leading space where the section starts a
+/// paragraph, so sections are split at every line start. Wrapping allows
+/// for the indent, and clicks and the cursor follow it.
+fn indent_paragraphs(mut job: LayoutJob, indent: f32) -> LayoutJob {
+    if indent <= 0.0 {
+        return job;
+    }
+    let starts: Vec<usize> =
+        std::iter::once(0).chain(job.text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let mut sections = Vec::with_capacity(job.sections.len() + starts.len());
+    let bytes = |r: Range<usize>| egui::text::ByteIndex(r.start)..egui::text::ByteIndex(r.end);
+    for section in job.sections.drain(..) {
+        let range = section.byte_range.start.0..section.byte_range.end.0;
+        let mut from = range.start;
+        for &at in starts.iter().filter(|&&at| range.start <= at && at < range.end) {
+            if at > from {
+                sections.push(egui::text::LayoutSection { byte_range: bytes(from..at), leading_space: 0.0, ..section.clone() });
+            }
+            from = at;
+        }
+        let leading_space = if starts.binary_search(&from).is_ok() { indent } else { section.leading_space };
+        sections.push(egui::text::LayoutSection { byte_range: bytes(from..range.end), leading_space, ..section });
+    }
+    job.sections = sections;
+    job
+}
+
 /// A red wavy line under each misspelled word (byte ranges).
 fn paint_misspellings(ui: &egui::Ui, output: &egui::text_edit::TextEditOutput, text: &str, words: &[Range<usize>]) {
     if words.is_empty() {
@@ -369,6 +402,7 @@ enum MenuChoice {
     Learn(String),
     Ignore(String),
     Case(editing::Case),
+    RemoveBlankLines,
     Split,
 }
 
@@ -440,6 +474,10 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                     }
                 }
             });
+            let removes = egui::Button::new("Remove Blank Lines");
+            if ui.add(removes).on_hover_text("Take out the empty lines in the selection").clicked() {
+                picked = Some(MenuChoice::RemoveBlankLines);
+            }
         }
         if settings.split_menu {
             ui.separator();
@@ -472,6 +510,12 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                         set_selection(ctx, tab, range);
                     }
                     apply_edit(ctx, tab, text, |t, s| editing::change_case(t, s, case));
+                }
+                MenuChoice::RemoveBlankLines => {
+                    if let Some(range) = ctx.data(|d| d.get_temp::<Range<usize>>(opened_on)) {
+                        set_selection(ctx, tab, range);
+                    }
+                    apply_edit(ctx, tab, text, editing::remove_blank_lines);
                 }
                 MenuChoice::Split => {
                     let range = ctx.data(|d| d.get_temp::<Range<usize>>(opened_on)).unwrap_or(0..0);
@@ -582,6 +626,7 @@ pub fn show(
                 let wrap = settings.word_wrap;
                 let paragraph_gap = settings.paragraph_spacing.max(0.0)
                     * line_height.unwrap_or_else(|| ui.fonts_mut(|f| f.row_height(&font)));
+                let indent = settings.first_line_indent.max(0.0) * settings.font_size;
                 let layout_font = font.clone();
                 let faces = settings.markdown.then(|| Faces::find(ui, &font));
 
@@ -606,6 +651,7 @@ pub fn show(
                             faces.as_ref(),
                         );
                         job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
+                        let job = indent_paragraphs(job, indent);
                         space_paragraphs(ui.fonts_mut(|f| f.layout_job(job)), paragraph_gap)
                     };
                 let edit = edit.layouter(&mut layouter);
@@ -1200,5 +1246,43 @@ mod tests {
         // The cursor finds the spaced rows: the start of "Three".
         let pos = spaced.pos_from_cursor(CCursor::new(9));
         assert_eq!(pos.top(), after[3]);
+    }
+
+    #[test]
+    fn each_paragraph_starts_indented_and_wraps_to_the_margin() {
+        let ctx = egui::Context::default();
+        let lay = |indent: f32| {
+            let mut galley = None;
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                let mut job = LayoutJob::simple(
+                    "One two three four five six seven eight nine ten\n\nEleven".into(),
+                    FontId::proportional(14.0),
+                    Color32::WHITE,
+                    150.0,
+                );
+                // Split mid-paragraph, as Markdown styling does.
+                job.sections = vec![
+                    egui::text::LayoutSection { byte_range: egui::text::ByteIndex(0)..egui::text::ByteIndex(8), ..job.sections[0].clone() },
+                    egui::text::LayoutSection { byte_range: egui::text::ByteIndex(8)..egui::text::ByteIndex(job.text.len()), ..job.sections[0].clone() },
+                ];
+                galley = Some(ui.fonts_mut(|f| f.layout_job(indent_paragraphs(job, indent))));
+            });
+            output.textures_delta.clear();
+            galley.unwrap()
+        };
+        let (plain, indented) = (lay(0.0), lay(20.0));
+        let left = |g: &egui::Galley, row: usize| g.rows[row].pos.x + g.rows[row].row.glyphs.first().map_or(0.0, |g| g.pos.x);
+        // The paragraph's first row is indented, its wrapped rows aren't.
+        assert!((left(&indented, 0) - left(&plain, 0) - 20.0).abs() < 0.5);
+        assert!((left(&indented, 1) - left(&plain, 1)).abs() < 0.5);
+        // "Eleven", a paragraph of its own, is indented too.
+        let last = |g: &egui::Galley| left(g, g.rows.len() - 1);
+        assert!((last(&indented) - last(&plain) - 20.0).abs() < 0.5);
+        // Nothing runs past the wrap width.
+        assert!(indented.rows.iter().all(|r| r.pos.x + r.row.size.x <= 150.5));
+        // The cursor at the start of a paragraph sits at the indent.
+        let eleven = indented.text().find("Eleven").unwrap();
+        let at = indented.pos_from_cursor(CCursor::new(eleven));
+        assert!((at.left() - plain.pos_from_cursor(CCursor::new(eleven)).left() - 20.0).abs() < 0.5);
     }
 }

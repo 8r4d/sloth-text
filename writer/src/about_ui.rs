@@ -51,7 +51,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
 ];
 
 const TIPS: &[&str] = &[
-    "Right-click in the text for Bold, Italic, Heading, Quote, Note, Scene Break, Change Case and Split at Cursor.",
+    "Right-click in the text for Bold, Italic, Heading, Quote, Note, Scene Break, Change Case, Remove Blank Lines and Split at Cursor.",
     "Write notes to yourself <!-- like this -->: they're left out of word counts and the compiled book.",
     "A line with only # on it is a scene break.",
     "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",

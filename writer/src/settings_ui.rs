@@ -43,6 +43,9 @@ pub struct WriterSettings {
     pub line_spacing: f32,
     /// Extra space after each paragraph, in lines (0 for none).
     pub paragraph_spacing: f32,
+    /// How far each paragraph's first line is indented, as a multiple of
+    /// the font size (0 for none).
+    pub first_line_indent: f32,
     /// The widest lines get, in points; `None` for the full width.
     pub text_width: Option<f32>,
     /// Typing `--` makes an em dash.
@@ -76,6 +79,7 @@ impl Default for WriterSettings {
             font_size: 18.0,
             line_spacing: 1.3,
             paragraph_spacing: 0.0,
+            first_line_indent: 0.0,
             text_width: Some(680.0),
             smart_dashes: true,
             show_markdown: true,
@@ -112,6 +116,7 @@ impl WriterSettings {
             prose: true,
             line_spacing: self.line_spacing,
             paragraph_spacing: self.paragraph_spacing,
+            first_line_indent: self.first_line_indent,
             max_text_width: self.text_width,
             markdown: self.show_markdown,
             spell_check: self.spell_check,
@@ -208,6 +213,17 @@ impl WriterApp {
                     )
                     .on_hover_text("Extra space after each paragraph (each line you end with Return)");
                 });
+                row(ui, "First-line indent", &mut |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut settings.first_line_indent, 0.0..=4.0)
+                            .step_by(0.25)
+                            .custom_formatter(|v, _| if v == 0.0 { "None".into() } else { format!("{v:.2} em") }),
+                    )
+                    .on_hover_text(
+                        "Start each paragraph a little way in. 1 em is the font size, about the width of an M. \
+                         Only how it looks: no spaces are added to the text.",
+                    );
+                });
                 row(ui, "Line length", &mut |ui| {
                         let mut limited = settings.text_width.is_some();
                         if ui.checkbox(&mut limited, "Keep lines to a comfortable length").changed() {
@@ -225,7 +241,19 @@ impl WriterApp {
                         .show(ui, |ui| {
                             let font = FontId::new(settings.font_size, fonts::prose_family());
                             let height = settings.font_size * 1.2 * settings.line_spacing;
-                            let sample = |text: &str| RichText::new(text.to_owned()).font(font.clone()).line_height(Some(height));
+                            let color = ui.visuals().text_color();
+                            let indent = settings.first_line_indent * settings.font_size;
+                            let sample = |text: &str| {
+                                let format = egui::TextFormat {
+                                    font_id: font.clone(),
+                                    line_height: Some(height),
+                                    color,
+                                    ..Default::default()
+                                };
+                                let mut job = egui::text::LayoutJob::single_section(text.to_owned(), format);
+                                job.sections[0].leading_space = indent;
+                                job
+                            };
                             ui.spacing_mut().item_spacing.y = 0.0;
                             ui.add(egui::Label::new(sample("The snow came early that year\u{2014}three weeks before the first frost was due.")));
                             ui.add_space(settings.paragraph_spacing * height);
@@ -352,12 +380,14 @@ mod tests {
         assert_eq!(saved.font_size, 20.0);
         assert!(saved.smart_dashes);
         assert_eq!(saved.text_width, Some(680.0));
+        assert_eq!(saved.first_line_indent, 0.0, "no indent until asked for");
     }
 
     #[test]
     fn the_editor_follows_the_settings() {
-        let s = WriterSettings { font_size: 21.0, smart_dashes: false, text_width: None, ..Default::default() };
+        let s = WriterSettings { font_size: 21.0, smart_dashes: false, text_width: None, first_line_indent: 1.5, ..Default::default() };
         let e = s.editor();
+        assert_eq!(e.first_line_indent, 1.5);
         assert!(e.prose && e.word_wrap && !e.show_line_numbers);
         assert_eq!((e.font_size, e.smart_dashes, e.max_text_width), (21.0, false, None));
     }

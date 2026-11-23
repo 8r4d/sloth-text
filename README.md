@@ -116,8 +116,8 @@ change another program made, and saves itself every few seconds.
 
 **Writing**
 - Prose in a reading font, in a centred column.
-- Bold, italics and headings shown as you type. Formatting, Change Case and
-  Split at Cursor (⌘K) are in the right-click menu.
+- Bold, italics and headings shown as you type. Formatting, Change Case, Remove
+  Blank Lines and Split at Cursor (⌘K) are in the right-click menu.
 - Two hyphens make an em dash, and spelling is checked with the Mac's own
   spell checker.
 - Notes to yourself, either `<!-- in the text -->` or in a panel above it,

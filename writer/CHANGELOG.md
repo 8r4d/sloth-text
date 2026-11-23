@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.9.0
+
+- First-line indent (Settings → Text): each paragraph's first line starts a little way in, from none to 4 em (1 em is the font size). Like paragraph spacing, it's only how the text looks; no spaces are added.
+- Remove Blank Lines in the right-click menu: takes the empty lines out of the selected lines (or the cursor's line). What's left stays selected.
+
 ## 1.8.0
 
 - Paragraph spacing (Settings → Text → Paragraphs): extra space after each paragraph, from none to two lines, so a Return looks like a paragraph break. Blank lines you type get none, so they don't double up. The text itself doesn't change.
