@@ -1062,8 +1062,11 @@ impl WriterApp {
 
     fn start_screen(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().show(ui, |ui| {
+            // Tiles for recent projects need the room: less space above.
+            let top = ui.available_height() * if self.recent.is_empty() { 0.3 } else { 0.12 };
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.vertical_centered(|ui| {
-                ui.add_space(ui.available_height() * 0.3);
+                ui.add_space(top);
                 ui.heading("Sloth Writer");
                 ui.weak(format!("Version {}", crate::version::VERSION));
                 ui.add_space(16.0);
@@ -1090,6 +1093,8 @@ impl WriterApp {
                         self.help = Some(about_ui::HelpPage::About);
                     }
                 });
+                ui.add_space(16.0);
+            });
             });
         });
     }
@@ -1100,7 +1105,7 @@ impl WriterApp {
                 ui.toggle_value(&mut self.show_binder, "Binder").on_hover_text("Show or hide the binder (\u{2325}\u{2318}B)");
                 if let Some(project) = &self.project {
                     let title = egui::Button::new(egui::RichText::new(project.title()).strong()).frame(false);
-                    if ui.add(title).on_hover_text("Rename the project").clicked() {
+                    if ui.add(title).on_hover_text("Rename the project or change its icon").clicked() {
                         self.start_renaming_project();
                     }
                 }

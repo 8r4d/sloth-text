@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.11.0
+
+- Recent projects on the start screen are tiles: each with an icon and colour for the kind of writing it is — Novel, Short Fiction, Essay, Nonfiction, Blog, Podcast Script, Screenplay, Stage Play, Poetry, Journal, Personal, Letters, Children's, Fantasy, Mystery, Science Fiction, Horror, or just Writing. Right-click a tile and choose Icon to change it, or click the project's title in the toolbar while it's open. The kind is kept with the project.
+
 ## 1.10.0
 
 - Hide the Markdown marks (Settings → Writing): the `**`, `*`, `#` and `>` disappear and the text closes up, except in the paragraph you're typing in, where they show faintly so you can still change them. Scene breaks always show.

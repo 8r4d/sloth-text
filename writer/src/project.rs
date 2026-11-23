@@ -272,6 +272,130 @@ pub struct Manifest {
     /// Word goals: a day's, the manuscript's, a deadline (see stats.rs).
     #[serde(default, skip_serializing_if = "crate::stats::Goals::is_empty")]
     pub goals: crate::stats::Goals,
+    /// What sort of writing this is: its icon on the start screen.
+    #[serde(default, skip_serializing_if = "Kind::is_default")]
+    pub kind: Kind,
+}
+
+/// What sort of writing a project is, shown by its icon and colour on the
+/// start screen. Icons are ones egui's bundled emoji fonts have.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Kind {
+    Novel,
+    ShortFiction,
+    Essay,
+    Nonfiction,
+    Blog,
+    Podcast,
+    Screenplay,
+    StagePlay,
+    Poetry,
+    Journal,
+    Personal,
+    Letters,
+    Children,
+    Fantasy,
+    Mystery,
+    ScienceFiction,
+    Horror,
+    /// Anything, and a kind from a newer version that this one doesn't
+    /// know (serde needs that catch-all last).
+    #[default]
+    #[serde(other)]
+    Writing,
+}
+
+impl Kind {
+    /// In the order they're offered.
+    pub const ALL: [Kind; 18] = [
+        Kind::Writing, Kind::Novel, Kind::ShortFiction, Kind::Essay, Kind::Nonfiction, Kind::Blog,
+        Kind::Podcast, Kind::Screenplay, Kind::StagePlay, Kind::Poetry, Kind::Journal, Kind::Personal,
+        Kind::Letters, Kind::Children, Kind::Fantasy, Kind::Mystery, Kind::ScienceFiction, Kind::Horror,
+    ];
+
+    fn is_default(&self) -> bool {
+        *self == Kind::Writing
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Kind::Writing => "Writing",
+            Kind::Novel => "Novel",
+            Kind::ShortFiction => "Short Fiction",
+            Kind::Essay => "Essay",
+            Kind::Nonfiction => "Nonfiction",
+            Kind::Blog => "Blog",
+            Kind::Podcast => "Podcast Script",
+            Kind::Screenplay => "Screenplay",
+            Kind::StagePlay => "Stage Play",
+            Kind::Poetry => "Poetry",
+            Kind::Journal => "Journal",
+            Kind::Personal => "Personal",
+            Kind::Letters => "Letters",
+            Kind::Children => "Children\u{2019}s",
+            Kind::Fantasy => "Fantasy",
+            Kind::Mystery => "Mystery",
+            Kind::ScienceFiction => "Science Fiction",
+            Kind::Horror => "Horror",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Kind::Writing => "\u{270f}",         // pencil
+            Kind::Novel => "\u{1f4d6}",          // open book
+            Kind::ShortFiction => "\u{1f4c3}",   // page with curl
+            Kind::Essay => "\u{2712}",           // nib
+            Kind::Nonfiction => "\u{1f4a1}",     // light bulb
+            Kind::Blog => "\u{1f310}",           // globe
+            Kind::Podcast => "\u{1f3a7}",        // headphones
+            Kind::Screenplay => "\u{1f3ac}",     // clapper board
+            Kind::StagePlay => "\u{1f3ad}",      // masks
+            Kind::Poetry => "\u{1f319}",         // crescent moon
+            Kind::Journal => "\u{1f4d3}",        // notebook
+            Kind::Personal => "\u{2764}",        // heart
+            Kind::Letters => "\u{1f48c}",        // love letter
+            Kind::Children => "\u{1f388}",       // balloon
+            Kind::Fantasy => "\u{1f409}",        // dragon
+            Kind::Mystery => "\u{1f575}",        // detective
+            Kind::ScienceFiction => "\u{1f680}", // rocket
+            Kind::Horror => "\u{1f47b}",         // ghost
+        }
+    }
+
+    /// Its colour, as (red, green, blue): mid tones, readable on light and
+    /// dark backgrounds alike.
+    pub fn color(self) -> (u8, u8, u8) {
+        match self {
+            Kind::Writing => (112, 124, 148),
+            Kind::Novel => (66, 112, 196),
+            Kind::ShortFiction => (40, 150, 160),
+            Kind::Essay => (126, 92, 180),
+            Kind::Nonfiction => (205, 150, 30),
+            Kind::Blog => (30, 140, 210),
+            Kind::Podcast => (210, 80, 130),
+            Kind::Screenplay => (196, 76, 64),
+            Kind::StagePlay => (164, 64, 152),
+            Kind::Poetry => (96, 88, 200),
+            Kind::Journal => (120, 146, 70),
+            Kind::Personal => (220, 86, 96),
+            Kind::Letters => (206, 108, 156),
+            Kind::Children => (234, 120, 40),
+            Kind::Fantasy => (50, 156, 96),
+            Kind::Mystery => (120, 112, 132),
+            Kind::ScienceFiction => (50, 120, 220),
+            Kind::Horror => (124, 96, 150),
+        }
+    }
+}
+
+/// Change the kind of a project that isn't open, in its manifest.
+pub fn set_kind_of(root: &Path, kind: Kind) -> io::Result<()> {
+    let path = root.join(MANIFEST_FILE);
+    let mut manifest: Manifest = ron::from_str(&fs::read_to_string(&path)?).map_err(io::Error::other)?;
+    manifest.kind = kind;
+    let text = ron::ser::to_string_pretty(&manifest, ron::ser::PrettyConfig::default()).map_err(io::Error::other)?;
+    write_atomically(&path, text.as_bytes())
 }
 
 /// Where to put an item, relative to another one.
@@ -335,6 +459,7 @@ impl Project {
                 sync_id: None,
                 no_characters: false,
                 goals: Default::default(),
+                kind: Kind::default(),
             },
         };
         project.repair();
@@ -423,6 +548,15 @@ impl Project {
     }
 
     /// Rename the project (its title, not its folder) and save.
+    pub fn kind(&self) -> Kind {
+        self.manifest.kind
+    }
+
+    pub fn set_kind(&mut self, kind: Kind) -> io::Result<()> {
+        self.manifest.kind = kind;
+        self.save()
+    }
+
     pub fn set_title(&mut self, title: &str) -> io::Result<()> {
         self.manifest.title = clean_title(title)?;
         self.save()
@@ -1489,5 +1623,22 @@ mod tests {
         assert!(p.node(&id).is_none());
         assert!(!dir.0.join("trash/cut-scene.md").exists());
         assert_eq!(Project::open(&dir.0).unwrap().manifest, p.manifest);
+    }
+
+    #[test]
+    fn a_projects_kind_is_kept_in_its_manifest() {
+        let dir = TempDir::new("kind");
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        let manifest = || fs::read_to_string(dir.0.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(p.kind(), Kind::Writing);
+        assert!(!manifest().contains("kind"), "the default isn't written");
+        p.set_kind(Kind::Novel).unwrap();
+        assert_eq!(Project::open(&dir.0).unwrap().kind(), Kind::Novel);
+        // And for a project that isn't open.
+        set_kind_of(&dir.0, Kind::Poetry).unwrap();
+        assert_eq!(Project::open(&dir.0).unwrap().kind(), Kind::Poetry);
+        // A kind from a newer version reads as plain Writing.
+        fs::write(dir.0.join(MANIFEST_FILE), manifest().replace("Poetry", "Limericks")).unwrap();
+        assert_eq!(Project::open(&dir.0).unwrap().kind(), Kind::Writing);
     }
 }

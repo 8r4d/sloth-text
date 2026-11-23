@@ -837,6 +837,35 @@ fn renaming_the_project_renames_its_folder_too() {
 }
 
 #[test]
+fn a_projects_icon_is_chosen_from_its_tile_or_its_title() {
+    let dir = TempDir::new("kind-tile");
+    let p = Project::create(&dir.0.join("Snow"), "Snow").unwrap();
+    let mut harness = harness(p);
+
+    // In the project: click its title, pick an icon.
+    harness.get_by_label("Snow").click();
+    harness.run_steps(3);
+    harness.get_by_label_contains("Short Fiction").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().project.as_ref().unwrap().kind(), crate::project::Kind::ShortFiction);
+    harness.get_by_label("Cancel").click();
+    harness.run_steps(2);
+
+    // On the start screen: the tile shows it; right-click to change it.
+    harness.state_mut().close_project();
+    harness.run_steps(3);
+    harness.get_by_label_contains("Snow, Short Fiction").click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label("Icon").hover();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Podcast Script").click();
+    harness.run_steps(3);
+    harness.get_by_label_contains("Snow, Podcast Script");
+    let reopened = Project::open(&dir.0.join("Snow")).unwrap();
+    assert_eq!(reopened.kind(), crate::project::Kind::Podcast);
+}
+
+#[test]
 fn a_folder_with_another_name_keeps_it() {
     let dir = TempDir::new("rename-title-only");
     let p = Project::create(&dir.0.join("my-novel"), "Working Title").unwrap();
@@ -1318,7 +1347,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.10.0");
+    harness.get_by_label("1.11.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
