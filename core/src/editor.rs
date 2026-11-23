@@ -75,7 +75,7 @@ pub struct EditorSettings {
     /// Offer Add Comment in the right-click menu (Sloth Writer; with
     /// `markdown`, comments' marks are kept out of sight away from the cursor).
     pub comments: bool,
-    /// One of several editors on a page (Sloth Writer's Scrivenings): no
+    /// One of several editors on a page (Sloth Writer's Slothenings): no
     /// scroll area of its own, and only as tall as its text.
     pub embedded: bool,
 }
@@ -903,7 +903,7 @@ pub fn show(
             }
         };
     if settings.embedded {
-        // In a page of several (Scrivenings): the page scrolls.
+        // In a page of several (Slothenings): the page scrolls.
         body(ui);
     } else {
         scroll.id_salt(("editor-scroll", tab)).auto_shrink([false, false]).show(ui, body);

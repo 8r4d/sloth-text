@@ -1,5 +1,5 @@
-//! Scrivenings: a folder's documents as one continuous text, to read and
-//! edit through (⌘1, or Scrivenings above the corkboard). Each document
+//! Slothenings: a folder's documents as one continuous text, to read and
+//! edit through (⌘1, or Slothenings above the corkboard). Each document
 //! keeps its own editor, file and undo, one after another on a page,
 //! divided by a thin rule with its title; the arrow keys run on across the
 //! joins. Click a title to open that document on its own.
@@ -23,13 +23,13 @@ impl Crossing {
 
 impl WriterApp {
     /// The documents under a folder, in binder order (any depth).
-    fn scrivenings_documents(&self, folder: &str) -> Vec<(String, String)> {
+    fn slothenings_documents(&self, folder: &str) -> Vec<(String, String)> {
         let Some(project) = &self.project else { return Vec::new() };
         project.documents_under(folder).into_iter().map(|n| (n.id.clone(), n.title.clone())).collect()
     }
 
-    pub(super) fn scrivenings(&mut self, ui: &mut egui::Ui, folder: &str) {
-        let documents = self.scrivenings_documents(folder);
+    pub(super) fn slothenings(&mut self, ui: &mut egui::Ui, folder: &str) {
+        let documents = self.slothenings_documents(folder);
         let ctx = ui.ctx().clone();
         // Open them all (each keeps its cursor and undo).
         let tabs: Vec<_> = documents.iter().filter_map(|(id, title)| Some((id.clone(), title.clone(), self.ensure_open(id)?))).collect();
@@ -42,7 +42,7 @@ impl WriterApp {
         let column = settings.max_text_width.unwrap_or(f32::INFINITY);
         let mut open_alone = None;
         let crossing = self.crossing.take();
-        egui::ScrollArea::vertical().id_salt(("scrivenings", folder)).auto_shrink([false, false]).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt(("slothenings", folder)).auto_shrink([false, false]).show(ui, |ui| {
             for (i, (id, title, tab_id)) in tabs.iter().enumerate() {
                 if divider(ui, title, column, i == 0).clicked() {
                     open_alone = Some(id.clone());

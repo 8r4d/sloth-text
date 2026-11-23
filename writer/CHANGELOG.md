@@ -4,9 +4,9 @@ Sloth Writer uses semantic versioning (major.minor.patch).
 
 ## 1.26.0
 
-Scrivenings.
+Slothenings.
 
-- Any folder can be read and written as one text: Scrivenings, beside Corkboard and Outline (⌘1; ⌘2 and ⌘3 for the other two). Every document in it, subfolders and all, follows the one before, each under a faint rule with its title. From a document, ⌘ 1 shows the folder it's in with the cursor where it was.
+- Any folder can be read and written as one text: Slothenings, beside Corkboard and Outline (⌘1; ⌘2 and ⌘3 for the other two). Every document in it, subfolders and all, follows the one before, each under a faint rule with its title. From a document, ⌘1 shows the folder it's in with the cursor where it was.
 - Each part is still its own document, with its own file and undo. The arrow keys run on across the joins: ↓ or → at the end of one goes into the next, ↑ or ← at the start back into the one before. Click a title to open that document on its own.
 - With a folder showing, the status bar counts all its words.
 

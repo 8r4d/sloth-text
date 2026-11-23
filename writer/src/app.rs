@@ -34,8 +34,8 @@ mod projects_ui;
 mod references_ui;
 #[path = "repetition_ui.rs"]
 mod repetition_ui;
-#[path = "scrivenings_ui.rs"]
-mod scrivenings_ui;
+#[path = "slothenings_ui.rs"]
+mod slothenings_ui;
 #[path = "search.rs"]
 mod search;
 #[path = "settings_ui.rs"]
@@ -191,8 +191,8 @@ pub struct WriterApp {
     /// A comment just added, whose card should take the keyboard (where its
     /// words start, in bytes; see comments_ui.rs).
     comment_focus: Option<usize>,
-    /// Going on into a neighbouring document in Scrivenings.
-    crossing: Option<scrivenings_ui::Crossing>,
+    /// Going on into a neighbouring document in Slothenings.
+    crossing: Option<slothenings_ui::Crossing>,
     /// The sloth's poses, once shown (see sloth_ui.rs).
     sloth_art: sloth_ui::SlothArt,
     // Softer motion (see `motion_style` and `view_fade`).
@@ -1080,9 +1080,9 @@ impl WriterApp {
         if self.focus_mode && !esc_taken && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             self.set_focus_mode(ctx, false);
         }
-        // ⌘1, ⌘2, ⌘3: a folder as Scrivenings, corkboard or outline (as in
-        // Scrivener). With a document selected, the folder it's in.
-        for (key, view) in [(Key::Num1, views::FolderView::Scrivenings), (Key::Num2, views::FolderView::Corkboard), (Key::Num3, views::FolderView::Outline)] {
+        // ⌘1, ⌘2, ⌘3: a folder as Slothenings, corkboard or outline. With
+        // a document selected, the folder it's in.
+        for (key, view) in [(Key::Num1, views::FolderView::Slothenings), (Key::Num2, views::FolderView::Corkboard), (Key::Num3, views::FolderView::Outline)] {
             if self.project.is_some() && pressed(ctx, Modifiers::COMMAND, key) {
                 self.show_folder_as(ctx, view);
             }
@@ -1319,7 +1319,7 @@ impl WriterApp {
             });
             (picked, all)
         });
-        // A folder (as Scrivenings, a corkboard or an outline): all its words.
+        // A folder (as Slothenings, a corkboard or an outline): all its words.
         let words = match (words, self.selected.clone()) {
             (None, Some(id)) if self.project.as_ref().and_then(|p| p.node(&id)).is_some_and(|n| !n.is_document()) => {
                 Some((None, self.words_under(&id)))

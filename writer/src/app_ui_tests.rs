@@ -2389,10 +2389,10 @@ fn a_comment_on_a_passage_is_written_in_the_margin_and_resolved() {
     assert_eq!(current_text(&mut harness).as_deref(), Some("She left the lamp on."));
 }
 
-// ----- scrivenings ------------------------------------------------------------------------
+// ----- slothenings ------------------------------------------------------------------------
 
 /// A chapter of three scenes with words in, and a subfolder with a fourth.
-fn scrivenings_project(dir: &TempDir) -> (Project, String, Vec<String>) {
+fn slothenings_project(dir: &TempDir) -> (Project, String, Vec<String>) {
     let (mut p, chapter, mut scenes) = chapter_project(dir);
     for (id, text) in scenes.iter().zip(["She arrived too late.", "The letter was never sent.", "The harbour froze."]) {
         fs::write(p.file_path(id).unwrap(), text).unwrap();
@@ -2405,14 +2405,14 @@ fn scrivenings_project(dir: &TempDir) -> (Project, String, Vec<String>) {
 }
 
 #[test]
-fn scrivenings_shows_a_folders_documents_as_one_text() {
-    let dir = TempDir::new("scrivenings");
-    let (p, chapter, scenes) = scrivenings_project(&dir);
+fn slothenings_shows_a_folders_documents_as_one_text() {
+    let dir = TempDir::new("slothenings");
+    let (p, chapter, scenes) = slothenings_project(&dir);
     let mut harness = harness(p);
     harness.state_mut().show_inspector = false;
     harness.state_mut().select(chapter);
     harness.run_steps(2);
-    harness.get_by_label("Scrivenings").click();
+    harness.get_by_label("Slothenings").click();
     harness.run_steps(3);
     // Each document under its title, the subfolder's too, in order.
     for title in ["Arrival", "Letter", "Harbour", "Spring"] {
@@ -2452,9 +2452,9 @@ fn scrivenings_shows_a_folders_documents_as_one_text() {
 }
 
 #[test]
-fn command_1_shows_a_documents_folder_as_scrivenings_where_it_was() {
-    let dir = TempDir::new("scrivenings-cmd1");
-    let (p, chapter, scenes) = scrivenings_project(&dir);
+fn command_1_shows_a_documents_folder_as_slothenings_where_it_was() {
+    let dir = TempDir::new("slothenings-cmd1");
+    let (p, chapter, scenes) = slothenings_project(&dir);
     let mut harness = harness(p);
     harness.state_mut().select(scenes[1].clone());
     harness.run_steps(2);
@@ -2463,7 +2463,7 @@ fn command_1_shows_a_documents_folder_as_scrivenings_where_it_was() {
     harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num1);
     harness.run_steps(4);
     assert_eq!(harness.state().selected.as_deref(), Some(chapter.as_str()));
-    assert_eq!(harness.state().folder_views.get(&chapter), Some(&super::views::FolderView::Scrivenings));
+    assert_eq!(harness.state().folder_views.get(&chapter), Some(&super::views::FolderView::Slothenings));
     assert!(harness.ctx.memory(|m| m.has_focus(sloth_core::editor::editor_id(letter))));
     assert_eq!(sloth_core::editor::selection(&harness.ctx, letter), Some(4..4));
     // ⌘2: the corkboard.

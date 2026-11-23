@@ -17,8 +17,8 @@ pub(super) enum FolderView {
     #[default]
     Corkboard,
     Outline,
-    /// The folder's documents as one text (see scrivenings_ui.rs).
-    Scrivenings,
+    /// The folder's documents as one text (see slothenings_ui.rs).
+    Slothenings,
 }
 
 /// Which view each folder was last shown in, for this session.
@@ -53,7 +53,7 @@ impl WriterApp {
         let mode = self.folder_views.get(folder).copied().unwrap_or_default();
         ui.horizontal(|ui| {
             let mut chosen = mode;
-            ui.selectable_value(&mut chosen, FolderView::Scrivenings, "Scrivenings").on_hover_text("Its documents as one text (\u{2318}1)");
+            ui.selectable_value(&mut chosen, FolderView::Slothenings, "Slothenings").on_hover_text("Its documents as one text (\u{2318}1)");
             ui.selectable_value(&mut chosen, FolderView::Corkboard, "Corkboard").on_hover_text("\u{2318}2");
             ui.selectable_value(&mut chosen, FolderView::Outline, "Outline").on_hover_text("\u{2318}3");
             if chosen != mode {
@@ -78,8 +78,8 @@ impl WriterApp {
         };
         let dragging = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).map(|d| d.0.clone());
         let mut actions = Vec::new();
-        if mode == FolderView::Scrivenings {
-            self.scrivenings(ui, folder);
+        if mode == FolderView::Slothenings {
+            self.slothenings(ui, folder);
             return;
         }
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match mode {
@@ -465,7 +465,7 @@ fn parent_of(nodes: &[Node], id: &str) -> Option<String> {
 
 impl WriterApp {
     /// ⌘1–3: show a folder (the selected one, or the one the selected
-    /// document is in) this way. Into Scrivenings from a document, the
+    /// document is in) this way. Into Slothenings from a document, the
     /// cursor stays where it was.
     pub(super) fn show_folder_as(&mut self, ctx: &egui::Context, view: FolderView) {
         let Some(selected) = self.selected.clone() else { return };
@@ -473,11 +473,11 @@ impl WriterApp {
         let is_folder = project.node(&selected).is_some_and(|n| !n.is_document());
         let folder = if is_folder { Some(selected.clone()) } else { parent_of(&project.manifest.binder, &selected) };
         let Some(folder) = folder else { return };
-        if !is_folder && view == FolderView::Scrivenings
+        if !is_folder && view == FolderView::Slothenings
             && let Some(tab) = self.open.get(&selected).copied()
         {
             let at = sloth_core::editor::selection(ctx, tab).map_or(0, |r| r.start);
-            self.crossing = Some(super::scrivenings_ui::Crossing::to(selected.clone(), at));
+            self.crossing = Some(super::slothenings_ui::Crossing::to(selected.clone(), at));
         }
         self.folder_views.insert(folder.clone(), view);
         if folder != selected {
