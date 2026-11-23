@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.12.1
+
+- Remove Blank Lines has a shortcut: ⇧⌘L.
+
 ## 1.12.0
 
 References: point a passage at a profile — a source, concept, theme, character, place — by writing `[[its name]]` where it comes up. Like a note in the margin, a reference isn't part of the prose.

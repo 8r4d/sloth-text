@@ -1451,7 +1451,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.12.0");
+    harness.get_by_label("1.12.1");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
@@ -1614,9 +1614,23 @@ fn remove_blank_lines_from_the_right_click_menu() {
     sloth_core::editor::set_selection(&ctx, tab, 0..20);
     harness.get_by_label("Document text").click_secondary();
     harness.run_steps(2);
-    harness.get_by_label("Remove Blank Lines").click();
+    harness.get_by_label("Remove Blank Lines \u{21e7}\u{2318}L").click();
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("One.\nTwo.\nThree.\n\nFour."));
+}
+
+#[test]
+fn remove_blank_lines_has_a_shortcut() {
+    let dir = TempDir::new("blank-lines-key");
+    let mut harness = harness(project(&dir, "One.\n\nTwo.\n\nThree."));
+    harness.run_steps(2);
+    harness.get_by_label("Document text").click();
+    harness.run_steps(2);
+    let tab = harness.state_mut().current().unwrap().id;
+    sloth_core::editor::set_selection(&harness.ctx.clone(), tab, 0..9);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::L);
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("One.\nTwo.\n\nThree."));
 }
 
 #[test]

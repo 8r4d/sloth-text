@@ -241,14 +241,21 @@ fn handle_editing_keys(ui: &egui::Ui, tab: TabId, text: &mut String, settings: &
         apply_edit(ctx, tab, text, editing::newline);
     }
     if settings.markdown {
-        let (bold, italic) = ui.input_mut(|i| {
-            (i.consume_key(Modifiers::COMMAND, Key::B), i.consume_key(Modifiers::COMMAND, Key::I))
+        let (bold, italic, blank_lines) = ui.input_mut(|i| {
+            (
+                i.consume_key(Modifiers::COMMAND, Key::B),
+                i.consume_key(Modifiers::COMMAND, Key::I),
+                i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::L),
+            )
         });
         if bold {
             apply_format(ctx, tab, text, Format::Bold);
         }
         if italic {
             apply_format(ctx, tab, text, Format::Italic);
+        }
+        if blank_lines {
+            apply_edit(ctx, tab, text, editing::remove_blank_lines);
         }
     }
 }
@@ -491,7 +498,7 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                     }
                 }
             });
-            let removes = egui::Button::new("Remove Blank Lines");
+            let removes = egui::Button::new("Remove Blank Lines").shortcut_text("\u{21e7}\u{2318}L");
             if ui.add(removes).on_hover_text("Take out the empty lines in the selection").clicked() {
                 picked = Some(MenuChoice::RemoveBlankLines);
             }

@@ -32,6 +32,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         ("Italic", "\u{2318}I"),
         ("Em dash", "- -"),
         ("Split at Cursor", "\u{2318}K"),
+        ("Remove Blank Lines", "\u{21e7}\u{2318}L"),
         ("Take a Snapshot", "\u{2318}5"),
     ]),
     ("View", &[
