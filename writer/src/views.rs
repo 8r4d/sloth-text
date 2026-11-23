@@ -149,6 +149,30 @@ fn corkboard(
     });
 }
 
+/// A status's colour, by where it is in the project's list of statuses:
+/// warm at the start (just begun), through blue, to green at the end (done).
+pub(super) fn status_color(index: usize, count: usize) -> Color32 {
+    let stops = [Color32::from_rgb(0xd0, 0x7a, 0x45), Color32::from_rgb(0x5b, 0x8b, 0xd0), Color32::from_rgb(0x4c, 0xa0, 0x66)];
+    let t = if count <= 1 { 0.0 } else { index as f32 / (count - 1) as f32 };
+    if t <= 0.5 { stops[0].lerp_to_gamma(stops[1], t * 2.0) } else { stops[1].lerp_to_gamma(stops[2], (t - 0.5) * 2.0) }
+}
+
+/// A status as a small stamp, tipped a little, with its bottom right
+/// corner at `corner`.
+pub(super) fn stamp(painter: &egui::Painter, corner: egui::Pos2, text: &str, color: Color32) {
+    let galley = painter.layout_no_wrap(text.to_uppercase(), egui::FontId::proportional(8.5), color);
+    let size = galley.size() + Vec2::new(10.0, 4.0);
+    let angle: f32 = -0.07;
+    let (sin, cos) = angle.sin_cos();
+    let turn = |v: Vec2| Vec2::new(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
+    let center = corner - size / 2.0;
+    let corners: Vec<egui::Pos2> =
+        [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].iter().map(|&(x, y)| center + turn(Vec2::new(x * size.x, y * size.y) / 2.0)).collect();
+    painter.add(egui::Shape::convex_polygon(corners, color.gamma_multiply(0.12), Stroke::new(1.0, color.gamma_multiply(0.85))));
+    let at = center + turn(-galley.size() / 2.0);
+    painter.add(egui::epaint::TextShape::new(at, galley, color).with_angle(angle));
+}
+
 /// Spacing of the board's dots.
 const GRID_STEP: f32 = 24.0;
 
@@ -234,16 +258,17 @@ fn card(
             actions.push(ViewAction::Meta(item.id.clone(), Meta { synopsis, ..item.meta.clone() }));
         }
     }
-    // Status and words along the bottom.
-    let status = item.meta.status.and_then(|i| statuses.get(i)).map_or("", String::as_str);
-    let footer = format!("{}{}{} words", status, if status.is_empty() { "" } else { "  \u{b7}  " }, item.words);
+    // Words along the bottom, and the status as a stamp in the corner.
     painter.text(
         rect.left_bottom() + Vec2::new(10.0, -8.0),
         egui::Align2::LEFT_BOTTOM,
-        footer,
+        format!("{} words", item.words),
         egui::FontId::proportional(11.0),
         ui.visuals().weak_text_color(),
     );
+    if let Some(i) = item.meta.status.filter(|&i| i < statuses.len()) {
+        stamp(&painter, rect.right_bottom() + Vec2::new(-9.0, -7.0), &statuses[i], status_color(i, statuses.len()));
+    }
 
     if response.double_clicked() {
         actions.push(ViewAction::Open(item.id.clone()));
@@ -420,5 +445,20 @@ fn drag_and_drop(
     };
     if let Some(dragged) = response.dnd_release_payload::<Dragged>() {
         actions.push(ViewAction::Move { id: dragged.0.clone(), place });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn statuses_go_from_warm_to_green() {
+        let first = status_color(0, 5);
+        let last = status_color(4, 5);
+        assert!(first.r() > first.g(), "warm at the start");
+        assert!(last.g() > last.r() && last.g() > last.b(), "green when done");
+        assert_eq!(status_color(0, 1), first, "a single status is the first colour");
+        assert_eq!(status_color(2, 5), Color32::from_rgb(0x5b, 0x8b, 0xd0), "blue in the middle");
     }
 }

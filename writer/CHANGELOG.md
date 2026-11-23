@@ -2,6 +2,16 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.22.0
+
+Canvas and corkboard polish.
+
+- Cards on the Canvas sit on a soft shadow, lift a little under the pointer, and lift more while you carry one.
+- Strings swing for a moment and settle when a card is set down or a string is tied.
+- Picking a card eases the rest into the background, and back, rather than switching.
+- Statuses show as a small stamp in a card's corner, on the corkboard and the Canvas, coloured from warm (just begun) through blue to green (done).
+- All of it follows Reduce motion.
+
 ## 1.21.0
 
 Focus, and softer motion.

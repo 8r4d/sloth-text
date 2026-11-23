@@ -61,6 +61,8 @@ pub(super) struct CanvasState {
     /// What the canvas was right-clicked on: a string, or empty canvas
     /// (where a new note would go).
     menu: Option<(Option<usize>, Pos2)>,
+    /// Cards just dropped or tied to, and when: their strings sway a moment.
+    sway: HashMap<String, f64>,
     /// Put the keyboard focus in this note's text on the next frame.
     edit_note: Option<String>,
     /// From the canvas to the screen, as last drawn.
@@ -83,6 +85,7 @@ impl CanvasState {
             picked: None,
             menu: None,
             edit_note: None,
+            sway: HashMap::new(),
             to_screen: TSTransform::IDENTITY,
         }
     }
@@ -117,7 +120,8 @@ impl CanvasState {
 
 /// What a card is, as the canvas draws it.
 enum Kind {
-    Document { synopsis: String, label: Option<Color32> },
+    /// With its status, as a stamp: the name and its colour.
+    Document { synopsis: String, label: Option<Color32>, status: Option<(String, Color32)> },
     /// A profile: its kind ("Character") and the kind's colour.
     Profile { kind: String, color: Color32 },
     Note,
@@ -190,6 +194,7 @@ impl WriterApp {
         state.dirty |= state.data.place_missing(&ids);
 
         let labels = &project.manifest.labels;
+        let statuses = &project.manifest.statuses;
         let kinds = project.profile_kinds();
         let place = |id: &str, size: Vec2| {
             let [x, y] = state.data.places.get(id).copied().unwrap_or_default();
@@ -208,7 +213,8 @@ impl WriterApp {
                     }
                     None => {
                         let label = node.meta.label.and_then(|i| labels.get(i)).map(|l| label_color(l.color));
-                        (Kind::Document { synopsis: node.meta.synopsis.clone(), label }, DOC_SIZE)
+                        let status = node.meta.status.filter(|&i| i < statuses.len()).map(|i| (statuses[i].clone(), super::views::status_color(i, statuses.len())));
+                        (Kind::Document { synopsis: node.meta.synopsis.clone(), label, status }, DOC_SIZE)
                     }
                 };
                 cards.push(Card { id: node.id.clone(), title: node.title.clone(), kind, rect: place(&node.id, size) });
@@ -359,10 +365,34 @@ fn snap(p: Pos2) -> Pos2 {
 /// middle, as string does. It ends at the cards' edges, where a line
 /// between their middles crosses them, so it never runs under their text.
 fn string_between(from: Rect, to: Rect) -> [Pos2; 4] {
+    swaying_string(from, to, 0.0)
+}
+
+/// As `string_between`, its sag stretched by `wobble` (a fraction, either
+/// way) as it swings and settles.
+fn swaying_string(from: Rect, to: Rect, wobble: f32) -> [Pos2; 4] {
     let (a, b) = (edge_point(from, to.center()), edge_point(to, from.center()));
     let d = b - a;
-    let sag = Vec2::new(0.0, (d.length() * 0.12).min(48.0));
+    let sag = Vec2::new(0.0, (d.length() * 0.12).min(48.0) * (1.0 + wobble));
     [a, a + d / 3.0 + sag, a + d * 2.0 / 3.0 + sag, b]
+}
+
+/// Animate? Not with the Mac's Reduce motion, and never in tests (which
+/// look for cards where they were put).
+fn animate() -> bool {
+    !cfg!(test) && sloth_core::motion::animate()
+}
+
+/// How long a string swings after its card is set down.
+const SWAY_SECONDS: f64 = 1.4;
+
+/// A string's swing `t` seconds after its card was set down: a sway that
+/// dies away, as a fraction of its sag.
+fn swing(t: f64) -> f32 {
+    if !(0.0..SWAY_SECONDS).contains(&t) {
+        return 0.0;
+    }
+    (0.45 * (-3.2 * t).exp() * (11.0 * t).sin()) as f32
 }
 
 /// Where a line from the middle of `rect` towards `toward` leaves it.
@@ -451,6 +481,26 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
         }
     }
     let lit = |id: &str| focus.is_none() || near.contains(id);
+    // How lit each card is, easing as the pick changes (0 faded, 1 lit).
+    let ctx = ui.ctx().clone();
+    let animate = animate();
+    let fade_time = if animate { 0.22 } else { 0.0 };
+    let glow: HashMap<&str, f32> =
+        cards.iter().map(|c| (c.id.as_str(), ctx.animate_bool_with_time(egui::Id::unique(("canvas-lit", &c.id)), lit(&c.id), fade_time))).collect();
+    let glow_of = |a: &str, b: &str| glow.get(a).copied().unwrap_or(1.0).min(glow.get(b).copied().unwrap_or(1.0));
+    // Strings on a card just dropped or tied swing, and settle.
+    let now = ui.input(|i| i.time);
+    state.sway.retain(|_, since| now - *since < SWAY_SECONDS);
+    if !animate {
+        state.sway.clear();
+    }
+    if !state.sway.is_empty() {
+        ctx.request_repaint();
+    }
+    let sway = &state.sway;
+    let wobble_of = |a: &str, b: &str| -> f32 {
+        [a, b].iter().filter_map(|id| sway.get(*id)).map(|since| swing(now - since)).fold(0.0, |w: f32, s| if s.abs() > w.abs() { s } else { w })
+    };
     let over_card = pointer.is_some_and(|p| cards.iter().any(|c| c.rect.contains(p)));
 
     // The strings, under the cards.
@@ -461,13 +511,9 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     let mut nearest = reach;
     for (i, edge) in state.edges.iter().enumerate() {
         let (Some(a), Some(b)) = (rects.get(edge.from.as_str()), rects.get(edge.to.as_str())) else { continue };
-        let points = string_between(*a, *b);
-        let on = lit(&edge.from) && lit(&edge.to);
-        let alpha = match (focus.is_some(), on) {
-            (true, true) => 0.9,
-            (true, false) => 0.12,
-            (false, _) => 0.7,
-        };
+        let points = swaying_string(*a, *b, wobble_of(&edge.from, &edge.to));
+        let full = if focus.is_some() { 0.9 } else { 0.7 };
+        let alpha = 0.12 + (full - 0.12) * glow_of(&edge.from, &edge.to);
         let width = (1.2 + (edge.references as f32).ln_1p() * 0.6).min(3.0);
         painter.add(CubicBezierShape::from_points_stroke(points, false, Color32::TRANSPARENT, Stroke::new(width, weak.gamma_multiply(alpha))));
         if let Some(p) = pointer.filter(|_| !over_card) {
@@ -483,7 +529,7 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     let mut tie_points = Vec::new();
     for (i, tie) in state.data.strings.iter().enumerate() {
         let (Some(a), Some(b)) = (rects.get(tie.a.as_str()), rects.get(tie.b.as_str())) else { continue };
-        let points = string_between(*a, *b);
+        let points = swaying_string(*a, *b, wobble_of(&tie.a, &tie.b));
         if let Some(p) = pointer.filter(|_| !over_card) {
             let d = distance_to(&points, p);
             if d < nearest_tie {
@@ -491,7 +537,7 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
                 hovered.tie = Some(i);
             }
         }
-        tie_points.push((i, points, lit(&tie.a) && lit(&tie.b)));
+        tie_points.push((i, points, glow_of(&tie.a, &tie.b)));
     }
     // A string tied by hand wins over one the project draws.
     if hovered.tie.is_some() {
@@ -499,7 +545,7 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     }
     for (i, points, on) in tie_points {
         let strong = state.picked == Some(i) || hovered.tie == Some(i);
-        let color = if on { red } else { red.gamma_multiply(0.25) };
+        let color = red.gamma_multiply(0.25 + 0.75 * on);
         let stroke = Stroke::new(if strong { 2.8 } else { 1.6 }, color);
         painter.add(CubicBezierShape::from_points_stroke(points, false, Color32::TRANSPARENT, stroke));
         // A knot at each end, where it's tied on.
@@ -529,7 +575,8 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     order.sort_by_key(|c| Some(c.id.as_str()) == focus);
     let target = state.tying.as_ref().and(pointer).and_then(|p| cards.iter().rev().find(|c| c.rect.contains(p))).map(|c| c.id.clone());
     for card in order {
-        card_ui(ui, state, card, !lit(&card.id), target.as_deref() == Some(card.id.as_str()), pointer, &rects, actions);
+        let opacity = 0.35 + 0.65 * glow.get(card.id.as_str()).copied().unwrap_or(1.0);
+        card_ui(ui, state, card, opacity, target.as_deref() == Some(card.id.as_str()), pointer, &rects, actions);
     }
     hovered
 }
@@ -539,29 +586,48 @@ fn card_ui(
     ui: &mut egui::Ui,
     state: &mut CanvasState,
     card: &Card,
-    dim: bool,
+    opacity: f32,
     targeted: bool,
     pointer: Option<Pos2>,
     rects: &HashMap<&str, Rect>,
     actions: &mut Vec<CanvasAction>,
 ) {
-    let rect = card.rect;
     let mut child = ui.new_child(
-        UiBuilder::new().id_salt(("canvas-card", &card.id)).max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min)),
+        UiBuilder::new().id_salt(("canvas-card", &card.id)).max_rect(card.rect).layout(egui::Layout::top_down(egui::Align::Min)),
     );
     let ui = &mut child;
-    if dim {
-        ui.set_opacity(0.35);
+    if opacity < 1.0 {
+        ui.set_opacity(opacity);
     }
     // The card's background takes clicks and drags; a note's text, added
     // on top, takes its own.
-    let response = ui.interact(rect, egui::Id::unique(("canvas-card", &card.id)), Sense::click_and_drag());
+    let id = egui::Id::unique(("canvas-card", &card.id));
+    let response = ui.interact(card.rect, id, Sense::click_and_drag());
+    // Lifted a little under the pointer, and more while carried, with a
+    // shadow to match.
+    let time = if animate() { 0.12 } else { 0.0 };
+    let hover = ui.ctx().animate_bool_with_time(id.with("hover"), response.hovered() || response.dragged(), time);
+    let carry = ui.ctx().animate_bool_with_time(id.with("carry"), response.dragged(), time);
+    let lift = 1.5 * hover + 2.5 * carry;
+    let rect = card.rect.translate(Vec2::new(0.0, -lift));
+    let corner = match card.kind {
+        Kind::Profile { .. } => (rect.height() / 2.0) as u8,
+        Kind::Note => 4,
+        Kind::Document { .. } => 6,
+    };
+    let shadow = egui::epaint::Shadow {
+        offset: [0, (2.0 + 3.0 * lift) as i8],
+        blur: (6.0 + 5.0 * lift) as u8,
+        spread: 0,
+        color: Color32::from_black_alpha(if ui.visuals().dark_mode { 90 } else { 34 } + (10.0 * lift) as u8),
+    };
+    ui.painter().add(shadow.as_shape(rect, CornerRadius::same(corner)));
     let visuals = ui.visuals().clone();
     let picked = state.focus.as_deref() == Some(card.id.as_str());
     let border = if picked || targeted { Stroke::new(2.0, visuals.selection.stroke.color) } else { visuals.widgets.noninteractive.bg_stroke };
     let painter = ui.painter().clone();
     match &card.kind {
-        Kind::Document { synopsis, label } => {
+        Kind::Document { synopsis, label, status } => {
             let fill = if visuals.dark_mode { Color32::from_gray(48) } else { Color32::from_rgb(0xFD, 0xFB, 0xF4) };
             painter.rect(rect, CornerRadius::same(6), fill, border, StrokeKind::Inside);
             if let Some(color) = label {
@@ -576,6 +642,9 @@ fn card_ui(
                 job.wrap.max_rows = 2;
                 job.wrap.overflow_character = Some('\u{2026}');
                 painter.galley(Pos2::new(inner.left(), title.bottom() + 4.0), painter.layout_job(job), visuals.weak_text_color());
+            }
+            if let Some((name, color)) = status {
+                super::views::stamp(&painter, rect.right_bottom() + Vec2::new(-8.0, -6.0), name, *color);
             }
         }
         Kind::Profile { kind, color } => {
@@ -632,6 +701,10 @@ fn card_ui(
         *at = [at[0] + d.x, at[1] + d.y];
         state.focus = Some(card.id.clone());
         state.dirty = true;
+    }
+    if response.drag_stopped() {
+        // Its strings swing as it's set down.
+        state.sway.insert(card.id.clone(), ui.input(|i| i.time));
     }
     if response.drag_stopped()
         && let Some(at) = state.data.places.get_mut(&card.id)
@@ -695,6 +768,9 @@ fn card_ui(
             let to = pointer.and_then(|p| rects.iter().filter(|(id, r)| **id != card.id && r.contains(p)).map(|(id, _)| *id).next());
             if let Some(to) = to {
                 state.data.toggle_tie(&card.id, to);
+                let now = ui.input(|i| i.time);
+                state.sway.insert(card.id.clone(), now);
+                state.sway.insert(to.to_owned(), now);
                 state.picked = None;
                 state.dirty = true;
             }
@@ -773,6 +849,21 @@ fn background(ui: &egui::Ui, state: &mut CanvasState, cards: &[Card], response: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_string_swings_and_settles() {
+        assert_eq!(swing(-0.1), 0.0);
+        assert_eq!(swing(0.0), 0.0);
+        let peak = (1..50).map(|i| swing(i as f64 * 0.02).abs()).fold(0.0, f32::max);
+        assert!(peak > 0.2 && peak < 0.45, "a visible swing: {peak}");
+        assert!(swing(1.2).abs() < 0.02, "nearly still by the end");
+        assert_eq!(swing(SWAY_SECONDS), 0.0);
+        // Swinging only changes the sag, not where it's tied.
+        let (a, b) = (Rect::from_min_size(Pos2::ZERO, Vec2::splat(50.0)), Rect::from_min_size(Pos2::new(300.0, 0.0), Vec2::splat(50.0)));
+        let (still, swung) = (string_between(a, b), swaying_string(a, b, 0.4));
+        assert_eq!((still[0], still[3]), (swung[0], swung[3]));
+        assert!(swung[1].y > still[1].y);
+    }
 
     #[test]
     fn strings_end_at_the_cards_edges() {
