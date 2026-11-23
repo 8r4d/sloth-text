@@ -148,8 +148,35 @@ pub fn apply_edit(
 ) {
     let selection = selection(ctx, tab).unwrap_or(0..0);
     let edit = op(text, selection);
+    if edit.text != *text {
+        mark_undo_point(ctx, tab, text);
+    }
     *text = edit.text;
     set_selection(ctx, tab, edit.selection);
+}
+
+/// Forget a tab's undo history (after a change undo shouldn't reach back
+/// past, such as splitting a document in two).
+pub fn forget_undo(ctx: &egui::Context, tab: TabId) {
+    let id = editor_id(tab);
+    if let Some(mut state) = TextEditState::load(ctx, id) {
+        state.set_undoer(Default::default());
+        state.store(ctx, id);
+    }
+}
+
+/// Make the text as it is now an undo point, so ⌘Z takes back an edit made
+/// here (Bold, Change Case, a spelling fix…) on its own. Otherwise the text
+/// widget folds it into whatever was typed in the second before, and undo
+/// takes back both.
+fn mark_undo_point(ctx: &egui::Context, tab: TabId, text: &str) {
+    let id = editor_id(tab);
+    let Some(mut state) = TextEditState::load(ctx, id) else { return };
+    let cursor = state.cursor.char_range().unwrap_or_default();
+    let mut undoer = state.undoer();
+    undoer.add_undo(&(cursor, text.to_owned()));
+    state.set_undoer(undoer);
+    state.store(ctx, id);
 }
 
 /// Enter, Tab and Shift-Tab, handled before the text widget sees them so

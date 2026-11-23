@@ -1523,3 +1523,30 @@ fn the_notes_panel_is_resized_by_its_bottom_edge() {
     let after = harness.state().settings.notes_height;
     assert!(after > before + 80.0, "{before} → {after}");
 }
+
+#[test]
+fn undo_takes_back_a_formatting_edit_on_its_own() {
+    let dir = TempDir::new("undo-format");
+    let mut harness = harness(project(&dir, "a word here"));
+    harness.run_steps(2);
+    // Typed, then made bold straight away (well inside a second).
+    harness.event(egui::Event::Text("!".into()));
+    harness.run_steps(3);
+    let tab = harness.state_mut().current().unwrap().id;
+    let ctx = harness.ctx.clone();
+    sloth_core::editor::set_selection(&ctx, tab, 2..6);
+    harness.run_steps(2);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::B);
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a **word** here!"));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a word here!"), "the bold goes, the typing stays");
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a word here"));
+    // And redo brings them back in turn.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a word here!"));
+}

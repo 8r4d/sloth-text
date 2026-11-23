@@ -543,7 +543,7 @@ impl WriterApp {
     /// a new document just after this one, which you then name. The new
     /// one keeps the status, label, keywords and links; the words count as
     /// moved, not written.
-    fn split_document(&mut self, id: &str, at: usize) {
+    fn split_document(&mut self, ctx: &egui::Context, id: &str, at: usize) {
         self.save_all();
         let Some(tab) = self.tab_of(id) else { return };
         let text = tab.doc.text.clone();
@@ -576,6 +576,8 @@ impl WriterApp {
         self.manifest_dirty = true;
         if let Some(tab) = self.tab_of(id) {
             tab.doc.text = before.clone();
+            // Undo here would bring back text that's now in the new one.
+            editor::forget_undo(ctx, tab.id);
         }
         // Moved, not written: the two changes cancel out in today's words.
         self.note_words(id, &before);
@@ -791,7 +793,7 @@ impl WriterApp {
             && let Some(tab) = self.tab_of(&id).map(|t| t.id)
         {
             let at = editor::selection(ctx, tab).map_or(0, |r| r.start);
-            self.split_document(&id, at);
+            self.split_document(ctx, &id, at);
         }
         // Find. The longer shortcuts first, so ⇧⌘F isn't taken as ⌘F.
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::F) {
@@ -1052,7 +1054,7 @@ impl WriterApp {
         if let Some(at) = split
             && let Some(id) = self.selected.clone()
         {
-            self.split_document(&id, at);
+            self.split_document(&ui.ctx().clone(), &id, at);
         }
     }
 
