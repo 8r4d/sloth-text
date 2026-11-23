@@ -49,6 +49,9 @@ pub struct EditorSettings {
     /// Underline misspelled words, with suggestions on right-click (Sloth
     /// Writer; off in Sloth). See `spell`.
     pub spell_check: bool,
+    /// Offer Split at Cursor in the right-click menu (the app does the
+    /// splitting; see `CursorInfo::split_at`).
+    pub split_menu: bool,
 }
 
 impl EditorSettings {
@@ -81,6 +84,7 @@ impl Default for EditorSettings {
             max_text_width: None,
             markdown: false,
             spell_check: false,
+            split_menu: false,
         }
     }
 }
@@ -104,6 +108,9 @@ pub struct SyntaxInput<'a> {
 pub struct CursorInfo {
     /// 1-based line and column of the cursor, if the editor has a cursor.
     pub line_col: Option<(usize, usize)>,
+    /// Split at Cursor was chosen in the right-click menu, at this
+    /// character index (see `EditorSettings::split_menu`).
+    pub split_at: Option<usize>,
 }
 
 /// Each tab has its own text widget, so cursor, undo history and scroll
@@ -306,12 +313,14 @@ enum MenuChoice {
     Correct(Misspelling, String),
     Learn(String),
     Ignore(String),
+    Case(editing::Case),
+    Split,
 }
 
 /// Right-click in the editor: spelling suggestions for a misspelled word
 /// under the pointer, then Markdown formatting for the selection (or the
 /// cursor's line).
-fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut String, settings: &EditorSettings) {
+fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut String, settings: &EditorSettings) -> Option<usize> {
     let response = &output.response;
     // Clicking the menu takes focus from the text, which drops its
     // selection, so remember the selection the menu was opened on, and
@@ -330,6 +339,7 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
             d.insert_temp(clicked_word, word);
         });
     }
+    let mut split_at = None;
     response.context_menu(|ui| {
         let mut picked = None;
         let word: Option<Misspelling> = ui.ctx().data(|d| d.get_temp(clicked_word)).flatten();
@@ -366,6 +376,23 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                 picked = Some(MenuChoice::Format(format));
             }
         }
+        if settings.markdown {
+            ui.separator();
+            ui.menu_button("Change Case", |ui| {
+                for case in editing::Case::ALL {
+                    if ui.button(case.label()).clicked() {
+                        picked = Some(MenuChoice::Case(case));
+                    }
+                }
+            });
+        }
+        if settings.split_menu {
+            ui.separator();
+            let split = egui::Button::new("Split at Cursor").shortcut_text("\u{2318}K");
+            if ui.add(split).on_hover_text("Move the text after the cursor into a new document").clicked() {
+                picked = Some(MenuChoice::Split);
+            }
+        }
         if let Some(choice) = picked {
             let ctx = ui.ctx();
             match choice {
@@ -385,12 +412,23 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                 }
                 MenuChoice::Learn(word) => spell::learn(&word),
                 MenuChoice::Ignore(word) => spell::ignore(&word),
+                MenuChoice::Case(case) => {
+                    if let Some(range) = ctx.data(|d| d.get_temp::<Range<usize>>(opened_on)) {
+                        set_selection(ctx, tab, range);
+                    }
+                    apply_edit(ctx, tab, text, |t, s| editing::change_case(t, s, case));
+                }
+                MenuChoice::Split => {
+                    let range = ctx.data(|d| d.get_temp::<Range<usize>>(opened_on)).unwrap_or(0..0);
+                    split_at = Some(range.start);
+                }
             }
             // Back to typing.
             ui.ctx().memory_mut(|m| m.request_focus(editor_id(tab)));
             ui.close();
         }
     });
+    split_at
 }
 
 /// The font the editor's text is set in: the fixed-width editor font, or
@@ -538,7 +576,7 @@ pub fn show(
                     paint_misspellings(ui, &output, text, &misspellings(text, cursor));
                 }
                 if menu {
-                    text_menu(&output, tab, text, settings);
+                    info.split_at = text_menu(&output, tab, text, settings);
                 }
 
                 if let Some(cursor) = output.cursor_range {

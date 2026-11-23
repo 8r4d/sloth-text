@@ -39,7 +39,7 @@ mod sync_ui;
 #[path = "views.rs"]
 mod views;
 use search::{DocResults, Direction};
-use crate::project::{MANIFEST_FILE, Node, PathChange, Place, Project, Role};
+use crate::project::{MANIFEST_FILE, Meta, Node, PathChange, Place, Project, Role};
 
 /// Where the last open project is remembered between launches.
 const LAST_PROJECT_KEY: &str = "last_project";
@@ -89,6 +89,7 @@ pub struct WriterApp {
 
     // Inspector (see inspector.rs).
     show_inspector: bool,
+    show_binder: bool,
     inspector_buffers: Option<inspector::Buffers>,
     editing_labels: bool,
     word_cache: inspector::WordCache,
@@ -199,6 +200,7 @@ impl WriterApp {
             results_key: None,
             results_at: 0.0,
             show_inspector: true,
+            show_binder: true,
             inspector_buffers: None,
             editing_labels: false,
             word_cache: inspector::WordCache::default(),
@@ -537,6 +539,52 @@ impl WriterApp {
         }
     }
 
+    /// Split at Cursor: the text after `at` (a character index) moves into
+    /// a new document just after this one, which you then name. The new
+    /// one keeps the status, label, keywords and links; the words count as
+    /// moved, not written.
+    fn split_document(&mut self, id: &str, at: usize) {
+        self.save_all();
+        let Some(tab) = self.tab_of(id) else { return };
+        let text = tab.doc.text.clone();
+        let byte = text.char_indices().nth(at).map_or(text.len(), |(b, _)| b);
+        let (before, after) = (text[..byte].trim_end().to_owned(), text[byte..].trim_start().to_owned());
+        let Some(project) = self.project.as_mut() else { return };
+        let Some(node) = project.node(id) else { return };
+        let title = format!("{} (continued)", node.title);
+        let meta = Meta {
+            status: node.meta.status,
+            label: node.meta.label,
+            keywords: node.meta.keywords.clone(),
+            links: node.meta.links.clone(),
+            exclude_from_compile: node.meta.exclude_from_compile,
+            ..Meta::default()
+        };
+        let made = project.add_document(&Place::After(id.to_owned()), &title).and_then(|new| {
+            let path = project.file_path(&new).ok_or_else(|| io::Error::other("no file"))?;
+            sloth_core::document::write_atomically(&path, after.as_bytes())?;
+            project.set_meta(&new, meta);
+            Ok(new)
+        });
+        let new = match made {
+            Ok(new) => new,
+            Err(e) => {
+                self.error = Some(format!("Couldn't split the document: {e}"));
+                return;
+            }
+        };
+        self.manifest_dirty = true;
+        if let Some(tab) = self.tab_of(id) {
+            tab.doc.text = before.clone();
+        }
+        // Moved, not written: the two changes cancel out in today's words.
+        self.note_words(id, &before);
+        self.note_words(&new, &after);
+        self.save_all();
+        self.select(new.clone());
+        self.start_rename(&new);
+    }
+
     fn start_rename(&mut self, id: &str) {
         let Some(node) = self.project.as_ref().and_then(|p| p.node(id)) else { return };
         if node.role.is_none() {
@@ -705,6 +753,18 @@ impl WriterApp {
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::I) {
             self.show_inspector = !self.show_inspector;
         }
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::B) {
+            self.show_binder = !self.show_binder;
+        }
+        // ⌘K: split the open document at the cursor.
+        if self.project.is_some()
+            && pressed(ctx, Modifiers::COMMAND, Key::K)
+            && let Some(id) = self.selected.clone()
+            && let Some(tab) = self.tab_of(&id).map(|t| t.id)
+        {
+            let at = editor::selection(ctx, tab).map_or(0, |r| r.start);
+            self.split_document(&id, at);
+        }
         // Find. The longer shortcuts first, so ⇧⌘F isn't taken as ⌘F.
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::F) {
             self.open_find(true);
@@ -797,6 +857,7 @@ impl WriterApp {
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top(egui::Id::unique("toolbar")).show(ui, |ui| {
             ui.horizontal(|ui| {
+                ui.toggle_value(&mut self.show_binder, "Binder").on_hover_text("Show or hide the binder (\u{2325}\u{2318}B)");
                 if let Some(project) = &self.project {
                     let title = egui::Button::new(egui::RichText::new(project.title()).strong()).frame(false);
                     if ui.add(title).on_hover_text("Rename the project").clicked() {
@@ -860,14 +921,24 @@ impl WriterApp {
         if self.status.as_ref().is_some_and(|(_, at)| now - at > STATUS_SECONDS) {
             self.status = None;
         }
-        let words = self.current().map(|t| inspector::count_words(&t.doc.text));
+        let ctx = ui.ctx().clone();
+        let words = self.current().map(|t| {
+            let all = inspector::count_words(&t.doc.text);
+            // With text selected, its words too.
+            let picked = editor::selection(&ctx, t.id).filter(|r| !r.is_empty()).map(|r| {
+                let text: String = t.doc.text.chars().skip(r.start).take(r.len()).collect();
+                inspector::count_words(&text)
+            });
+            (picked, all)
+        });
         let status = self.status.as_ref().map(|(message, _)| message.clone());
         let today = self.today_summary();
         egui::Panel::bottom(egui::Id::unique("status")).show(ui, |ui| {
             ui.horizontal(|ui| {
+                let plural = |n: usize| if n == 1 { "word" } else { "words" };
                 match words {
-                    Some(1) => ui.label("1 word"),
-                    Some(n) => ui.label(format!("{n} words")),
+                    Some((Some(picked), all)) => ui.label(format!("{picked} of {all} {}", plural(all))),
+                    Some((None, n)) => ui.label(format!("{n} {}", plural(n))),
                     None => ui.label(""),
                 };
                 ui.separator();
@@ -916,6 +987,7 @@ impl WriterApp {
         let matches = if self.find.visible { self.current_matches().unwrap_or_default() } else { Vec::new() };
         let highlights = Highlights { all: &matches, current: self.find.current.clone() };
         let reveal = self.reveal.take();
+        let mut split = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color).inner_margin(egui::Margin::symmetric(24, 16)))
             .show(ui, |ui| {
@@ -932,13 +1004,19 @@ impl WriterApp {
                         if focus {
                             ui.memory_mut(|m| m.request_focus(editor::editor_id(tab.id)));
                         }
-                        editor::show(ui, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None);
+                        let info = editor::show(ui, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None);
+                        split = info.split_at;
                     }
                     None => {
                         ui.weak("Select a document in the binder.");
                     }
                 }
             });
+        if let Some(at) = split
+            && let Some(id) = self.selected.clone()
+        {
+            self.split_document(&id, at);
+        }
     }
 
     fn empty_trash_dialog(&mut self, ctx: &egui::Context) {
@@ -995,11 +1073,10 @@ impl eframe::App for WriterApp {
 
         self.toolbar(ui);
         let mut actions = Vec::new();
-        egui::Panel::left(egui::Id::unique("binder"))
-            .resizable(true)
-            .default_size(240.0)
-            .size_range(160.0..=480.0)
-            .show(ui, |ui| {
+        let binder = egui::Panel::left(egui::Id::unique("binder")).resizable(true).default_size(240.0).size_range(160.0..=480.0);
+        // Hidden, the binder keeps its width for next time.
+        if self.show_binder {
+            binder.show(ui, |ui| {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     if let Some(project) = &self.project {
                         let selected = self.selected.as_deref();
@@ -1009,6 +1086,7 @@ impl eframe::App for WriterApp {
                     }
                 });
             });
+        }
         for action in actions {
             self.apply(action);
         }

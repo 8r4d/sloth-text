@@ -31,9 +31,11 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         ("Bold", "\u{2318}B"),
         ("Italic", "\u{2318}I"),
         ("Em dash", "- -"),
+        ("Split at Cursor", "\u{2318}K"),
         ("Take a Snapshot", "\u{2318}5"),
     ]),
     ("View", &[
+        ("Binder", "\u{2325}\u{2318}B"),
         ("Inspector", "\u{2325}\u{2318}I"),
         ("Split View", "\u{2318}\\"),
         ("Open in Split View", "\u{2325}-click"),
@@ -48,7 +50,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
 ];
 
 const TIPS: &[&str] = &[
-    "Right-click in the text for Bold, Italic, Heading, Quote, Note and Scene Break.",
+    "Right-click in the text for Bold, Italic, Heading, Quote, Note, Scene Break, Change Case and Split at Cursor.",
     "Write notes to yourself <!-- like this -->: they're left out of word counts and the compiled book.",
     "A line with only # on it is a scene break.",
     "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",

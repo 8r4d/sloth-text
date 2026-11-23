@@ -1,6 +1,7 @@
 //! Editing operations the text widget doesn't do itself: auto-indent,
 //! indenting and outdenting lines, bracket matching, smart dashes, and
-//! Markdown formatting (bold, italic, headings, quotes, notes, breaks).
+//! Markdown formatting (bold, italic, headings, quotes, notes, breaks), and
+//! changing case.
 //!
 //! These are pure functions over the text and a selection (character
 //! indices, like the text cursor), so they're easy to test. Each returns the
@@ -32,7 +33,6 @@ fn line_start(text: &str, byte: usize) -> usize {
     text[..byte].rfind('\n').map_or(0, |i| i + 1)
 }
 
-/// Replace a character range with `insert`, putting the cursor after it.
 /// Replace a character range with `insert`, leaving the cursor after it.
 pub fn replace(text: &str, chars: Range<usize>, insert: &str) -> Edit {
     let (start, end) = (char_to_byte(text, chars.start), char_to_byte(text, chars.end));
@@ -311,6 +311,151 @@ pub fn scene_break(text: &str, selection: Range<usize>) -> Edit {
     replace(text, selection, &format!("{before}#{after}"))
 }
 
+// ----- changing case ---------------------------------------------------------------
+
+/// What Change Case does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Case {
+    Upper,
+    Lower,
+    /// Each Word Capitalized, but Not Small Words Like "of" in the Middle.
+    Title,
+    /// The first letter of each sentence, and "I".
+    Sentence,
+}
+
+impl Case {
+    pub const ALL: [Case; 4] = [Case::Upper, Case::Lower, Case::Title, Case::Sentence];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Case::Upper => "UPPERCASE",
+            Case::Lower => "lowercase",
+            Case::Title => "Title Case",
+            Case::Sentence => "Sentence case",
+        }
+    }
+}
+
+/// Words kept lowercase in Title Case, unless first or last.
+const SMALL_WORDS: &[&str] = &[
+    "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor", "of", "on", "or", "over", "the",
+    "to", "up", "with", "yet",
+];
+
+/// Change the case of the selection, or of the word at the cursor. The
+/// changed text stays selected.
+pub fn change_case(text: &str, selection: Range<usize>, case: Case) -> Edit {
+    let selection = if selection.is_empty() { word_around(text, selection.start) } else { selection };
+    let (start, end) = (char_to_byte(text, selection.start), char_to_byte(text, selection.end));
+    let changed = recase(&text[start..end], case);
+    let mut edit = replace(text, selection.clone(), &changed);
+    edit.selection = selection.start..selection.start + changed.chars().count();
+    edit
+}
+
+/// The word (letters, digits, apostrophes) touching a character index.
+fn word_around(text: &str, at: usize) -> Range<usize> {
+    let chars: Vec<char> = text.chars().collect();
+    let is_word = |c: char| c.is_alphanumeric() || c == '\'' || c == '\u{2019}';
+    let mut start = at.min(chars.len());
+    while start > 0 && is_word(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = at.min(chars.len());
+    while end < chars.len() && is_word(chars[end]) {
+        end += 1;
+    }
+    start..end
+}
+
+fn recase(text: &str, case: Case) -> String {
+    match case {
+        Case::Upper => text.to_uppercase(),
+        Case::Lower => text.to_lowercase(),
+        Case::Title => title_case(text),
+        Case::Sentence => sentence_case(text),
+    }
+}
+
+fn capitalize(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars.flat_map(char::to_lowercase)).collect(),
+        None => String::new(),
+    }
+}
+
+fn title_case(text: &str) -> String {
+    // Words and the gaps between them, in order.
+    let pieces: Vec<(bool, &str)> = split_words(text);
+    let words: Vec<usize> = pieces.iter().enumerate().filter(|(_, (w, _))| *w).map(|(i, _)| i).collect();
+    let (first, last) = (words.first().copied(), words.last().copied());
+    pieces
+        .iter()
+        .enumerate()
+        .map(|(i, (is_word, piece))| {
+            if !is_word {
+                return piece.to_string();
+            }
+            let lower = piece.to_lowercase();
+            // After a colon or dash a new phrase starts: capitalize it.
+            let after_break = i > 0 && pieces[i - 1].1.trim_end().ends_with([':', '\u{2014}', '\u{2013}']);
+            if Some(i) != first && Some(i) != last && !after_break && SMALL_WORDS.contains(&lower.as_str()) {
+                lower
+            } else {
+                capitalize(piece)
+            }
+        })
+        .collect()
+}
+
+fn sentence_case(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut start_of_sentence = true;
+    for (is_word, piece) in split_words(text) {
+        if !is_word {
+            if piece.contains(['.', '!', '?', '\n']) {
+                start_of_sentence = true;
+            }
+            out.push_str(piece);
+            continue;
+        }
+        let lower = piece.to_lowercase();
+        let is_i = lower == "i" || lower.starts_with("i'") || lower.starts_with("i\u{2019}");
+        if start_of_sentence || is_i {
+            out.push_str(&capitalize(piece));
+        } else {
+            out.push_str(&lower);
+        }
+        start_of_sentence = false;
+    }
+    out
+}
+
+/// The text as words (letters, digits, apostrophes) and what's between them.
+fn split_words(text: &str) -> Vec<(bool, &str)> {
+    let is_word = |c: char| c.is_alphanumeric() || c == '\'' || c == '\u{2019}';
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut in_word = None;
+    for (i, c) in text.char_indices() {
+        let w = is_word(c);
+        match in_word {
+            Some(prev) if prev != w => {
+                out.push((prev, &text[start..i]));
+                start = i;
+            }
+            _ => {}
+        }
+        in_word = Some(w);
+    }
+    if let Some(w) = in_word {
+        out.push((w, &text[start..]));
+    }
+    out
+}
+
 /// Words and characters, for the status bar.
 pub fn counts(text: &str) -> (usize, usize) {
     (text.split_whitespace().count(), text.chars().count())
@@ -473,5 +618,17 @@ mod tests {
         assert_eq!(brk("end.|"), "end.\n#\n|");
         assert_eq!(brk("end.\n|next"), "end.\n#\n|next");
         assert_eq!(brk("|"), "#\n|");
+    }
+
+    #[test]
+    fn case_changes() {
+        let case = |m: &str, c| show(&{ let (t, s) = parse(m); change_case(&t, s, c) });
+        assert_eq!(case("a [quiet] word", Case::Upper), "a [QUIET] word");
+        assert_eq!(case("[ÉTÉ Café]", Case::Lower), "[été café]");
+        assert_eq!(case("[the lord of the rings]", Case::Title), "[The Lord of the Rings]");
+        assert_eq!(case("[a tale: of two cities]", Case::Title), "[A Tale: Of Two Cities]");
+        assert_eq!(case("[what it's for]", Case::Title), "[What It's For]");
+        assert_eq!(case("[SHE RAN. i'm SURE i SAW IT!\nyes]", Case::Sentence), "[She ran. I'm sure I saw it!\nYes]");
+        assert_eq!(case("one tw|o three", Case::Upper), "one [TWO] three", "no selection: the word at the cursor");
     }
 }

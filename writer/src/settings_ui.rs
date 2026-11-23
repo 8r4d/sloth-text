@@ -65,6 +65,7 @@ impl WriterSettings {
             max_text_width: self.text_width,
             markdown: self.show_markdown,
             spell_check: self.spell_check,
+            split_menu: true,
             ..EditorSettings::default()
         }
     }

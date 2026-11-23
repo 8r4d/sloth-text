@@ -1376,3 +1376,74 @@ fn right_clicking_a_misspelled_word_offers_its_spelling() {
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("The snow came early."));
 }
+
+// ----- splitting, selection counts, the binder, case ------------------------------------
+
+#[test]
+fn split_at_cursor_moves_the_rest_into_a_new_document() {
+    let dir = TempDir::new("split-doc");
+    let mut harness = harness(project(&dir, "The ferry had gone.\n\nNext morning she walked."));
+    harness.run_steps(2);
+    let first = harness.state().selected.clone().unwrap();
+    let tab = harness.state_mut().current().unwrap().id;
+    let ctx = harness.ctx.clone();
+    sloth_core::editor::set_selection(&ctx, tab, 19..19);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+    harness.run_steps(3);
+
+    let app = harness.state();
+    let project = app.project.as_ref().unwrap();
+    let titles = manuscript_titles(&harness);
+    assert_eq!(titles, ["Untitled", "Untitled (continued)"]);
+    let second = harness.state().selected.clone().unwrap();
+    assert_ne!(second, first, "the new one is selected");
+    let read = |id: &str| fs::read_to_string(project.file_path(id).unwrap()).unwrap();
+    assert_eq!(read(&first), "The ferry had gone.");
+    assert_eq!(read(&second), "Next morning she walked.");
+    assert!(harness.state().renaming.is_some(), "ready to name it");
+    // Moved, not written.
+    harness.get_by_label("Today: 0 words");
+}
+
+#[test]
+fn the_status_bar_counts_the_selection_too() {
+    let dir = TempDir::new("selection-count");
+    let mut harness = harness(project(&dir, "One two three"));
+    harness.run_steps(2);
+    harness.get_by_label("3 words");
+    let tab = harness.state_mut().current().unwrap().id;
+    let ctx = harness.ctx.clone();
+    sloth_core::editor::set_selection(&ctx, tab, 0..7);
+    harness.run_steps(2);
+    harness.get_by_label("2 of 3 words");
+}
+
+#[test]
+fn the_binder_can_be_hidden() {
+    let dir = TempDir::new("hide-binder");
+    let mut harness = harness(project(&dir, ""));
+    assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 1);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::B);
+    harness.run_steps(2);
+    assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 0);
+    harness.get_by_label("Binder").click();
+    harness.run_steps(2);
+    assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 1);
+}
+
+#[test]
+fn change_case_from_the_right_click_menu() {
+    let dir = TempDir::new("case");
+    let mut harness = harness(project(&dir, "the long winter"));
+    harness.run_steps(2);
+    let tab = harness.state_mut().current().unwrap().id;
+    let ctx = harness.ctx.clone();
+    sloth_core::editor::set_selection(&ctx, tab, 0..15);
+    harness.get_by_label("Document text").click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label("Change Case").hover();
+    harness.run_steps(2);
+    harness.get_by_label("Title Case").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("The Long Winter"));
+}
