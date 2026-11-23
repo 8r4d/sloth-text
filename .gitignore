@@ -1,5 +1,4 @@
 /target
 .DS_Store
 /helper/writer-config.php
-# Scrivener projects used to try the importer (Tutorial.scriv and the like)
 *.scriv/
