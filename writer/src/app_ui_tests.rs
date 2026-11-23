@@ -1488,3 +1488,18 @@ fn a_documents_notes_are_above_its_text() {
     assert!(harness.state().manifest_dirty);
     assert_eq!(current_text(&mut harness).as_deref(), Some("The ferry had gone."), "not in the text");
 }
+
+#[test]
+fn the_notes_panel_is_resized_by_its_bottom_edge() {
+    let dir = TempDir::new("notes-resize");
+    let mut p = project(&dir, "Text.");
+    let scene = p.manifest.binder[0].children[0].id.clone();
+    p.set_meta(&scene, crate::project::Meta { notes: "A note.".into(), ..Default::default() });
+    let mut harness = harness(p);
+    harness.run_steps(3);
+    let before = harness.state().settings.notes_height;
+    let handle = harness.get_by_label("Drag to make the notes taller or shorter").rect().center();
+    drag_points(&mut harness, handle, handle + egui::vec2(0.0, 120.0));
+    let after = harness.state().settings.notes_height;
+    assert!(after > before + 80.0, "{before} → {after}");
+}

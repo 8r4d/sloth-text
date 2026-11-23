@@ -331,6 +331,7 @@ impl WriterApp {
         let width = column.map_or(ui.available_width(), |w| w.min(ui.available_width()));
         let first_line = notes.lines().find(|l| !l.trim().is_empty()).unwrap_or("").to_owned();
         let mut changed = false;
+        let mut height = self.settings.notes_height;
         ui.horizontal(|ui| {
             ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
             ui.vertical(|ui| {
@@ -339,16 +340,34 @@ impl WriterApp {
                     .id_salt(("doc-notes", id))
                     .default_open(!notes.trim().is_empty());
                 let shown = header.show(ui, |ui| {
-                    egui::ScrollArea::vertical().id_salt(("doc-notes-scroll", id)).max_height(180.0).show(ui, |ui| {
-                        changed = ui
-                            .add(
-                                egui::TextEdit::multiline(&mut notes)
-                                    .hint_text("Notes about this document: research, reminders, what to fix. Not part of the compiled book.")
-                                    .desired_rows(2)
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .changed();
-                    });
+                    egui::ScrollArea::vertical()
+                        .id_salt(("doc-notes-scroll", id))
+                        .min_scrolled_height(height)
+                        .max_height(height)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            changed = ui
+                                .add(
+                                    egui::TextEdit::multiline(&mut notes)
+                                        .hint_text("Notes about this document: research, reminders, what to fix. Not part of the compiled book.")
+                                        .desired_rows(2)
+                                        .desired_width(f32::INFINITY),
+                                )
+                                .changed();
+                        });
+                    // Drag the bottom edge for more or less of them.
+                    let (handle, drag) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 8.0), egui::Sense::drag());
+                    let hovered = drag.hovered() || drag.dragged();
+                    if hovered {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                    }
+                    let color = if hovered { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
+                    let mid = handle.center();
+                    ui.painter().line_segment([mid - egui::vec2(18.0, 0.0), mid + egui::vec2(18.0, 0.0)], egui::Stroke::new(2.0, color));
+                    if drag.dragged() {
+                        height = (height + drag.drag_delta().y).clamp(48.0, 900.0);
+                    }
+                    let _ = drag.on_hover_text("Drag to make the notes taller or shorter");
                 });
                 // Folded: a glimpse of what's in them.
                 if shown.body_returned.is_none() && !first_line.is_empty() {
@@ -358,6 +377,7 @@ impl WriterApp {
             });
         });
         ui.separator();
+        self.settings.notes_height = height;
         if changed
             && let Some(project) = self.project.as_mut()
         {
