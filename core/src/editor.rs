@@ -52,6 +52,9 @@ pub struct EditorSettings {
     /// Offer Split at Cursor in the right-click menu (the app does the
     /// splitting; see `CursorInfo::split_at`).
     pub split_menu: bool,
+    /// Typewriter scrolling: keep the line being typed in the middle of
+    /// the editor (with room below the text to let the last line get there).
+    pub typewriter: bool,
 }
 
 impl EditorSettings {
@@ -85,6 +88,7 @@ impl Default for EditorSettings {
             markdown: false,
             spell_check: false,
             split_menu: false,
+            typewriter: false,
         }
     }
 }
@@ -503,6 +507,7 @@ pub fn show(
     };
 
     let mut info = CursorInfo::default();
+    let viewport_height = ui.available_height();
 
     scroll
         .id_salt(("editor-scroll", tab))
@@ -612,6 +617,21 @@ pub fn show(
                     ui.painter().set(behind_text, Shape::Vec(shapes));
                 }
 
+                // Typewriter scrolling: typing or moving with the keys keeps
+                // the cursor's line in the middle (not clicking about, which
+                // would make the text jump under the pointer).
+                if settings.typewriter
+                    && output.response.has_focus()
+                    && let Some(cursor) = output.cursor_range
+                {
+                    let typed = output.response.changed()
+                        || ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. })));
+                    if typed {
+                        let rect = output.galley.pos_from_cursor(cursor.primary).translate(output.galley_pos.to_vec2());
+                        ui.scroll_to_rect(rect, Some(Align::Center));
+                    }
+                }
+
                 if let Some(index) = reveal {
                     let rect = output
                         .galley
@@ -624,6 +644,10 @@ pub fn show(
                     paint_line_numbers(ui, gutter, &output, &font);
                 }
             });
+            // Room for the last line to reach the middle.
+            if settings.typewriter {
+                ui.add_space(viewport_height * 0.5);
+            }
         });
 
     info

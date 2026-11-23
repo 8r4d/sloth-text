@@ -1310,12 +1310,15 @@ fn compile_presets_in_the_window() {
 fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     let dir = TempDir::new("help");
     let mut harness = harness(project(&dir, ""));
-    harness.get_by_label("Help").click();
+    // In the toolbar's More… menu.
+    harness.get_by_label("More\u{2026}").click();
+    harness.run_steps(2);
+    harness.get_by_label("Help \u{2318}?").click();
     harness.run_steps(2);
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
     harness.run_steps(2);
-    harness.get_by_label("1.6.0");
+    harness.get_by_label("1.7.0");
     harness.get_by_label("About").click();
     harness.run_steps(2);
     harness.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
@@ -1683,4 +1686,43 @@ fn statuses_are_edited_from_the_status_menu() {
     let status = project.node(&id).unwrap().meta.status.unwrap();
     assert_eq!(project.manifest.statuses[status], "First draft");
     assert!(app.manifest_dirty);
+}
+
+// ----- focus mode --------------------------------------------------------------------
+
+#[test]
+fn focus_mode_is_just_the_text_until_escape() {
+    let dir = TempDir::new("focus-mode");
+    let mut harness = harness(project(&dir, "The ferry had gone."));
+    harness.run_steps(2);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::F);
+    harness.run_steps(3);
+    assert!(harness.state().focus_mode);
+    assert_eq!(harness.query_all_by_label("Inspector").count(), 0, "no toolbar");
+    assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 0, "no binder");
+    harness.get_by_label("Esc to leave Focus");
+    harness.get_by_label("4 words");
+
+    // Typing goes into the document.
+    harness.event(egui::Event::Text(" Again.".into()));
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("The ferry had gone. Again."));
+
+    harness.key_press(egui::Key::Escape);
+    harness.run_steps(2);
+    assert!(!harness.state().focus_mode);
+    harness.get_by_label("Inspector");
+}
+
+#[test]
+fn focus_mode_needs_a_document() {
+    let dir = TempDir::new("focus-folder");
+    let (p, chapter, _) = chapter_project(&dir);
+    let mut harness = harness(p);
+    harness.state_mut().select(chapter);
+    harness.run_steps(2);
+    harness.get_by_label("Focus").click();
+    harness.run_steps(2);
+    assert!(!harness.state().focus_mode);
+    assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m.contains("Choose a document")));
 }

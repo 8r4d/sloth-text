@@ -35,6 +35,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         ("Take a Snapshot", "\u{2318}5"),
     ]),
     ("View", &[
+        ("Focus Mode (Esc to leave)", "\u{2325}\u{2318}F"),
         ("Binder", "\u{2325}\u{2318}B"),
         ("Inspector", "\u{2325}\u{2318}I"),
         ("Split View", "\u{2318}\\"),

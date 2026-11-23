@@ -92,6 +92,10 @@ pub struct WriterApp {
     // Inspector (see inspector.rs).
     show_inspector: bool,
     show_binder: bool,
+    /// Focus mode: full screen, nothing but the text (see focus_view).
+    focus_mode: bool,
+    /// Whether the window was full screen before Focus mode, to put back.
+    was_fullscreen: bool,
     /// When the daily backup was last looked for (seconds, egui's clock).
     last_backup_check: f64,
     // Another copy of Writer and this one (see lock.rs).
@@ -212,6 +216,8 @@ impl WriterApp {
             results_at: 0.0,
             show_inspector: true,
             show_binder: true,
+            focus_mode: false,
+            was_fullscreen: false,
             last_backup_check: 0.0,
             pending_open: None,
             lock_lost: None,
@@ -976,6 +982,13 @@ impl WriterApp {
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::I) {
             self.show_inspector = !self.show_inspector;
         }
+        // ⌥⌘F, as in Scrivener: Focus mode. Esc leaves it.
+        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::F) {
+            self.set_focus_mode(ctx, !self.focus_mode);
+        }
+        if self.focus_mode && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            self.set_focus_mode(ctx, false);
+        }
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::B) {
             self.show_binder = !self.show_binder;
         }
@@ -1117,14 +1130,37 @@ impl WriterApp {
                     self.trash(&id);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Less often wanted: in a menu, so the toolbar fits.
+                    ui.menu_button("More\u{2026}", |ui| {
+                        if ui.button("Back Up\u{2026}").on_hover_text("Save a dated zip of the whole project somewhere else").clicked() {
+                            let now = ui.input(|i| i.time);
+                            self.back_up_dialog(now);
+                            ui.close();
+                        }
+                        if ui.add(egui::Button::new("Settings\u{2026}").shortcut_text("\u{2318},")).clicked() {
+                            self.settings_open = true;
+                            ui.close();
+                        }
+                        if ui.add(egui::Button::new("Help").shortcut_text("\u{2318}?")).clicked() {
+                            self.help = Some(about_ui::HelpPage::Shortcuts);
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.button("Close Project").clicked() {
+                            self.close_project();
+                            ui.close();
+                        }
+                    })
+                    .response
+                    .on_hover_text("Back Up, Settings, Help, Close Project");
                     ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text("\u{2325}\u{2318}I");
                     ui.toggle_value(&mut self.split_open, "Split").on_hover_text("A second pane beside the editor (\u{2318}\\)");
+                    if ui.button("Focus").on_hover_text("Full screen, just the text (\u{2325}\u{2318}F; Esc to leave)").clicked() {
+                        let ctx = ui.ctx().clone();
+                        self.set_focus_mode(&ctx, true);
+                    }
                     if ui.button("Compile\u{2026}").on_hover_text("\u{21e7}\u{2318}E").clicked() {
                         self.compile_open = true;
-                    }
-                    if ui.button("Back Up\u{2026}").on_hover_text("Save a dated zip of the whole project somewhere else").clicked() {
-                        let now = ui.input(|i| i.time);
-                        self.back_up_dialog(now);
                     }
                     if !self.settings.helper_url.trim().is_empty() && !self.helper_token.is_empty() {
                         let label = if self.sync_running() { "Syncing\u{2026}" } else { "Sync" };
@@ -1132,15 +1168,6 @@ impl WriterApp {
                         if ui.add_enabled(!self.sync_running(), egui::Button::new(label)).on_hover_text(hint).clicked() {
                             self.sync_now = true;
                         }
-                    }
-                    if ui.button("Help").on_hover_text("Keyboard shortcuts, release notes and the version (\u{2318}?)").clicked() {
-                        self.help = Some(about_ui::HelpPage::Shortcuts);
-                    }
-                    if ui.button("Settings").on_hover_text("\u{2318},").clicked() {
-                        self.settings_open = true;
-                    }
-                    if ui.button("Close Project").clicked() {
-                        self.close_project();
                     }
                 });
             });
@@ -1255,6 +1282,91 @@ impl WriterApp {
         }
     }
 
+    /// The usual window: toolbar, binder, inspector, editor…
+    fn main_view(&mut self, ui: &mut egui::Ui) {
+        self.toolbar(ui);
+        let mut actions = Vec::new();
+        let binder = egui::Panel::left(egui::Id::unique("binder")).resizable(true).default_size(240.0).size_range(160.0..=480.0);
+        // Hidden, the binder keeps its width for next time.
+        if self.show_binder {
+            binder.show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    if let Some(project) = &self.project {
+                        let selected = self.selected.as_deref();
+                        let labels = &project.manifest.labels;
+                        let kinds = &project.manifest.profiles;
+                        actions = binder::show(ui, &project.manifest.binder, labels, kinds, selected, &mut self.renaming);
+                    }
+                });
+            });
+        }
+        for action in actions {
+            self.apply(action);
+        }
+        self.inspector(ui);
+        self.split_pane(ui);
+        self.status_bar(ui);
+        self.results_panel(ui);
+        self.find_bar(ui);
+        self.notice_bar(ui);
+        self.editor_area(ui);
+    }
+
+    fn set_focus_mode(&mut self, ctx: &egui::Context, on: bool) {
+        if on == self.focus_mode {
+            return;
+        }
+        if on {
+            if self.current().is_none() {
+                let now = ctx.input(|i| i.time);
+                self.set_status("Choose a document to write in, then Focus.".to_owned(), now);
+                return;
+            }
+            self.was_fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+            self.focus_editor = true;
+        } else if !self.was_fullscreen {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        }
+        self.focus_mode = on;
+    }
+
+    /// Focus mode: the document's text alone, in its column, with a faint
+    /// line of figures at the bottom.
+    fn focus_view(&mut self, ui: &mut egui::Ui) {
+        let mut settings = self.editor.clone();
+        settings.typewriter = self.settings.typewriter != settings_ui::Typewriter::Never;
+        let words = self.current().map(|t| inspector::count_words(&t.doc.text)).unwrap_or(0);
+        let today = self.today_summary();
+        let fill = ui.visuals().extreme_bg_color;
+        egui::Panel::bottom(egui::Id::unique("focus-status")).frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin::symmetric(24, 6))).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let color = ui.visuals().weak_text_color().gamma_multiply(0.7);
+                let faint = move |text: String| egui::RichText::new(text).small().color(color);
+                ui.label(faint(format!("{} {}", crate::stats::thousands(words as u32), if words == 1 { "word" } else { "words" })));
+                ui.label(faint("\u{b7}".into()));
+                ui.label(faint(today));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(egui::Button::new(faint("Esc to leave Focus".into())).frame(false)).clicked() {
+                        let ctx = ui.ctx().clone();
+                        self.set_focus_mode(&ctx, false);
+                    }
+                });
+            });
+        });
+        let focus = std::mem::take(&mut self.focus_editor) && !ui.input(|i| i.pointer.any_pressed() || i.pointer.any_released());
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 24, right: 24, top: 48, bottom: 0 }))
+            .show(ui, |ui| {
+                if let Some(tab) = self.current() {
+                    if focus {
+                        ui.memory_mut(|m| m.request_focus(editor::editor_id(tab.id)));
+                    }
+                    editor::show(ui, tab.id, &mut tab.doc.text, &settings, Highlights::default(), None, None);
+                }
+            });
+    }
+
     fn empty_trash_dialog(&mut self, ctx: &egui::Context) {
         if !self.confirm_empty_trash {
             return;
@@ -1310,32 +1422,15 @@ impl eframe::App for WriterApp {
             return;
         }
 
-        self.toolbar(ui);
-        let mut actions = Vec::new();
-        let binder = egui::Panel::left(egui::Id::unique("binder")).resizable(true).default_size(240.0).size_range(160.0..=480.0);
-        // Hidden, the binder keeps its width for next time.
-        if self.show_binder {
-            binder.show(ui, |ui| {
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    if let Some(project) = &self.project {
-                        let selected = self.selected.as_deref();
-                        let labels = &project.manifest.labels;
-                        let kinds = &project.manifest.profiles;
-                        actions = binder::show(ui, &project.manifest.binder, labels, kinds, selected, &mut self.renaming);
-                    }
-                });
-            });
+        if self.focus_mode && self.current().is_some() {
+            self.focus_view(ui);
+        } else {
+            if self.focus_mode {
+                // Nothing to write in (a folder, say): back to the usual view.
+                self.set_focus_mode(&ctx, false);
+            }
+            self.main_view(ui);
         }
-        for action in actions {
-            self.apply(action);
-        }
-        self.inspector(ui);
-        self.split_pane(ui);
-        self.status_bar(ui);
-        self.results_panel(ui);
-        self.find_bar(ui);
-        self.notice_bar(ui);
-        self.editor_area(ui);
         self.empty_trash_dialog(&ctx);
         self.labels_window(&ctx);
         self.statuses_window(&ctx);

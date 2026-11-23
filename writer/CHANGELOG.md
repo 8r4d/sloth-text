@@ -2,6 +2,14 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.7.0
+
+- Focus mode (⌥⌘F, or Focus in the toolbar): full screen, just the text in its column, with a faint line of today's figures at the bottom. Esc leaves it.
+- Typewriter scrolling keeps the line you're typing in the middle of the screen: in Focus mode, always, or never (Settings → Writing).
+- Statuses can be edited like labels: Edit Statuses… at the foot of the Status menu renames, reorders, adds and removes them. Every document keeps its status through a reorder.
+- The toolbar fits again: Back Up…, Settings, Help and Close Project are in its More… menu (⌘, and ⌘? still work).
+- Settings scroll on a small screen, with Restore Defaults always in view.
+
 ## 1.6.0
 
 - Import from Scrivener… (on the start screen): makes a Writer project from a Scrivener 3 project, which isn't changed. The Draft becomes the Manuscript, chapters and all; Research, Trash, and Characters and Places folders keep their places; the rest goes into Notes. Text keeps its bold, italics, headings, quotes and lists; synopses, notes, labels, statuses, keywords, include-in-compile, targets and snapshots come across; comments, annotations and footnotes become notes in the text. PDFs, pictures and sound files are copied into the project folder. An import report in Notes says what came across and what didn't.
