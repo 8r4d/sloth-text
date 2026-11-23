@@ -26,9 +26,9 @@ Keeping your work safe.
 ## 1.4.0
 
 - A document's notes panel can be made taller or shorter: drag its bottom edge.
-- The iPad helper gets each scene's notes, editable there and synced back (if both sides changed them, both are kept), and today's words against your goal, with the manuscript's length and target.
-- The iPad's scene list is grouped by chapter (chapters fold away), with word counts against targets, a Continue link to where you were, and Find. Writing a scene shows its words and today's goal as you type, and links to the scenes before and after.
-- Fixed: on the iPad, the page no longer jumps back to the top while you type in a long scene.
+- The web helper gets each scene's notes, editable there and synced back (if both sides changed them, both are kept), and today's words against your goal, with the manuscript's length and target.
+- The web editor's scene list is grouped by chapter (chapters fold away), with word counts against targets, a Continue link to where you were, and Find. Writing a scene shows its words and today's goal as you type, and links to the scenes before and after.
+- Fixed: in the web editor, the page no longer jumps back to the top while you type in a long scene.
 
 ## 1.3.0
 
@@ -36,7 +36,7 @@ Keeping your work safe.
 - Change Case in the right-click menu: UPPERCASE, lowercase, Title Case and Sentence case.
 - A document's notes are now in a panel above its text (folded away when empty). They're still never compiled.
 - The inspector is tidier: the title with its words and target at the top, then Synopsis, Details, In This Scene and Snapshots, each of which folds away. The synopsis box starts small and grows with what you write.
-- Settings are grouped: Text (with the sample right under it), Writing, Appearance and iPad Helper.
+- Settings are grouped: Text (with the sample right under it), Writing, Appearance and Web Helper.
 - Hide the binder with the Binder button or ⌥⌘B.
 - With text selected, the status bar shows its words too: "12 of 340 words".
 - Back Up…: the whole project as a dated zip file in a folder of your choice.
@@ -53,7 +53,7 @@ Keeping your work safe.
 
 - Writing statistics: the status bar shows the words written today, against your goal if you set one. Click it for the Statistics window: today's progress, your streak, the last 30 days as a chart, the manuscript's length, your average, and words per chapter.
 - Goals: words a day, a length for the manuscript, and a date to finish by. With a deadline and no daily goal, the day's goal is what the deadline needs.
-- Words are counted as you type in the Manuscript, net: cutting counts against the day, and moving or trashing documents doesn't count. Words from the iPad count on the day they sync.
+- Words are counted as you type in the Manuscript, net: cutting counts against the day, and moving or trashing documents doesn't count. Words from the web count on the day they sync.
 
 ## 1.0.0
 
@@ -84,5 +84,5 @@ Versions and output
 - Snapshots (⌘5): keep versions of a document, compare them word by word, and restore one.
 - Compile (⇧⌘E) the manuscript to a standard Word manuscript, an ePub or Markdown, with your contact details, Letter or A4 paper, Times or Courier, chapter headings, scene break styles and saved presets.
 
-On the iPad
-- Mark scenes to write on the iPad, and sync them with your own Sloth Writer helper on a PHP web host. Edits from either side are kept, never overwritten, and new scenes written on the iPad arrive in the Inbox.
+On the web
+- Mark scenes to write on the web, and sync them with your own Sloth Writer helper on a PHP web host. Edits from either side are kept, never overwritten, and new scenes written on the web arrive in the Inbox.

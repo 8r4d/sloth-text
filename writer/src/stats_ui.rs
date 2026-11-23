@@ -150,7 +150,7 @@ impl WriterApp {
                         });
                     }
                     ui.add_space(6.0);
-                    ui.weak("Words written are counted as you type in the Manuscript: cutting counts against the day, and moving or trashing documents doesn't count. Words from the iPad count on the day they sync.");
+                    ui.weak("Words written are counted as you type in the Manuscript: cutting counts against the day, and moving or trashing documents doesn't count. Words from the web count on the day they sync.");
                 }
             });
         if *goals != before {

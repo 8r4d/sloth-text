@@ -1,6 +1,6 @@
-//! Syncing with the iPad helper, in the window: a sync on a background
+//! Syncing with the web helper, in the window: a sync on a background
 //! thread about once a minute (and when Sync is clicked) while a project with
-//! scenes on the iPad is open, and putting its results into the project.
+//! scenes on the web is open, and putting its results into the project.
 //! The rules are in sync.rs.
 
 use std::collections::BTreeMap;
@@ -27,7 +27,7 @@ pub(super) struct Running {
 }
 
 impl WriterApp {
-    /// The helper is set up, and this project has scenes on the iPad.
+    /// The helper is set up, and this project has scenes on the web.
     pub(super) fn sync_ready(&self) -> bool {
         // Not while another copy of Writer has the project (see lock.rs).
         self.lock_lost.is_none()
@@ -67,7 +67,7 @@ impl WriterApp {
     /// start it on a background thread so the window never waits on the network.
     fn start_sync(&mut self, now: f64) {
         self.last_sync = Some(now);
-        // The day's writing, for the iPad to show (and add its own to).
+        // The day's writing, for the web to show (and add its own to).
         let (written, total) = self.today_and_total();
         let Some(project) = self.project.as_mut() else { return };
         let today = crate::stats::today();
@@ -119,8 +119,8 @@ impl WriterApp {
         self.sync_running = Some(Running { root: project.root.clone(), result });
     }
 
-    /// Put a sync's results into the project: the iPad's edits, snapshots of
-    /// the iPad's side of clashes, and new scenes from its inbox.
+    /// Put a sync's results into the project: the web editor's edits, snapshots of
+    /// the web editor's side of clashes, and new scenes from its inbox.
     pub(super) fn finish_sync(&mut self, root: &Path, result: Result<Outcome, SyncError>, now: f64) {
         // Another project was opened meanwhile: this one syncs next time.
         if self.project.as_ref().map(|p| p.root.as_path()) != Some(root) {
@@ -131,7 +131,7 @@ impl WriterApp {
             Err(e) => {
                 self.sync_message = format!("Not synced: {e}");
                 if e == SyncError::Unauthorized {
-                    self.set_status("The iPad helper didn't accept the token: check it in Settings".to_owned(), now);
+                    self.set_status("The web helper didn't accept the token: check it in Settings".to_owned(), now);
                 }
                 return;
             }
@@ -141,7 +141,7 @@ impl WriterApp {
         for action in std::mem::take(&mut outcome.actions) {
             match action {
                 Action::Replace { id, was, text } => self.take_ipad_text(root, &id, &was, &text),
-                // Notes changed on both: the Mac's stay, with the iPad's added.
+                // Notes changed on both: the Mac's stay, with the web editor's added.
                 Action::Snapshot { id, text, .. } if sync::notes_of(&id).is_some() => {
                     let scene = sync::notes_of(&id).expect("just checked").to_owned();
                     self.merge_ipad_notes(&scene, &text);
@@ -162,11 +162,11 @@ impl WriterApp {
             self.error = Some(format!("Couldn't save the sync record: {e}"));
         }
         let clock = chrono::Local::now().format("%H:%M");
-        self.sync_message = format!("Synced with the iPad at {clock}");
+        self.sync_message = format!("Synced with the web helper at {clock}");
         if let Some(first) = clashed.first() {
             let others = if clashed.len() > 1 { format!(" (and {} more)", clashed.len() - 1) } else { String::new() };
             self.set_status(
-                format!("\u{201c}{first}\u{201d}{others} changed on both the Mac and the iPad: kept the Mac's, and the iPad's is in its snapshots"),
+                format!("\u{201c}{first}\u{201d}{others} changed on both the Mac and the web editor: kept the Mac's, and the web editor's is in its snapshots"),
                 now,
             );
         } else if outcome.received + new_scenes > 0 {
@@ -177,7 +177,7 @@ impl WriterApp {
             if new_scenes > 0 {
                 parts.push(format!("{new_scenes} new, in the Manuscript"));
             }
-            self.set_status(format!("From the iPad: {}", parts.join(", ")), now);
+            self.set_status(format!("From the web: {}", parts.join(", ")), now);
         }
     }
 
@@ -185,8 +185,8 @@ impl WriterApp {
         self.project.as_ref().and_then(|p| p.node(id)).map(|n| n.title.clone()).unwrap_or_default()
     }
 
-    /// An edit made on the iPad. If the scene changed here since the sync
-    /// read it (typing meanwhile), the Mac's text stays and the iPad's is
+    /// An edit made on the web. If the scene changed here since the sync
+    /// read it (typing meanwhile), the Mac's text stays and the web editor's is
     /// kept as a snapshot; the next sync sends the Mac's.
     fn take_ipad_text(&mut self, root: &Path, id: &str, was: &str, text: &str) {
         if let Some(scene) = sync::notes_of(id) {
@@ -199,7 +199,7 @@ impl WriterApp {
                 let _ = tab.doc.save();
                 self.note_words(id, text);
             } else {
-                let _ = snapshots::take(root, id, text, "from the iPad (you were typing)");
+                let _ = snapshots::take(root, id, text, "from the web (you were typing)");
             }
             return;
         }
@@ -208,16 +208,16 @@ impl WriterApp {
             Ok(now) if now == was => {
                 match sloth_core::document::write_atomically(&path, text.as_bytes()) {
                     Ok(()) => self.note_words(id, text),
-                    Err(e) => self.error = Some(format!("Couldn't save the iPad's edit: {e}")),
+                    Err(e) => self.error = Some(format!("Couldn't save the web editor's edit: {e}")),
                 }
             }
             _ => {
-                let _ = snapshots::take(root, id, text, "from the iPad (changed here too)");
+                let _ = snapshots::take(root, id, text, "from the web (changed here too)");
             }
         }
     }
 
-    /// Notes edited on the iPad. If they changed here too meanwhile, both
+    /// Notes edited on the web. If they changed here too meanwhile, both
     /// are kept (see `merge_ipad_notes`).
     fn take_ipad_notes(&mut self, scene: &str, was: &str, text: &str) {
         let Some(project) = self.project.as_mut() else { return };
@@ -232,7 +232,7 @@ impl WriterApp {
         }
     }
 
-    /// Both sides changed a scene's notes: the iPad's go under the Mac's.
+    /// Both sides changed a scene's notes: the web editor's go under the Mac's.
     fn merge_ipad_notes(&mut self, scene: &str, theirs: &str) {
         let Some(project) = self.project.as_mut() else { return };
         let Some(node) = project.node(scene) else { return };
@@ -240,13 +240,13 @@ impl WriterApp {
         if theirs.trim().is_empty() || mine.contains(theirs.trim()) {
             return;
         }
-        let notes = if mine.is_empty() { theirs.to_owned() } else { format!("{mine}\n\nFrom the iPad:\n{theirs}") };
+        let notes = if mine.is_empty() { theirs.to_owned() } else { format!("{mine}\n\nFrom the web:\n{theirs}") };
         if project.set_meta(scene, Meta { notes, ..node.meta.clone() }) {
             self.manifest_dirty = true;
         }
     }
 
-    /// A scene written on the iPad: into the Manuscript, and on the iPad.
+    /// A scene written on the web: into the Manuscript, and on the web.
     fn add_ipad_scene(&mut self, title: &str, text: &str) -> bool {
         let Some(project) = self.project.as_mut() else { return false };
         let Ok(id) = project.add_document(&Place::Into(Role::Manuscript.folder().into()), title) else { return false };
@@ -260,14 +260,14 @@ impl WriterApp {
         true
     }
 
-    /// The "Available on iPad" checkbox, in the inspector.
+    /// The "Available on the web" checkbox, in the inspector.
     pub(super) fn ipad_checkbox(&self, ui: &mut egui::Ui, id: &str, meta: &mut Meta) {
         let Some(project) = &self.project else { return };
-        ui.checkbox(&mut meta.on_ipad, "Available on iPad");
+        ui.checkbox(&mut meta.on_ipad, "Available on the web");
         if !meta.on_ipad && project.on_ipad(id) {
-            ui.weak("On the iPad with the folder it's in.");
+            ui.weak("On the web with the folder it's in.");
         } else if meta.on_ipad && (self.settings.helper_url.trim().is_empty() || self.helper_token.trim().is_empty()) {
-            ui.weak("Set up the iPad helper in Settings to sync.");
+            ui.weak("Set up the web helper in Settings to sync.");
         }
     }
 }

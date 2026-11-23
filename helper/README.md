@@ -1,10 +1,10 @@
 # Sloth Writer helper
 
-A small PHP service that keeps copies of the scenes you mark "Available on
-iPad" in Sloth Writer, so you can write in Safari on an iPad. It runs on
+A small PHP service that keeps copies of the scenes you mark "Available on the
+web" in Sloth Writer, so you can write in a web browser. It runs on
 ordinary shared hosting (PHP and MySQL/MariaDB), built the same way as feets.
 
-The Mac and the iPad never talk to each other: each syncs with the helper.
+The Mac and the web editor never talk to each other: each syncs with the helper.
 Every save says which version it was edited from, so an edit made in one
 place is never silently written over by the other, and every earlier
 version is kept.
@@ -26,15 +26,16 @@ version is kept.
    page sets a new one with the same setup password. Change it any time
    under **Account**.
 5. Under **Account**, make a token and paste it, with the page's address,
-   into Sloth Writer's Settings (iPad helper).
-6. On the iPad, open the page in Safari, sign in, and choose **Share → Add
-   to Home Screen** to have it like an app.
+   into Sloth Writer's Settings (web helper).
+6. Open the page in any browser and sign in. On a phone or tablet, add it to
+   the home screen (in Safari: **Share → Add to Home Screen**) to have it
+   like an app.
 
 ### Behind Cloudflare
 
 The page is `index.php` so that every script and stylesheet is addressed by
 its file's modification time (`app.js?v=1763841234`): each upload is a new
-address, so Cloudflare (and Safari) never serve a stale copy, with nothing to
+address, so Cloudflare (and browsers) never serve a stale copy, with nothing to
 bump by hand. The service worker is registered the same way. PHP's output
 and the API (`Cache-Control: no-store`) aren't cached. Don't turn on a
 Cloudflare rule that caches everything (HTML or PHP) for this subdomain.
@@ -47,7 +48,7 @@ The database tables are created on the first request.
 |------|--------------|
 | `public/api.php` | The whole service: accounts, tokens, projects, scenes with versions, history, the inbox |
 | `public/index.php` | The page's HTML, with each script and stylesheet versioned for Cloudflare |
-| `public/app.js`, `style.css` | The iPad page: projects, scenes, writing with autosave, clashes, offline drafts, new scenes, account |
+| `public/app.js`, `style.css` | The web editor page: projects, scenes, writing with autosave, clashes, offline drafts, new scenes, account |
 | `public/sw.js`, `manifest.json`, icons | Opening without a connection, and Add to Home Screen |
 | `writer-config.example.php` | The settings to copy and fill in |
 | `tests/run.sh` | Runs the API and browser tests, then Sloth Writer's sync, against a throwaway MariaDB and PHP server |

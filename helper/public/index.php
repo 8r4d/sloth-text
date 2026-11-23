@@ -1,7 +1,7 @@
 <?php
 // The page. Served by PHP so each script's and stylesheet's address carries
 // its file's modification time (app.js?v=1763841234): every upload is a new
-// address, so Cloudflare and Safari never serve a stale copy, and there are
+// address, so Cloudflare and browsers never serve a stale copy, and there are
 // no version numbers to raise by hand. PHP's own output isn't cached.
 header('Cache-Control: no-cache');
 

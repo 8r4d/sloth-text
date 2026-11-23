@@ -4,7 +4,7 @@
 //! changes, the change in its word count is added to that day's tally, so
 //! deleting counts against the day. Moving a document or putting it in the
 //! Trash isn't writing and doesn't count; neither does editing outside the
-//! Manuscript. Words written on the iPad count on the day they're synced.
+//! Manuscript. Words written on the web count on the day they're synced.
 //!
 //! The daily log lives in `.sloth/stats.ron` in the project folder, beside
 //! the sync record; the goals are in the project file.

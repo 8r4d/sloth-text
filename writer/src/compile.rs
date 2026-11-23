@@ -6,7 +6,7 @@
 //! with everything in it, or a document (with anything under it). Then it's
 //! written as Markdown (`to_markdown`, ready for pandoc or anything else) or
 //! as a Word file in standard manuscript format (`to_docx`), or as an ePub
-//! e-book for reading on an iPad or e-reader (`to_epub`).
+//! e-book for reading in a web browser or e-reader (`to_epub`).
 //!
 //! Text is read the way people write in the editor: each line is a
 //! paragraph (blank lines are just spacing), `*italic*` and `**bold**` are
@@ -29,7 +29,7 @@ pub enum Format {
     Manuscript,
     /// The stitched text, as Markdown.
     Markdown,
-    /// An e-book, for reading on an iPad or e-reader.
+    /// An e-book, for reading in a web browser or e-reader.
     Epub,
 }
 

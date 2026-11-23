@@ -1,4 +1,4 @@
-// Keeps the page itself (not your scenes) on the iPad, so it opens without a
+// Keeps the page itself (not your scenes) on the web, so it opens without a
 // connection. Scenes are always fetched fresh, or come from the drafts the
 // page keeps (see app.js).
 //

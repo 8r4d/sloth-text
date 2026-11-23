@@ -1,6 +1,6 @@
 <?php
-// Sloth Writer's helper: keeps copies of the scenes marked "Available on iPad"
-// so they can be edited in Safari, and syncs them with Sloth Writer on the Mac.
+// Sloth Writer's helper: keeps copies of the scenes marked "Available on the web"
+// so they can be edited in a browser, and syncs them with Sloth Writer on the Mac.
 // One PHP file over MariaDB, for ordinary shared hosting. The accounts code is
 // feets' (see apps (web)/feets), trimmed to what one writer needs.
 //
@@ -24,11 +24,11 @@
 //
 // Projects and scenes (signed in, or a token). p = the project's id from Writer.
 //   GET  api.php?action=projects                       [{id, title, scenes, updatedAt}]
-//   POST api.php?action=index_put&p=P                  {title, index, stats?}  the scenes marked for the iPad,
+//   POST api.php?action=index_put&p=P                  {title, index, stats?}  the scenes marked for the web,
 //        and the day's writing on the Mac: {date, today, goal, total, target, deadline}
 //   GET  api.php?action=index&p=P                      {title, index, seq, stats, syncedAt, countedFrom}
 //        countedFrom: the Mac's words today include what reached it before this
-//        time (its sync before last), so the iPad adds only what it wrote after.
+//        time (its sync before last), so the web editor adds only what it wrote after.
 //   A scene's notes are the scene "<id>-notes", saved and synced like any other.
 //   GET  api.php?action=scene&p=P&id=S                 {id, text, version}
 //   POST api.php?action=scene_put&p=P&id=S             {text, base} → {version, seq, savedAt}
@@ -99,7 +99,7 @@ const SCHEMA = [
       user_id     INT          NOT NULL,
       uid         VARCHAR(64)  NOT NULL,  -- the project's id, from Writer
       title       VARCHAR(200) NOT NULL,
-      index_json  MEDIUMTEXT   NOT NULL,  -- the scenes marked for the iPad, as Writer describes them
+      index_json  MEDIUMTEXT   NOT NULL,  -- the scenes marked for the web, as Writer describes them
       seq         BIGINT       NOT NULL DEFAULT 0,  -- counts every scene save, for changes since N
       updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE (user_id, uid)
@@ -131,7 +131,7 @@ const SCHEMA = [
     ) CHARACTER SET utf8mb4
     SQL,
     <<<SQL
-    CREATE TABLE IF NOT EXISTS {inbox} (  -- new scenes written on the iPad, until the Mac collects them
+    CREATE TABLE IF NOT EXISTS {inbox} (  -- new scenes written on the web, until the Mac collects them
       id          INT AUTO_INCREMENT PRIMARY KEY,
       project_id  INT          NOT NULL,
       title       VARCHAR(200) NOT NULL,
@@ -509,7 +509,7 @@ function list_projects(int $userId): array {
     ], $stmt->fetchAll());
 }
 
-// Writer sends the list of scenes marked for the iPad (titles, chapters,
+// Writer sends the list of scenes marked for the web (titles, chapters,
 // synopses…). The helper keeps it as given for the web editor to show.
 function put_index(int $userId, array $b): array {
     $title = mb_substr(trim((string) ($b['title'] ?? '')), 0, 200);

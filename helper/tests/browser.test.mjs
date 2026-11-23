@@ -1,4 +1,4 @@
-// The iPad page in headless Chrome, against the real helper: signing in,
+// The web editor page in headless Chrome, against the real helper: signing in,
 // writing with autosave, em dashes, the preview, clashes with the Mac,
 // offline drafts, and new scenes. Skipped without Chrome (see chrome.mjs).
 // HELPER_SCREENSHOTS=folder saves pictures along the way.
@@ -56,7 +56,7 @@ before(async () => {
   await theMac.call('scene_put', { text: 'Dear Mara,', base: 0 }, `&p=${project}&id=letter`);
 
   page = await launch();
-  // iPad-sized.
+  // Tablet-sized.
   await page.send('Emulation.setDeviceMetricsOverride', { width: 820, height: 1180, deviceScaleFactor: 1, mobile: true });
 });
 after(async () => { if (page) await page.close(); });
@@ -119,28 +119,28 @@ test('a clash with the Mac: keep mine', { skip }, async () => {
   const { version } = await onHelper('arrival');
   await theMac.call('scene_put', { text: 'The Mac rewrote it.', base: version }, `&p=${project}&id=arrival`);
 
-  await typeAtEnd(' More from the iPad.');
+  await typeAtEnd(' More from the web.');
   await page.waitFor(`!document.getElementById('clash').hidden`, { what: 'the clash message', timeout: 8000 });
   assert.equal(await state(), 'Changed on your Mac');
   await snap('clash');
   await page.eval(`document.getElementById('keep-mine').click()`);
   await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
-  assert.match((await onHelper('arrival')).text, /More from the iPad\.$/);
+  assert.match((await onHelper('arrival')).text, /More from the web\.$/);
 });
 
 test("a clash with the Mac: use the Mac's, and mine becomes a new scene", { skip }, async () => {
   await go(`#/p/${project}/s/letter`);
   await page.waitFor(`document.getElementById('text')?.value === 'Dear Mara,'`);
   await theMac.call('scene_put', { text: 'Dear Mara, from the Mac.', base: 1 }, `&p=${project}&id=letter`);
-  await typeAtEnd(' from the iPad.');
+  await typeAtEnd(' from the web.');
   await page.waitFor(`!document.getElementById('clash').hidden`, { timeout: 8000 });
   await page.eval(`document.getElementById('use-macs').click()`);
   await page.waitFor(`document.getElementById('text').value === 'Dear Mara, from the Mac.'`);
   const inbox = (await theMac.call('inbox', undefined, `&p=${project}`)).body;
-  assert.ok(inbox.some(i => i.title === 'A letter (iPad version)' && i.text === 'Dear Mara, from the iPad.'));
+  assert.ok(inbox.some(i => i.title === 'A letter (web version)' && i.text === 'Dear Mara, from the web.'));
 });
 
-test('offline: kept on the iPad, sent when back', { skip }, async () => {
+test('offline: kept on the web, sent when back', { skip }, async () => {
   await go(`#/p/${project}/s/letter`);
   await page.waitFor(`document.getElementById('state')?.textContent === 'Saved'`);
   await page.setOffline(true);

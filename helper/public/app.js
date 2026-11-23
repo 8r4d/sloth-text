@@ -1,5 +1,5 @@
-// Sloth Writer on the iPad: the scenes marked "Available on iPad" in Sloth
-// Writer, to read and write in Safari. Talks to api.php; the Mac syncs with
+// Sloth Writer on the web: the scenes marked "Available on the web" in Sloth
+// Writer, to read and write in a browser. Talks to api.php; the Mac syncs with
 // the same helper, so the two never talk directly.
 //
 // Pages (in the address's #):  #/                projects
@@ -17,7 +17,7 @@
 // Writing saves itself a moment after you stop typing, naming the version it
 // was edited from. If the Mac changed the scene meanwhile, the helper says so
 // and you choose whose words to keep. Until a save goes through (offline,
-// say), the words are kept on this iPad as a draft.
+// say), the words are kept on this device as a draft.
 'use strict';
 
 const app = document.getElementById('app');
@@ -57,7 +57,7 @@ const words = text => (text.replace(/<!--[\s\S]*?(-->|$)/g, ' ').match(/\S+/g) |
 const fmt = n => Number(n || 0).toLocaleString();
 const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
 
-/// Remembered on this iPad (not important if lost).
+/// Remembered on this device (not important if lost).
 function load(key, fallback) {
   try {
     return JSON.parse(localStorage.getItem(key)) ?? fallback;
@@ -79,7 +79,7 @@ const meter = (done, of) => `<span class="meter"><span style="width:${Math.min(1
 // ----- today's words ------------------------------------------------------------------
 //
 // The Mac sends its count of today's words with each sync. It includes what
-// the iPad wrote up to the sync before (countedFrom); this iPad adds what it
+// the web editor wrote up to the sync before (countedFrom); this device adds what it
 // has saved since, from its own record of each save.
 
 const WRITTEN = 'writer-written';
@@ -153,7 +153,7 @@ function setDraft(key, draft) {
 // ----- writing helpers ----------------------------------------------------------------
 
 /// Two hyphens make an em dash, as in Sloth Writer (not inside <!-- notes -->,
-/// so their --> still closes them). Smart Punctuation on the iPad often does
+/// so their --> still closes them). A device's own smart punctuation often does
 /// this already; this covers hardware keyboards and its being off.
 function emDashes(textarea) {
   textarea.addEventListener('input', e => {
@@ -170,7 +170,7 @@ function emDashes(textarea) {
 
 /// Grow the text area with its text, so the page scrolls rather than the box.
 /// Measuring means shrinking it for a moment; the page keeps its height
-/// meanwhile, or Safari would scroll up to fit the shorter page (the text
+/// meanwhile, or the browser would scroll up to fit the shorter page (the text
 /// jumping about while typing).
 function autoGrow(textarea) {
   const fit = () => {
@@ -236,7 +236,7 @@ async function showProjects() {
   const projects = await api('projects');
   render(`${nav()}
     <h1>Sloth Writer</h1>
-    ${projects.length ? '' : `<p class="quiet">Nothing here yet. In Sloth Writer on your Mac, tick <em>Available on iPad</em>
+    ${projects.length ? '' : `<p class="quiet">Nothing here yet. In Sloth Writer on your Mac, tick <em>Available on the web</em>
       in a chapter's inspector, and put this page's address and a token (from <a href="#/account">Account</a>) in its Settings.</p>`}
     <ul class="list">
       ${projects.map(p => `<li><a href="#/p/${encodeURIComponent(p.id)}"><strong>${esc(p.title)}</strong>
@@ -291,7 +291,7 @@ async function showProject(project) {
           <span class="quiet">${plural(g.scenes.length, 'scene', 'scenes')} · ${fmt(total)} words</span></summary>
         <ol class="scenes">${g.scenes.map(row).join('')}</ol></details>`;
     }).join('')}
-    <p id="none" class="quiet" ${index.length ? 'hidden' : ''}>${index.length ? 'No scenes match.' : 'No scenes are on the iPad for this project.'}</p>
+    <p id="none" class="quiet" ${index.length ? 'hidden' : ''}>${index.length ? 'No scenes match.' : 'No scenes are on the web for this project.'}</p>
     ${inbox.length ? `<p class="quiet">${plural(inbox.length, 'new scene is', 'new scenes are')}
       waiting for your Mac to take into the Manuscript.</p>` : ''}`);
 
@@ -350,7 +350,7 @@ async function showScene(project, sceneId) {
   const [prev, next] = [info.index[at - 1], info.index[at + 1]];
   store(LAST, { ...load(LAST, {}), [project]: sceneId });
 
-  // Where to start: the helper's text, unless this iPad has unsaved words.
+  // Where to start: the helper's text, unless this device has unsaved words.
   let base = scene ? scene.version : draft.base;
   let saved = scene ? scene.text : draft.text;
   let text = draft && (!scene || draft.base === scene.version || draft.text !== scene.text) ? draft.text : saved;
@@ -431,7 +431,7 @@ async function showScene(project, sceneId) {
       if (err.status === 409) {
         showClash(err.data.current);
       } else if (offline(err)) {
-        show('Offline: kept on this iPad');
+        show('Offline: kept on this device');
       } else {
         show(err.message);
       }
@@ -445,7 +445,7 @@ async function showScene(project, sceneId) {
     timer = setTimeout(save, 1500);
   }
 
-  // The Mac changed the scene while this iPad was writing it.
+  // The Mac changed the scene while this device was writing it.
   function showClash(current) {
     clash = current;
     show('Changed on your Mac');
@@ -464,7 +464,7 @@ async function showScene(project, sceneId) {
     document.getElementById('use-macs').onclick = async () => {
       const mine = textarea.value;
       try {
-        await api('inbox_add', { title: `${title} (iPad version)`, text: mine }, q(project));
+        await api('inbox_add', { title: `${title} (web version)`, text: mine }, q(project));
       } catch (err) {
         show(err.message);
         return;
@@ -508,7 +508,7 @@ async function showScene(project, sceneId) {
   window.addEventListener('online', retry);
   const every = setInterval(retry, 20000);
   // Leaving the page or the app: save what's typed (keepalive lets it
-  // finish even as Safari puts the page away).
+  // finish even as the browser puts the page away).
   const flush = () => {
     if (document.visibilityState !== 'hidden') return;
     save({ keepalive: true });
@@ -646,7 +646,7 @@ function showNewScene(project) {
       setDraft(key, null);
       location.hash = `#/p/${encodeURIComponent(project)}`;
     } catch (err) {
-      document.getElementById('error').textContent = offline(err) ? 'Offline: kept on this iPad; send it when you\'re back online.' : err.message;
+      document.getElementById('error').textContent = offline(err) ? 'Offline: kept on this device; send it when you\'re back online.' : err.message;
     }
   };
 }

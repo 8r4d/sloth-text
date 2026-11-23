@@ -1,19 +1,19 @@
-//! Syncing the scenes marked "Available on iPad" with the helper (helper/,
-//! a small PHP service), where they can be edited in Safari.
+//! Syncing the scenes marked "Available on the web" with the helper (helper/,
+//! a small PHP service), where they can be edited in a browser.
 //!
 //! The Mac keeps, per project, what each scene was when last synced (its text
 //! and the helper's version number) in `.sloth/sync.ron`. A sync then:
 //!
-//! 1. sends the list of marked scenes (the index the iPad shows);
+//! 1. sends the list of marked scenes (the index the web editor shows);
 //! 2. asks the helper what changed since the last sync;
 //! 3. for each marked scene: changed only here → sent; changed only on the
-//!    iPad → brought in; changed in both → the Mac's version is kept and
-//!    sent, and the iPad's is kept as a snapshot of the scene, so nothing is
+//!    web → brought in; changed in both → the Mac's version is kept and
+//!    sent, and the web editor's is kept as a snapshot of the scene, so nothing is
 //!    lost; unchanged → left alone;
-//! 4. collects new scenes written on the iPad (the inbox) into the binder.
+//! 4. collects new scenes written on the web (the inbox) into the binder.
 //!
 //! Every save to the helper names the version it was edited from, so if the
-//! iPad saved in the meantime, the helper refuses and sends what it has
+//! web editor saved in the meantime, the helper refuses and sends what it has
 //! instead (see put_scene in helper/public/api.php).
 //!
 //! A scene's notes travel the same way, as a companion scene `<id>-notes`
@@ -21,7 +21,7 @@
 //! same versions and clash rules; see `notes_of`.
 //!
 //! With the index goes the day's writing (words today, the day's goal, the
-//! manuscript's length and target), for the iPad to show.
+//! manuscript's length and target), for the web to show.
 //!
 //! The rules (`run`) work against `Remote`, so tests can use a stand-in;
 //! `Http` is the real helper.
@@ -79,12 +79,12 @@ pub struct Input {
     /// The project's sync id (its id on the helper).
     pub project: String,
     pub title: String,
-    /// The marked scenes as the iPad lists them: id, title, chapter…
+    /// The marked scenes as the web editor lists them: id, title, chapter…
     pub index: Vec<Value>,
     /// Each marked scene's text as it is now, by id.
     pub scenes: BTreeMap<String, String>,
     pub state: SyncState,
-    /// The day's writing, for the iPad: {date, today, goal, total, target, deadline}.
+    /// The day's writing, for the web: {date, today, goal, total, target, deadline}.
     pub stats: Value,
 }
 
@@ -101,12 +101,12 @@ pub fn notes_of(id: &str) -> Option<&str> {
 /// What the main thread should do with a sync's results.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
-    /// The iPad changed this scene: put `text` in, if the scene still reads
+    /// The web editor changed this scene: put `text` in, if the scene still reads
     /// `was` (otherwise keep both: see the app).
     Replace { id: String, was: String, text: String },
-    /// Keep this text as a snapshot of the scene: the iPad's side of a clash.
+    /// Keep this text as a snapshot of the scene: the web editor's side of a clash.
     Snapshot { id: String, text: String, name: String },
-    /// A new scene written on the iPad.
+    /// A new scene written on the web.
     NewScene { inbox_id: i64, title: String, text: String },
 }
 
@@ -233,17 +233,17 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
     Ok(out)
 }
 
-/// Both sides changed a scene: the iPad's text is kept as a snapshot.
+/// Both sides changed a scene: the web editor's text is kept as a snapshot.
 fn clash(out: &mut Outcome, id: &str, theirs: &str) {
     out.actions.push(Action::Snapshot {
         id: id.to_owned(),
         text: theirs.to_owned(),
-        name: "from the iPad (both changed)".to_owned(),
+        name: "from the web (both changed)".to_owned(),
     });
     out.clashes += 1;
 }
 
-/// Send a scene, edited from version `base`. If the iPad saved it meanwhile,
+/// Send a scene, edited from version `base`. If the web editor saved it meanwhile,
 /// keep that as a snapshot and send ours on top of it.
 fn send(remote: &mut dyn Remote, project: &str, out: &mut Outcome, id: &str, text: &str, base: u32) -> Result<(), SyncError> {
     let version = match remote.put_scene(project, id, text, base)? {
@@ -401,7 +401,7 @@ pub mod fake {
     }
 
     impl Fake {
-        /// An edit made on the iPad, from the version it read.
+        /// An edit made on the web, from the version it read.
         pub fn ipad_edit(&mut self, id: &str, text: &str) {
             let version = self.scenes.get(id).map_or(0, |s| s.1);
             assert_eq!(self.put_scene("p", id, text, version).unwrap(), Put::Saved { version: version + 1 });
@@ -485,18 +485,18 @@ mod tests {
         let mut helper = Fake::default();
         let state = run(&mut helper, input(&[("a", "one"), ("b", "two")], SyncState::default())).unwrap().state;
 
-        // The Mac edits a; the iPad edits b.
-        helper.ipad_edit("b", "two, from the iPad");
+        // The Mac edits a; the web editor edits b.
+        helper.ipad_edit("b", "two, from the web");
         let out = run(&mut helper, input(&[("a", "one, from the Mac"), ("b", "two")], state)).unwrap();
         assert_eq!((out.sent, out.received, out.clashes), (1, 1, 0));
         assert_eq!(helper.text("a"), Some("one, from the Mac"));
         assert_eq!(
             out.actions,
-            [Action::Replace { id: "b".into(), was: "two".into(), text: "two, from the iPad".into() }]
+            [Action::Replace { id: "b".into(), was: "two".into(), text: "two, from the web".into() }]
         );
 
         // Next time, with b brought in: nothing to do.
-        let out = run(&mut helper, input(&[("a", "one, from the Mac"), ("b", "two, from the iPad")], out.state)).unwrap();
+        let out = run(&mut helper, input(&[("a", "one, from the Mac"), ("b", "two, from the web")], out.state)).unwrap();
         assert_eq!((out.sent, out.received, out.clashes), (0, 0, 0));
         assert!(out.actions.is_empty());
     }
@@ -505,11 +505,11 @@ mod tests {
     fn both_changed_keeps_the_macs_and_snapshots_the_ipads() {
         let mut helper = Fake::default();
         let state = run(&mut helper, input(&[("a", "start")], SyncState::default())).unwrap().state;
-        helper.ipad_edit("a", "the iPad's words");
+        helper.ipad_edit("a", "the web editor's words");
         let out = run(&mut helper, input(&[("a", "the Mac's words")], state)).unwrap();
         assert_eq!(out.clashes, 1);
         assert_eq!(helper.text("a"), Some("the Mac's words"));
-        assert!(matches!(&out.actions[..], [Action::Snapshot { text, .. }] if text == "the iPad's words"));
+        assert!(matches!(&out.actions[..], [Action::Snapshot { text, .. }] if text == "the web editor's words"));
         assert_eq!(out.state.scenes["a"].version, 3);
 
         // The same edit on both sides isn't a clash.
@@ -585,13 +585,13 @@ mod tests {
 
         let out = run(&mut helper, i(&[("a", "one"), ("b", "two")], SyncState::default())).unwrap();
         assert_eq!(out.sent, 2);
-        // An edit "on the iPad" through the API, as the web editor would make it.
-        assert_eq!(helper.put_scene(&project, "b", "two, from the iPad", 1).unwrap(), Put::Saved { version: 2 });
+        // An edit "on the web" through the API, as the web editor would make it.
+        assert_eq!(helper.put_scene(&project, "b", "two, from the web", 1).unwrap(), Put::Saved { version: 2 });
         let out = run(&mut helper, i(&[("a", "one!"), ("b", "two")], out.state)).unwrap();
         assert_eq!((out.sent, out.received, out.clashes), (1, 1, 0));
         // And a clash.
-        assert_eq!(helper.put_scene(&project, "a", "iPad", 2).unwrap(), Put::Saved { version: 3 });
-        let out = run(&mut helper, i(&[("a", "Mac"), ("b", "two, from the iPad")], out.state)).unwrap();
+        assert_eq!(helper.put_scene(&project, "a", "web", 2).unwrap(), Put::Saved { version: 3 });
+        let out = run(&mut helper, i(&[("a", "Mac"), ("b", "two, from the web")], out.state)).unwrap();
         assert_eq!(out.clashes, 1);
         assert_eq!(helper.put_scene(&project, "a", "stale", 1).unwrap(), Put::Clash { current: Some(("Mac".into(), 4)) });
 

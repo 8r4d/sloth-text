@@ -6,7 +6,7 @@ Two Mac apps written in Rust, sharing one editor, and a small web service:
 - **Sloth Writer** (1.7): an app for writing long projects such as novels,
   in the spirit of Scrivener. A project is a folder of plain Markdown files.
 - **The Writer helper** (`helper/`): a PHP service on ordinary web hosting
-  that lets you write chosen scenes in Safari on an iPad, synced with Writer.
+  that lets you write chosen scenes in a web browser, synced with Writer.
 
 ## Installing
 
@@ -145,7 +145,7 @@ change another program made, and saves itself every few seconds.
   come across.
 - Compile (⇧⌘E) the Manuscript as a standard manuscript (.docx), an ePub
   or Markdown, with saved presets.
-- Write chosen scenes on an iPad through the helper (below).
+- Write chosen scenes in a web browser through the helper (below).
 
 The full list, release by release, is in [writer/CHANGELOG.md](writer/CHANGELOG.md),
 and the app's Help (⌘?) lists every shortcut.
@@ -172,16 +172,16 @@ and the app's Help (⌘?) lists every shortcut.
 
 - A project: its folder. Inside, `.sloth/` holds the sync record, writing
   statistics and the lock that says which copy of Writer has it open.
-- Settings: macOS's usual place for the app's saved state. The iPad helper's
+- Settings: macOS's usual place for the app's saved state. The web helper's
   token is in the Keychain.
 - Automatic backups: `~/Library/Application Support/Sloth Writer/Backups`,
   a folder per project (or another folder chosen in Settings).
 
-## The iPad helper
+## The web helper
 
 `helper/` is a PHP service for shared web hosting (PHP and MySQL or
-MariaDB). Writer sends it the scenes marked "Available on iPad", and the
-helper's web page lets you write them in Safari, with their notes, word
+MariaDB). Writer sends it the scenes marked "Available on the web", and the
+helper's web editor lets you write them in any browser, with their notes, word
 targets and today's goal. Edits from either side are kept: a save that would
 overwrite the other side's is refused and both are kept. Setting it up is in
 [helper/README.md](helper/README.md). Its secrets go in
@@ -195,7 +195,7 @@ The repository is a Cargo workspace with three crates, plus the helper:
   widget, find, tabs, themes, Markdown styling, spell checking)
 - `sloth` in `sloth/`: the plain-text editor
 - `sloth-writer` in `writer/`: Sloth Writer
-- `helper/`: the iPad helper (PHP, with its web page in `helper/public/`)
+- `helper/`: the web helper (PHP, with its web page in `helper/public/`)
 
 `cargo run` and `cargo test` at the root cover Sloth and core; add `--workspace`
 to include Writer.
@@ -249,11 +249,11 @@ to include Writer.
 | `writer/src/compile.rs`, `compile_window.rs` | Compile to .docx, ePub and Markdown |
 | `writer/src/backup.rs`, `lock.rs` | Backups (by hand and automatic); one copy of Writer per project |
 | `writer/src/scrivener.rs`, `rtf.rs` | Importing from Scrivener; its RTF to Markdown |
-| `writer/src/sync.rs`, `sync_ui.rs`, `keychain.rs` | Syncing with the iPad helper |
+| `writer/src/sync.rs`, `sync_ui.rs`, `keychain.rs` | Syncing with the web helper |
 | `writer/src/settings_ui.rs`, `about_ui.rs`, `projects_ui.rs` | Settings, Help and About, recent projects |
 | `writer/src/app_ui_tests.rs` | UI tests that run Writer in memory |
 | `helper/public/api.php` | The helper: accounts, tokens, scenes with versions and history |
-| `helper/public/app.js`, `style.css`, `index.php` | The helper's web page for the iPad |
+| `helper/public/app.js`, `style.css`, `index.php` | The web editor: the page you write in |
 
 ### Adding a feature
 

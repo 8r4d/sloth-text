@@ -126,7 +126,7 @@ pub struct Meta {
     /// "locations"…), each a list of binder ids.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub links: BTreeMap<String, Vec<String>>,
-    /// Synced to the helper for editing on an iPad (a folder: everything in it).
+    /// Synced to the helper for editing in a web browser (a folder: everything in it).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub on_ipad: bool,
 }
@@ -263,7 +263,7 @@ pub struct Manifest {
     /// Compile choices (author name, format), remembered for next time.
     #[serde(default)]
     pub compile: crate::compile::CompileSettings,
-    /// The project's id on the iPad helper, made when it's first synced.
+    /// The project's id on the web helper, made when it's first synced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_id: Option<String>,
     /// The Characters folder was removed (it's there unless it was).
@@ -878,9 +878,9 @@ impl Project {
         }
     }
 
-    // ----- the iPad ------------------------------------------------------------
+    // ----- the web editor ------------------------------------------------------------
 
-    /// Is this item on the iPad: marked itself, or inside a marked folder?
+    /// Is this item on the web: marked itself, or inside a marked folder?
     pub fn on_ipad(&self, id: &str) -> bool {
         fn walk(nodes: &[Node], id: &str, marked: bool) -> Option<bool> {
             nodes.iter().find_map(|n| {
@@ -891,8 +891,8 @@ impl Project {
         walk(&self.manifest.binder, id, false).unwrap_or(false)
     }
 
-    /// The documents on the iPad (outside the Trash), in binder order, each
-    /// with the folder it's in (for the iPad's list).
+    /// The documents on the web (outside the Trash), in binder order, each
+    /// with the folder it's in (for the web editor's list).
     pub fn ipad_documents(&self) -> Vec<(&Node, String)> {
         fn walk<'a>(nodes: &'a [Node], parent: &str, marked: bool, out: &mut Vec<(&'a Node, String)>) {
             for n in nodes {
@@ -1352,7 +1352,7 @@ mod tests {
         let listed: Vec<(String, String)> = p.ipad_documents().into_iter().map(|(n, parent)| (n.title.clone(), parent)).collect();
         assert_eq!(listed, [("Untitled".into(), "Manuscript".into()), ("A".into(), "Chapter 1".into()), ("B".into(), "Chapter 1".into())]);
 
-        // Trashed: off the iPad.
+        // Trashed: off the web editor.
         p.trash(&b).unwrap();
         assert_eq!(p.ipad_documents().len(), 2);
 

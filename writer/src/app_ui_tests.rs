@@ -1005,7 +1005,7 @@ fn spaces_typed_in_a_profile_are_kept() {
     );
 }
 
-// ----- syncing with the iPad helper ---------------------------------------------------
+// ----- syncing with the web helper ---------------------------------------------------
 
 use crate::sync::{Action, Outcome, SyncState};
 
@@ -1027,12 +1027,12 @@ fn ipad_edits_come_into_open_and_closed_scenes() {
     let open = harness.state().selected.clone().unwrap();
 
     finish(&mut harness, vec![
-        Action::Replace { id: open.clone(), was: "Mac words".into(), text: "iPad words".into() },
-        Action::Replace { id: other.clone(), was: "closed words".into(), text: "closed, from the iPad".into() },
+        Action::Replace { id: open.clone(), was: "Mac words".into(), text: "web words".into() },
+        Action::Replace { id: other.clone(), was: "closed words".into(), text: "closed, from the web".into() },
     ]);
-    assert_eq!(current_text(&mut harness).as_deref(), Some("iPad words"));
-    assert_eq!(fs::read_to_string(dir.0.join("manuscript/untitled.md")).unwrap(), "iPad words", "saved straight away");
-    assert_eq!(fs::read_to_string(dir.0.join("manuscript/other.md")).unwrap(), "closed, from the iPad");
+    assert_eq!(current_text(&mut harness).as_deref(), Some("web words"));
+    assert_eq!(fs::read_to_string(dir.0.join("manuscript/untitled.md")).unwrap(), "web words", "saved straight away");
+    assert_eq!(fs::read_to_string(dir.0.join("manuscript/other.md")).unwrap(), "closed, from the web");
 }
 
 #[test]
@@ -1043,11 +1043,11 @@ fn typing_during_a_sync_keeps_the_macs_words() {
     // Typed after the sync read the scene.
     harness.state_mut().current().unwrap().doc.text = "Mac words, and more".into();
 
-    finish(&mut harness, vec![Action::Replace { id: open.clone(), was: "Mac words".into(), text: "iPad words".into() }]);
+    finish(&mut harness, vec![Action::Replace { id: open.clone(), was: "Mac words".into(), text: "web words".into() }]);
     assert_eq!(current_text(&mut harness).as_deref(), Some("Mac words, and more"));
     let kept = crate::snapshots::list(&dir.0, &open);
     assert_eq!(kept.len(), 1);
-    assert_eq!(kept[0].text().unwrap(), "iPad words");
+    assert_eq!(kept[0].text().unwrap(), "web words");
 }
 
 #[test]
@@ -1055,8 +1055,8 @@ fn clashes_are_snapshotted_and_reported() {
     let dir = TempDir::new("sync-clash");
     let mut harness = harness(project(&dir, "Mac words"));
     let open = harness.state().selected.clone().unwrap();
-    finish(&mut harness, vec![Action::Snapshot { id: open.clone(), text: "iPad words".into(), name: "from the iPad (both changed)".into() }]);
-    assert_eq!(crate::snapshots::list(&dir.0, &open)[0].name, "from the iPad (both changed)");
+    finish(&mut harness, vec![Action::Snapshot { id: open.clone(), text: "web words".into(), name: "from the web (both changed)".into() }]);
+    assert_eq!(crate::snapshots::list(&dir.0, &open)[0].name, "from the web (both changed)");
     let status = harness.state().status.clone().unwrap().0;
     assert!(status.contains("\u{201c}Untitled\u{201d} changed on both"), "{status}");
 }
@@ -1071,7 +1071,7 @@ fn scenes_written_on_the_ipad_land_in_the_manuscript() {
     let app = harness.state();
     let project = app.project.as_ref().unwrap();
     let node = project.manifest.binder[0].children.iter().find(|n| n.title == "On the train").unwrap();
-    assert!(node.meta.on_ipad, "it stays on the iPad");
+    assert!(node.meta.on_ipad, "it stays on the web");
     assert_eq!(fs::read_to_string(project.file_path(&node.id).unwrap()).unwrap(), "An idea.");
     assert!(SyncState::load(&dir.0).imported.contains(&7), "recorded, to be collected next time");
 }
@@ -1084,15 +1084,15 @@ fn notes_written_on_the_ipad_come_in_and_both_sides_are_kept_in_a_clash() {
     let notes = |h: &Harness<'static, WriterApp>| h.state().project.as_ref().unwrap().node(&id).unwrap().meta.notes.clone();
     let notes_id = crate::sync::notes_id(&id);
 
-    // Changed only on the iPad: taken as they are.
+    // Changed only on the web: taken as they are.
     finish(&mut harness, vec![Action::Replace { id: notes_id.clone(), was: String::new(), text: "Check the ferry times.".into() }]);
     assert_eq!(notes(&harness), "Check the ferry times.");
     assert!(harness.state().manifest_dirty);
     assert!(!dir.0.join("snapshots").exists() || fs::read_dir(dir.0.join("snapshots")).unwrap().count() == 0, "no snapshot for notes");
 
-    // Changed on both: the Mac's, then the iPad's.
+    // Changed on both: the Mac's, then the web editor's.
     finish(&mut harness, vec![Action::Snapshot { id: notes_id, text: "Rain, not snow?".into(), name: "x".into() }]);
-    assert_eq!(notes(&harness), "Check the ferry times.\n\nFrom the iPad:\nRain, not snow?");
+    assert_eq!(notes(&harness), "Check the ferry times.\n\nFrom the web:\nRain, not snow?");
 }
 
 #[test]
@@ -1100,12 +1100,12 @@ fn the_inspector_marks_scenes_for_the_ipad() {
     let dir = TempDir::new("sync-mark");
     let mut harness = harness(project(&dir, ""));
     let id = harness.state().selected.clone().unwrap();
-    harness.get_by_label("Available on iPad").click();
+    harness.get_by_label("Available on the web").click();
     harness.run_steps(2);
     assert!(harness.state().project.as_ref().unwrap().on_ipad(&id));
     // Without a helper set up, nothing tries to sync, and it says so.
     assert!(!harness.state().sync_ready());
-    harness.get_by_label_contains("Set up the iPad helper");
+    harness.get_by_label_contains("Set up the web helper");
 }
 
 /// The whole app against the real helper (run by helper/tests/run.sh, which

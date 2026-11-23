@@ -62,7 +62,7 @@ pub struct WriterSettings {
     pub auto_backup_folder: Option<String>,
     /// Where the last backup went, to offer it next time.
     pub backup_folder: Option<String>,
-    /// The iPad helper's address (its token is in the Keychain).
+    /// The web helper's address (its token is in the Keychain).
     pub helper_url: String,
     pub theme: ThemeChoice,
 }
@@ -270,7 +270,7 @@ impl WriterApp {
                         }
                     });
 
-                    group(ui, "iPad Helper");
+                    group(ui, "Web Helper");
                     row(ui, "Address", &mut |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut settings.helper_url)

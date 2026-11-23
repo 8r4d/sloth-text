@@ -54,7 +54,7 @@ test('tokens: made in a browser, shown once, listed, used by the Mac, revoked', 
   assert.equal((await theMac.call('projects')).status, 401);
 });
 
-test('the index: the scenes marked for the iPad', async () => {
+test('the index: the scenes marked for the web', async () => {
   const m = await mac();
   const p = newProject();
   assert.equal((await m.call('index', undefined, `&p=${p}`)).status, 404);
@@ -84,7 +84,7 @@ test('scenes: saved against the version they were edited from', async () => {
   assert.deepEqual([first.body.version, first.body.seq], [1, 1]);
   assert.ok(Math.abs(first.body.savedAt - Date.now()) < 60000, "the time it was saved, by the helper's clock");
 
-  // The iPad edits version 1.
+  // The web editor edits version 1.
   const fromIpad = await scene(b, { text: 'The last ferry had gone.', base: 1 });
   assert.equal(fromIpad.body.version, 2);
 
@@ -115,10 +115,10 @@ test('changes since a sync point, and who made them', async () => {
   assert.equal(all.seq, 2);
   assert.deepEqual(all.scenes.map(s => [s.id, s.text, s.by]), [['s1', 'one', 'mac'], ['s2', 'two', 'mac']]);
 
-  await b.call('scene_put', { text: 'two, from the iPad', base: 1 }, `&p=${p}&id=s2`);
+  await b.call('scene_put', { text: 'two, from the web', base: 1 }, `&p=${p}&id=s2`);
   const later = (await m.call('changes', undefined, `&p=${p}&since=${all.seq}`)).body;
   assert.equal(later.seq, 3);
-  assert.deepEqual(later.scenes.map(s => [s.id, s.text, s.version, s.by]), [['s2', 'two, from the iPad', 2, 'web']]);
+  assert.deepEqual(later.scenes.map(s => [s.id, s.text, s.version, s.by]), [['s2', 'two, from the web', 2, 'web']]);
   assert.deepEqual((await m.call('changes', undefined, `&p=${p}&since=3`)).body.scenes, []);
 });
 
@@ -135,7 +135,7 @@ test('every earlier version is kept', async () => {
   assert.equal((await m.call('history_text', undefined, `&p=${p}&id=s1&version=9`)).status, 404);
 });
 
-test('the inbox: scenes written on the iPad, until the Mac collects them', async () => {
+test('the inbox: scenes written on the web, until the Mac collects them', async () => {
   const m = await mac();
   const b = await browser();
   const p = newProject();

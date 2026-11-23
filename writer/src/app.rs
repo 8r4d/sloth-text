@@ -161,7 +161,7 @@ pub struct WriterApp {
     /// The text filtering the Settings window's font list.
     font_filter: String,
 
-    // Syncing with the iPad helper (see sync_ui.rs).
+    // Syncing with the web helper (see sync_ui.rs).
     /// The helper token, from the Keychain.
     helper_token: String,
     sync_running: Option<sync_ui::Running>,
@@ -1164,7 +1164,7 @@ impl WriterApp {
                     }
                     if !self.settings.helper_url.trim().is_empty() && !self.helper_token.is_empty() {
                         let label = if self.sync_running() { "Syncing\u{2026}" } else { "Sync" };
-                        let hint = if self.sync_message.is_empty() { "Sync with the iPad helper" } else { &self.sync_message };
+                        let hint = if self.sync_message.is_empty() { "Sync with the web helper" } else { &self.sync_message };
                         if ui.add_enabled(!self.sync_running(), egui::Button::new(label)).on_hover_text(hint).clicked() {
                             self.sync_now = true;
                         }
