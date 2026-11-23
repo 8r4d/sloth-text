@@ -102,6 +102,7 @@ pub struct WriterApp {
     last_lock_beat: f64,
     inspector_buffers: Option<inspector::Buffers>,
     editing_labels: bool,
+    editing_statuses: bool,
     word_cache: inspector::WordCache,
     /// Metadata edited since project.ron was last written.
     manifest_dirty: bool,
@@ -217,6 +218,7 @@ impl WriterApp {
             last_lock_beat: 0.0,
             inspector_buffers: None,
             editing_labels: false,
+            editing_statuses: false,
             word_cache: inspector::WordCache::default(),
             manifest_dirty: false,
             folder_views: views::FolderViews::default(),
@@ -384,6 +386,7 @@ impl WriterApp {
         self.results_key = None;
         self.inspector_buffers = None;
         self.editing_labels = false;
+        self.editing_statuses = false;
         self.compile_open = false;
         self.comparing = None;
         self.confirm_delete_snapshot = None;
@@ -1335,6 +1338,7 @@ impl eframe::App for WriterApp {
         self.editor_area(ui);
         self.empty_trash_dialog(&ctx);
         self.labels_window(&ctx);
+        self.statuses_window(&ctx);
         self.compile_window(&ctx);
         self.compare_window(&ctx);
         self.rename_project_window(&ctx);

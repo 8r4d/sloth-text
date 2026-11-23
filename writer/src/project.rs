@@ -782,6 +782,44 @@ impl Project {
         }
     }
 
+    pub fn add_status(&mut self, name: &str) -> usize {
+        self.manifest.statuses.push(name.to_owned());
+        self.manifest.statuses.len() - 1
+    }
+
+    /// Remove a status; items that had it have none, the others keep theirs.
+    pub fn remove_status(&mut self, index: usize) {
+        if index >= self.manifest.statuses.len() {
+            return;
+        }
+        self.manifest.statuses.remove(index);
+        let renumber = |i: usize| match i {
+            i if i == index => None,
+            i if i > index => Some(i - 1),
+            i => Some(i),
+        };
+        for top in &mut self.manifest.binder {
+            restatus(top, &renumber);
+        }
+    }
+
+    /// Swap a status with the next one, every item keeping its own.
+    pub fn swap_statuses(&mut self, index: usize) {
+        if index + 1 >= self.manifest.statuses.len() {
+            return;
+        }
+        self.manifest.statuses.swap(index, index + 1);
+        let renumber = |i: usize| Some(if i == index { index + 1 } else if i == index + 1 { index } else { i });
+        for top in &mut self.manifest.binder {
+            restatus(top, &renumber);
+        }
+    }
+
+    /// How many items have a status.
+    pub fn status_uses(&self, index: usize) -> usize {
+        self.manifest.binder.iter().flat_map(|n| n.subtree()).filter(|n| n.meta.status == Some(index)).count()
+    }
+
     /// Refuse places that would break the binder's shape.
     fn check_place(&self, moving: Option<&str>, place: &Place) -> io::Result<()> {
         let target = self.node(place.target()).ok_or_else(|| invalid("That item no longer exists."))?;
@@ -930,6 +968,13 @@ fn relabel(node: &mut Node, removed: usize) {
     };
     for child in &mut node.children {
         relabel(child, removed);
+    }
+}
+
+fn restatus(node: &mut Node, renumber: &dyn Fn(usize) -> Option<usize>) {
+    node.meta.status = node.meta.status.and_then(renumber);
+    for child in &mut node.children {
+        restatus(child, renumber);
     }
 }
 
@@ -1217,6 +1262,32 @@ mod tests {
         // An unknown status or label is dropped rather than kept dangling.
         p.set_meta(&id, Meta { status: Some(99), label: Some(99), ..Meta::default() });
         assert_eq!(p.node(&id).unwrap().meta, Meta::default());
+    }
+
+    #[test]
+    fn statuses_can_be_removed_and_reordered_without_changing_anyones() {
+        let dir = TempDir::new("edit-statuses");
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        let scene = p.manifest.binder[0].children[0].id.clone();
+        let other = p.add_document(&manuscript(), "Other").unwrap();
+        let status = |p: &Project, id: &str| p.node(id).unwrap().meta.status.map(|i| p.manifest.statuses[i].clone());
+        p.set_meta(&scene, Meta { status: Some(2), ..Meta::default() }); // First draft
+        p.set_meta(&other, Meta { status: Some(1), ..Meta::default() }); // Ongoing
+        assert_eq!(p.status_uses(1), 1);
+
+        p.swap_statuses(1); // Ongoing ↔ First draft
+        assert_eq!(p.manifest.statuses[1..3], ["First draft", "Ongoing"]);
+        assert_eq!(status(&p, &scene).as_deref(), Some("First draft"));
+        assert_eq!(status(&p, &other).as_deref(), Some("Ongoing"));
+
+        p.remove_status(0); // To do: nobody had it
+        assert_eq!(status(&p, &scene).as_deref(), Some("First draft"));
+        p.remove_status(1); // Ongoing: Other loses it
+        assert_eq!(status(&p, &other), None);
+        assert_eq!(status(&p, &scene).as_deref(), Some("First draft"));
+
+        let added = p.add_status("With editor");
+        assert_eq!(p.manifest.statuses[added], "With editor");
     }
 
     #[test]

@@ -1654,3 +1654,33 @@ fn a_scrivener_project_is_imported_and_opened() {
     assert!(harness.state().error.as_ref().is_some_and(|e| e.contains("isn't a Scrivener project")));
     assert!(!nowhere.exists());
 }
+
+#[test]
+fn statuses_are_edited_from_the_status_menu() {
+    let dir = TempDir::new("edit-statuses-ui");
+    let mut harness = harness(project(&dir, ""));
+    let id = harness.state().selected.clone().unwrap();
+    // The document is "First draft".
+    harness.state_mut().project.as_mut().unwrap().set_meta(&id, crate::project::Meta { status: Some(2), ..Default::default() });
+    harness.run_steps(2);
+
+    // Status menu → Edit Statuses…
+    harness.get_by_value("First draft").click();
+    harness.run_steps(2);
+    harness.get_by_label("Edit Statuses\u{2026}").click();
+    harness.run_steps(2);
+    harness.get_by_label("Add Status").click();
+    harness.run_steps(2);
+    let statuses = || harness.state().project.as_ref().unwrap().manifest.statuses.clone();
+    assert_eq!(statuses().last().map(String::as_str), Some("New status"));
+
+    // Move "First draft" up above "Ongoing": the document is still First draft.
+    harness.get_all_by_label("\u{2191}").nth(2).unwrap().click();
+    harness.run_steps(2);
+    let app = harness.state();
+    let project = app.project.as_ref().unwrap();
+    assert_eq!(project.manifest.statuses[1..3], ["First draft", "Ongoing"]);
+    let status = project.node(&id).unwrap().meta.status.unwrap();
+    assert_eq!(project.manifest.statuses[status], "First draft");
+    assert!(app.manifest_dirty);
+}

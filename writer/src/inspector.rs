@@ -182,6 +182,7 @@ impl WriterApp {
             });
 
             let editing_labels = &mut self.editing_labels;
+            let editing_statuses = &mut self.editing_statuses;
             let buffers = self.inspector_buffers.as_mut().expect("set above");
             section(ui, "Details", "details", true, |ui| {
                 egui::Grid::new("inspector-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
@@ -191,6 +192,10 @@ impl WriterApp {
                         ui.selectable_value(&mut meta.status, None, "None");
                         for (i, name) in statuses.iter().enumerate() {
                             ui.selectable_value(&mut meta.status, Some(i), name);
+                        }
+                        ui.separator();
+                        if ui.button("Edit Statuses\u{2026}").clicked() {
+                            *editing_statuses = true;
                         }
                     });
                     ui.end_row();
@@ -272,6 +277,66 @@ impl WriterApp {
         if is_document {
             self.snapshot_section(ui, &id);
         }
+    }
+
+    /// The Statuses window: rename, reorder, add and remove statuses.
+    /// Every document keeps its status through a reorder; removing one
+    /// leaves the documents that had it with none.
+    pub(super) fn statuses_window(&mut self, ctx: &egui::Context) {
+        if !self.editing_statuses {
+            return;
+        }
+        let Some(project) = self.project.as_mut() else { return };
+        let mut open = true;
+        let mut changed = false;
+        let (mut remove, mut swap) = (None, None);
+        let count = project.manifest.statuses.len();
+        let uses: Vec<usize> = (0..count).map(|i| project.status_uses(i)).collect();
+        egui::Window::new("Statuses")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(340.0)
+            .show(ctx, |ui| {
+                ui.weak("In the order the Status menu offers them.");
+                ui.add_space(4.0);
+                for (i, status) in project.manifest.statuses.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(i > 0, egui::Button::new("\u{2191}").small()).on_hover_text("Move up").clicked() {
+                            swap = Some(i - 1);
+                        }
+                        if ui.add_enabled(i + 1 < count, egui::Button::new("\u{2193}").small()).on_hover_text("Move down").clicked() {
+                            swap = Some(i);
+                        }
+                        changed |= ui.add(egui::TextEdit::singleline(status).desired_width(170.0)).changed();
+                        let hint = match uses[i] {
+                            0 => "Nothing has this status".to_owned(),
+                            1 => "1 item has this status: it will have none".to_owned(),
+                            n => format!("{n} items have this status: they will have none"),
+                        };
+                        if ui.button("Remove").on_hover_text(hint).clicked() {
+                            remove = Some(i);
+                        }
+                    });
+                }
+                ui.add_space(6.0);
+                if ui.button("Add Status").clicked() {
+                    project.add_status("New status");
+                    changed = true;
+                }
+            });
+        if let Some(i) = swap {
+            project.swap_statuses(i);
+            changed = true;
+        }
+        if let Some(i) = remove {
+            project.remove_status(i);
+            changed = true;
+        }
+        if changed {
+            self.manifest_dirty = true;
+        }
+        self.editing_statuses = open;
     }
 
     /// The Labels window: rename, recolour, add and remove labels.
