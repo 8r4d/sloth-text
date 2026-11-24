@@ -429,6 +429,8 @@ const ROW_HEIGHT: f32 = 58.0;
 /// sit in the middle of the row, clear of its top edge.
 const ROW_TOP: f32 = 11.0;
 const ROW_GAP: f32 = 4.0;
+/// How far each level of nesting steps a row in.
+const INDENT: f32 = 22.0;
 /// The room at a row's left before its title: the handle and a gap.
 const GRIP_W: f32 = 32.0;
 /// The handle: an end cap on the row in its label's colour, to drag it by,
@@ -485,21 +487,23 @@ fn outline(
 
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(ui.available_width(), row_height), Sense::click_and_drag());
+        // Nested, the whole row steps in (its handle with it), as in the
+        // binder; the columns at the right stay lined up.
+        let indent = INDENT * item.depth as f32;
+        let shown = egui::Rect::from_min_max(rect.min + Vec2::new(indent, 0.0), rect.max);
         if response.hovered() {
-            ui.painter().rect_filled(rect, CornerRadius::same(HANDLE_RADIUS), ui.visuals().widgets.hovered.weak_bg_fill);
+            ui.painter().rect_filled(shown, CornerRadius::same(HANDLE_RADIUS), ui.visuals().widgets.hovered.weak_bg_fill);
         }
         // Its handle, in its label's colour: to drag it by (the whole row
         // drags; the handle says so), and to see its label at a glance.
         let color = item.meta.label.and_then(|i| labels.get(i)).map(|l| label_color(l.color));
-        handle(ui, rect, &response, color, reorder && !blocked);
+        handle(ui, shown, &response, color, reorder && !blocked);
         let mut row = ui.new_child(UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
-        row.add_space(GRIP_W);
-        let title_w = (rect.width() - columns - GRIP_W).max(160.0);
-        let indent = 18.0 * item.depth as f32;
+        let title_w = (rect.width() - columns - GRIP_W).max(160.0 + indent);
+        row.add_space(indent + GRIP_W);
         let mut meta = item.meta.clone();
 
-        row.allocate_ui(Vec2::new(title_w, row_height), |ui| {
-            ui.add_space(indent);
+        row.allocate_ui(Vec2::new(title_w - indent, row_height), |ui| {
             ui.vertical(|ui| {
                 ui.set_width(title_w - indent - 12.0);
                 ui.add_space(ROW_TOP);

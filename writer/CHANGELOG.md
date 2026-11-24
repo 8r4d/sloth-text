@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.40.2
+
+- Nested rows in the outline step in as a whole, handle and all, so what's inside what reads at a glance, as in the binder. The Status, Label and Words columns stay lined up.
+
 ## 1.40.1
 
 - Outline rows have more room above the title: the title and synopsis sit in the middle of the row, clear of its top edge.
