@@ -690,6 +690,34 @@ fn a_card_with_no_synopsis_shows_how_the_document_opens() {
 }
 
 #[test]
+fn outline_rows_and_canvas_cards_show_openings_too() {
+    let dir = TempDir::new("openings-everywhere");
+    let (p, chapter, scenes) = chapter_project(&dir);
+    fs::write(p.file_path(&scenes[0]).unwrap(), "# Arrival\n\nMara was *late*, and the ferry had gone.").unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().select(chapter.clone());
+    harness.run_steps(3);
+    // The outline: everything under the folder, nested.
+    let rows = harness.state_mut().view_items(&chapter, true);
+    assert_eq!(rows[0].opening, "Mara was late, and the ferry had gone.");
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num3);
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/outline.png")).unwrap();
+    }
+
+    harness.get_by_label("Canvas").click();
+    harness.run_steps(3);
+    let canvas = harness.state().canvas.as_ref().unwrap();
+    assert_eq!(canvas.openings().get(&scenes[0]).map(String::as_str), Some("Mara was late, and the ferry had gone."));
+    assert!(!canvas.openings().contains_key(&scenes[1]), "nothing written, nothing to show");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/canvas.png")).unwrap();
+    }
+}
+
+#[test]
 fn a_folder_shows_its_items_as_cards() {
     let dir = TempDir::new("cards");
     let (p, chapter, scenes) = chapter_project(&dir);
@@ -2702,4 +2730,30 @@ fn a_pill_moves_at_depth_two() {
     drag_points(&mut harness, start, start + egui::vec2(0.0, 120.0));
     harness.run_steps(3);
     assert_ne!(canvas_place(&harness, &alice), [x, y]);
+}
+
+// ----- web addresses -----------------------------------------------------------------------
+
+#[test]
+fn a_document_has_a_web_address_to_open() {
+    use egui_kittest::kittest::NodeT;
+    let dir = TempDir::new("link");
+    let mut harness = harness(project(&dir, "An essay."));
+    let id = harness.state().selected.clone().unwrap();
+    // No address yet: nothing to open.
+    assert!(harness.get_by_label("Open").accesskit_node().is_disabled());
+
+    let field = harness.get_all_by_value("").find(|n| n.rect().top() > harness.get_by_label("Web address").rect().top() - 4.0).unwrap();
+    field.focus();
+    field.type_text("blog.example.com/walking");
+    harness.run_steps(3);
+    let meta = harness.state().project.as_ref().unwrap().node(&id).unwrap().meta.clone();
+    assert_eq!(meta.url, "blog.example.com/walking");
+    let open = harness.get_by_label("Open");
+    assert!(!open.accesskit_node().is_disabled());
+    open.click();
+    harness.run_steps(2);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/link.png")).unwrap();
+    }
 }

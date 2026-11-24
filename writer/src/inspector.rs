@@ -75,6 +75,38 @@ impl WordCache {
     }
 }
 
+/// What's typed in the Web address field as a web address to open, if it is one:
+/// `https://` is assumed when it's left off. Only web addresses, so a
+/// file path or app name typed there can never be opened.
+pub fn web_address(typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    if typed.is_empty() || typed.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let lower = typed.to_lowercase();
+    let url = if lower.starts_with("https://") || lower.starts_with("http://") {
+        typed.to_owned()
+    } else if typed.contains("://") || typed.starts_with('/') || typed.starts_with('~') || !typed.contains('.') {
+        // Another scheme (file://, an app's), a path, or not an address.
+        return None;
+    } else {
+        format!("https://{typed}")
+    };
+    // Something after the scheme, with a dot in the host.
+    let host = url.split("://").nth(1)?.split(['/', '?', '#']).next()?;
+    (host.contains('.') && !host.starts_with('.') && !host.ends_with('.')).then_some(url)
+}
+
+/// Open a web address in the default browser.
+fn open_in_browser(url: &str) {
+    #[cfg(not(test))]
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
+    #[cfg(test)]
+    let _ = url;
+}
+
 /// How many words of a document's opening a card shows.
 const OPENING_WORDS: usize = 40;
 
@@ -293,6 +325,29 @@ impl WriterApp {
                             .map(str::to_owned)
                             .collect();
                     }
+                    ui.end_row();
+
+                    // Where it's published, say, with a button to go there.
+                    ui.label("Web address");
+                    // Right to left: the button, then the field takes the rest.
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let url = web_address(&meta.url);
+                        let open = ui.add_enabled(url.is_some(), egui::Button::new("Open"));
+                        let open = match &url {
+                            Some(url) => open.on_hover_text(format!("Open {url} in your browser")),
+                            None => open.on_disabled_hover_text("A web address, like example.com/my-post"),
+                        };
+                        if open.clicked()
+                            && let Some(url) = &url
+                        {
+                            open_in_browser(url);
+                        }
+                        ui.add(
+                            egui::TextEdit::singleline(&mut meta.url)
+                                .hint_text("Where it\u{2019}s published")
+                                .desired_width(ui.available_width()),
+                        );
+                    });
                     ui.end_row();
                 });
                 ui.add_space(4.0);
@@ -562,7 +617,17 @@ fn section(ui: &mut egui::Ui, title: &str, id: &str, open: bool, add: impl FnOnc
 
 #[cfg(test)]
 mod tests {
-    use super::{count_words, opening};
+    use super::{count_words, opening, web_address};
+
+    #[test]
+    fn only_web_addresses_open() {
+        assert_eq!(web_address("https://example.com/my-post").as_deref(), Some("https://example.com/my-post"));
+        assert_eq!(web_address("  example.com/essays/walking?x=1 ").as_deref(), Some("https://example.com/essays/walking?x=1"));
+        assert_eq!(web_address("HTTP://Example.com").as_deref(), Some("HTTP://Example.com"));
+        for not in ["", "my essay", "file:///etc/passwd", "/Applications/Calculator.app", "~/notes.md", "localhost", "javascript:alert(1)", "https://", "https://.com", "ssh://host.example"] {
+            assert_eq!(web_address(not), None, "{not}");
+        }
+    }
 
     #[test]
     fn a_documents_opening_reads_as_text() {

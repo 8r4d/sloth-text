@@ -59,6 +59,9 @@ pub(super) struct CanvasState {
     stand_in: HashMap<String, String>,
     /// Folders to outline: title, the cards in them, folders nested inside.
     outlines: Vec<(String, Vec<String>, usize)>,
+    /// The opening words of documents with no synopsis, gathered with the
+    /// strings (see `canvas_openings`).
+    openings: HashMap<String, String>,
     /// The card picked: its strings and neighbours stand out.
     focus: Option<String>,
     /// The binder's selection when last seen, so the canvas can follow it.
@@ -93,6 +96,7 @@ impl CanvasState {
             edges: Vec::new(),
             edges_at: None,
             drawn_edges: Vec::new(),
+            openings: HashMap::new(),
             stand_in: HashMap::new(),
             outlines: Vec::new(),
             focus: None,
@@ -123,6 +127,11 @@ impl CanvasState {
         &self.drawn_edges
     }
 
+    #[cfg(test)]
+    pub(super) fn openings(&self) -> &HashMap<String, String> {
+        &self.openings
+    }
+
     /// Write the canvas out if it's changed.
     pub(super) fn save(&mut self, root: &Path) -> io::Result<()> {
         if self.dirty {
@@ -145,7 +154,8 @@ impl CanvasState {
 enum Kind {
     /// With its status, as a stamp: the name and its colour. `inside`:
     /// documents in it, shown as part of this card at the depth chosen.
-    Document { synopsis: String, label: Option<Color32>, status: Option<(String, Color32)>, inside: usize },
+    /// `opening`: the synopsis is the document's first words (it has none).
+    Document { synopsis: String, opening: bool, label: Option<Color32>, status: Option<(String, Color32)>, inside: usize },
     /// A folder standing for what's in it, at the depth chosen.
     Folder { synopsis: String, label: Option<Color32>, inside: usize },
     /// A profile: its kind ("Character") and the kind's colour.
@@ -185,12 +195,18 @@ impl WriterApp {
     pub(super) fn canvas_view(&mut self, ui: &mut egui::Ui) {
         // For a blank canvas (see below).
         let blank = self.sloth(ui.ctx(), super::sloth_ui::Pose::Reading);
-        let Some(project) = &self.project else { return };
         let now = ui.input(|i| i.time);
+        // Openings are gathered with the strings, not every frame.
+        let refresh = self.canvas.as_ref().is_none_or(|s| s.edges_at.is_none_or(|at| now - at >= REFRESH_SECONDS));
+        let openings = refresh.then(|| self.canvas_openings());
+        let Some(project) = &self.project else { return };
         let mut state = self.canvas.take().unwrap_or_else(|| CanvasState::new(Canvas::load(&project.root)));
         if state.edges_at.is_none_or(|at| now - at >= REFRESH_SECONDS) {
             state.edges = canvas::edges(project, |n| self.document_text(&n.id));
             state.edges_at = Some(now);
+        }
+        if let Some(openings) = openings {
+            state.openings = openings;
         }
         // Picking something in the binder while the canvas is open picks
         // its card. (What was picked before it opened doesn't: everything
@@ -278,7 +294,13 @@ impl WriterApp {
                     }
                     None => {
                         let status = node.meta.status.filter(|&i| i < statuses.len()).map(|i| (statuses[i].clone(), super::views::status_color(i, statuses.len())));
-                        (Kind::Document { synopsis: node.meta.synopsis.clone(), label, status, inside }, DOC_SIZE)
+                        {
+                            let (synopsis, opening) = match state.openings.get(&node.id) {
+                                Some(o) if node.meta.synopsis.trim().is_empty() => (o.clone(), true),
+                                _ => (node.meta.synopsis.clone(), false),
+                            };
+                            (Kind::Document { synopsis, opening, label, status, inside }, DOC_SIZE)
+                        }
                     }
                 };
                 cards.push(Card { id: node.id.clone(), title: node.title.clone(), kind, rect: place(&node.id, size) });
@@ -324,6 +346,19 @@ impl WriterApp {
                 CanvasAction::MakeDocument(note) => self.note_to_document(&note),
             }
         }
+    }
+
+    /// The first words of each document on the canvas with no synopsis
+    /// (not profiles: their cards have no room).
+    fn canvas_openings(&mut self) -> HashMap<String, String> {
+        let Some(project) = &self.project else { return HashMap::new() };
+        let ids: Vec<String> = project
+            .documents()
+            .into_iter()
+            .filter(|n| n.meta.synopsis.trim().is_empty() && project.profile_of(&n.id).is_none())
+            .map(|n| n.id.clone())
+            .collect();
+        ids.into_iter().map(|id| (self.opening_of(&id), id)).filter(|(o, _)| !o.is_empty()).map(|(o, id)| (id, o)).collect()
     }
 
     /// Make a note into a document in the Notes folder: its first line the
@@ -779,7 +814,7 @@ fn card_ui(
     let border = if picked || targeted { Stroke::new(2.0, visuals.selection.stroke.color) } else { visuals.widgets.noninteractive.bg_stroke };
     let painter = ui.painter().clone();
     match &card.kind {
-        Kind::Document { synopsis, label, status, inside } => {
+        Kind::Document { synopsis, opening, label, status, inside } => {
             let fill = if visuals.dark_mode { Color32::from_gray(48) } else { Color32::from_rgb(0xFD, 0xFB, 0xF4) };
             // Holding more than itself: another card peeking out behind.
             if *inside > 0 {
@@ -795,10 +830,14 @@ fn card_ui(
             let title = Rect::from_min_size(inner.min, Vec2::new(inner.width(), 18.0));
             title_label(ui, title, &card.title);
             if !synopsis.is_empty() {
-                let mut job = egui::text::LayoutJob::simple(synopsis.clone(), FontId::proportional(11.5), visuals.weak_text_color(), inner.width());
+                // A document's opening, standing in for a synopsis: fainter, in italics.
+                let color = if *opening { super::views::opening_color(ui) } else { visuals.weak_text_color() };
+                let format = egui::TextFormat { font_id: FontId::proportional(11.5), color, italics: *opening, ..Default::default() };
+                let mut job = egui::text::LayoutJob::single_section(synopsis.clone(), format);
+                job.wrap.max_width = inner.width();
                 job.wrap.max_rows = 2;
                 job.wrap.overflow_character = Some('\u{2026}');
-                painter.galley(Pos2::new(inner.left(), title.bottom() + 4.0), painter.layout_job(job), visuals.weak_text_color());
+                painter.galley(Pos2::new(inner.left(), title.bottom() + 4.0), painter.layout_job(job), color);
             }
             if let Some((name, color)) = status {
                 super::views::stamp(&painter, rect.right_bottom() + Vec2::new(-8.0, -6.0), name, *color);

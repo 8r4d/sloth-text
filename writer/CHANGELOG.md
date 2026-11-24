@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.31.0
+
+- A Web address for each document (and folder), in the inspector's Details: where it's published, say. Open beside it takes you there in your browser. `https://` can be left off; only web addresses open.
+- Openings in the outline and on the Canvas too: a document with no synopsis shows its first words, faint and in italics, in its outline row (cut short to fit) and on its Canvas card (two lines). On the Canvas they're gathered every few seconds, with the strings.
+
 ## 1.30.0
 
 - A corkboard card for a document with no synopsis shows how the document opens: its first words, faint and in italics, as they read (no Markdown, notes or headings). Click in to write a synopsis, which takes their place.

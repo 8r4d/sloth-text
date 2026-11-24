@@ -38,8 +38,8 @@ pub(super) struct Item {
     depth: usize,
     meta: Meta,
     words: usize,
-    /// A document's first words, shown on its card in place of a synopsis
-    /// it doesn't have (corkboard only).
+    /// A document's first words, shown on its card or row in place of a
+    /// synopsis it doesn't have.
     pub(super) opening: String,
 }
 
@@ -127,7 +127,7 @@ impl WriterApp {
             .collect();
         for item in &mut items {
             item.words = self.words_under(&item.id);
-            if !nested && item.is_document && item.meta.synopsis.trim().is_empty() {
+            if item.is_document && item.meta.synopsis.trim().is_empty() {
                 item.opening = self.opening_of(&item.id);
             }
         }
@@ -214,6 +214,21 @@ pub(super) fn dot_grid(ui: &egui::Ui, origin: egui::Pos2, step: f32, radius: f32
     }
 }
 
+/// What an empty synopsis field shows: the document's opening, faint and
+/// in italics, until a synopsis is written; else just "Synopsis".
+fn synopsis_hint(ui: &egui::Ui, opening: &str) -> RichText {
+    if opening.is_empty() {
+        RichText::new("Synopsis")
+    } else {
+        RichText::new(opening).italics().color(opening_color(ui))
+    }
+}
+
+/// The colour of a document's opening shown in place of a synopsis.
+pub(super) fn opening_color(ui: &egui::Ui) -> Color32 {
+    ui.visuals().weak_text_color().gamma_multiply(0.8)
+}
+
 /// Room kept at the bottom of a card for its status and words.
 const FOOTER_HEIGHT: f32 = 16.0;
 
@@ -251,12 +266,7 @@ fn card(
         // Nothing drawn past the card's edge…
         ui.set_clip_rect(rect.intersect(ui.clip_rect()));
         let mut synopsis = item.meta.synopsis.clone();
-        // No synopsis: the document's opening, faint, until one's written.
-        let hint = if item.opening.is_empty() {
-            RichText::new("Synopsis")
-        } else {
-            RichText::new(&item.opening).italics().color(ui.visuals().weak_text_color().gamma_multiply(0.8))
-        };
+        let hint = synopsis_hint(ui, &item.opening);
         // …and a long synopsis scrolls inside the card, above the footer.
         let room = (ui.available_height() - FOOTER_HEIGHT).max(20.0);
         let field = egui::ScrollArea::vertical()
@@ -354,10 +364,11 @@ fn outline(
                     (false, _) => "\u{1F4C1}",
                 };
                 ui.add(egui::Label::new(RichText::new(format!("{icon} {}", item.title)).strong()).truncate().selectable(false));
+                let hint = synopsis_hint(ui, &item.opening);
                 ui.add(
                     egui::TextEdit::singleline(&mut meta.synopsis)
                         .id_salt(("row-synopsis", &item.id))
-                        .hint_text("Synopsis")
+                        .hint_text(hint)
                         .frame(egui::Frame::NONE)
                         .desired_width(title_w - indent - 12.0),
                 );

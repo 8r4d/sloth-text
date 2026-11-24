@@ -126,6 +126,10 @@ pub struct Meta {
     /// "locations"…), each a list of binder ids.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub links: BTreeMap<String, Vec<String>>,
+    /// A web address for it: where it's published, say. (Not `links`,
+    /// which are to other documents.)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub url: String,
     /// Synced to the helper for editing in a web browser (a folder: everything in it).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub on_ipad: bool,
@@ -1476,6 +1480,7 @@ mod tests {
             notes: "Check the tide tables.".into(),
             characters: Vec::new(),
             links: [("characters".to_owned(), vec!["c0ffee".to_owned()])].into(),
+            url: "https://example.com/the-harbour".into(),
             on_ipad: true,
         };
         assert!(p.set_meta(&id, meta.clone()));
