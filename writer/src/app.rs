@@ -133,6 +133,9 @@ pub struct WriterApp {
     manifest_dirty: bool,
     /// Corkboard or outline, per folder (see views.rs).
     folder_views: views::FolderViews,
+    /// The keyword each folder's corkboard and outline are filtered by,
+    /// this session (see views.rs).
+    folder_keywords: HashMap<String, String>,
     /// The canvas is shown in place of the editor (see canvas_ui.rs).
     canvas_open: bool,
     /// The canvas, once it's been shown for this project.
@@ -298,6 +301,7 @@ impl WriterApp {
             word_cache: inspector::WordCache::default(),
             manifest_dirty: false,
             folder_views: views::FolderViews::default(),
+            folder_keywords: HashMap::new(),
             canvas_open: false,
             canvas: None,
             compile_open: false,

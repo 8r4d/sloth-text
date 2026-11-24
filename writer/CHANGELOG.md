@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.35.0
+
+- Filter a folder's corkboard or outline by keyword: the menu beside Outline lists the keywords used in the folder, with how many have each. Pick one to see everything that has it, from anywhere in the folder (on the Manuscript, across every chapter), in binder order; All keywords goes back. Cards can't be dragged to reorder while filtered.
+- A globe (🌐) beside the title of a card or outline row with a web address: click it to open where it's published.
+
 ## 1.34.0
 
 - Copy, beside a document's word count in the inspector: its text, with its bold, italics, headings and quotes, on the clipboard to paste into WordPress (or anywhere). Notes, comments and references are left out, and the title, which WordPress has a field of its own for.

@@ -31,9 +31,8 @@ const CARD_GAP: f32 = 16.0;
 /// be drawn while the project changes underneath.
 pub(super) struct Item {
     id: String,
-    title: String,
+    pub(super) title: String,
     is_document: bool,
-    has_children: bool,
     /// Nesting below the folder being shown (outline only).
     depth: usize,
     meta: Meta,
@@ -41,6 +40,24 @@ pub(super) struct Item {
     /// A document's first words, shown on its card or row in place of a
     /// synopsis it doesn't have.
     pub(super) opening: String,
+    /// Its web address, if it has one that opens (where it's published).
+    url: Option<String>,
+}
+
+impl Item {
+    /// An item as copied from the binder, before its words and opening.
+    fn of(node: &Node, depth: usize) -> Self {
+        Item {
+            id: node.id.clone(),
+            title: node.title.clone(),
+            is_document: node.is_document(),
+            depth,
+            meta: node.meta.clone(),
+            words: 0,
+            opening: String::new(),
+            url: super::inspector::web_address(&node.meta.url),
+        }
+    }
 }
 
 /// What the person did in a view; applied once it's drawn.
@@ -48,6 +65,8 @@ enum ViewAction {
     Open(String),
     Meta(String, Meta),
     Move { id: String, place: Place },
+    /// Its web mark was clicked: open this address.
+    OpenUrl(String),
 }
 
 impl WriterApp {
@@ -62,10 +81,22 @@ impl WriterApp {
             if chosen != mode {
                 self.folder_views.insert(folder.to_owned(), chosen);
             }
+            // Only what has a keyword (not for Slothenings, a single text).
+            if mode != FolderView::Slothenings {
+                self.keyword_filter(ui, folder);
+            }
         });
         ui.add_space(8.0);
 
-        let items = self.view_items(folder, mode != FolderView::Corkboard);
+        let keyword = self.folder_keywords.get(folder).cloned().filter(|_| mode != FolderView::Slothenings);
+        let items = match &keyword {
+            Some(keyword) => self.keyword_items(folder, keyword),
+            None => self.view_items(folder, mode != FolderView::Corkboard),
+        };
+        if items.is_empty() && keyword.is_some() {
+            ui.weak("Nothing in this folder has that keyword now.");
+            return;
+        }
         if items.is_empty() {
             let trash = self.project.as_ref().and_then(|p| p.node(folder)).is_some_and(|n| n.role == Some(crate::project::Role::Trash));
             if trash {
@@ -85,9 +116,11 @@ impl WriterApp {
             self.slothenings(ui, folder);
             return;
         }
+        // Filtered, the order shown isn't the binder's: no reordering.
+        let reorder = keyword.is_none();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match mode {
-            FolderView::Corkboard => corkboard(ui, &items, &statuses, &labels, dragging.as_deref(), &mut actions),
-            _ => outline(ui, &items, &statuses, &labels, dragging.as_deref(), &mut actions),
+            FolderView::Corkboard => corkboard(ui, &items, &statuses, &labels, dragging.as_deref(), reorder, &mut actions),
+            _ => outline(ui, &items, &statuses, &labels, dragging.as_deref(), reorder, &mut actions),
         });
 
         for action in actions {
@@ -101,8 +134,58 @@ impl WriterApp {
                     }
                 }
                 ViewAction::Move { id, place } => self.apply(BinderAction::Move { id, place }),
+                ViewAction::OpenUrl(url) => super::inspector::open_in_browser(&url),
             }
         }
+    }
+
+    /// The keyword menu above a folder's corkboard or outline: the keywords
+    /// used in it (subfolders and all), with how many have each.
+    fn keyword_filter(&mut self, ui: &mut egui::Ui, folder: &str) {
+        let Some(node) = self.project.as_ref().and_then(|p| p.node(folder)) else { return };
+        let counts = keyword_counts(node);
+        let current = self.folder_keywords.get(folder).cloned();
+        if counts.is_empty() && current.is_none() {
+            return;
+        }
+        ui.add_space(12.0);
+        let mut picked = current.clone();
+        let shown = current.as_deref().map_or("All keywords".to_owned(), |k| format!("Keyword: {k}"));
+        ui.menu_button(shown, |ui| {
+            if ui.selectable_label(picked.is_none(), "All keywords").clicked() {
+                picked = None;
+                ui.close();
+            }
+            ui.separator();
+            for (keyword, count) in &counts {
+                let on = picked.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(keyword));
+                if ui.selectable_label(on, format!("{keyword}  ({count})")).clicked() {
+                    picked = Some(keyword.clone());
+                    ui.close();
+                }
+            }
+        })
+        .response
+        .on_hover_text("Show only what has a keyword, from anywhere in this folder");
+        if picked != current {
+            match picked {
+                Some(k) => self.folder_keywords.insert(folder.to_owned(), k),
+                None => self.folder_keywords.remove(folder),
+            };
+        }
+    }
+
+    /// Everything under a folder with a keyword (any case), in binder order.
+    pub(super) fn keyword_items(&mut self, folder: &str, keyword: &str) -> Vec<Item> {
+        let Some(node) = self.project.as_ref().and_then(|p| p.node(folder)) else { return Vec::new() };
+        let items: Vec<Item> = node
+            .subtree()
+            .into_iter()
+            .skip(1)
+            .filter(|n| n.meta.keywords.iter().any(|k| k.eq_ignore_ascii_case(keyword)))
+            .map(|n| Item::of(n, 0))
+            .collect();
+        self.counted(items)
     }
 
     /// The folder's items: its children, or for the outline everything
@@ -111,20 +194,13 @@ impl WriterApp {
         let Some(node) = self.project.as_ref().and_then(|p| p.node(folder)) else { return Vec::new() };
         let mut found = Vec::new();
         collect(&node.children, 0, nested, &mut found);
-        // Counted afterwards: counting needs `self` mutably (its cache).
-        let mut items: Vec<Item> = found
-            .into_iter()
-            .map(|(node, depth)| Item {
-                id: node.id.clone(),
-                title: node.title.clone(),
-                is_document: node.is_document(),
-                has_children: !node.children.is_empty(),
-                depth,
-                meta: node.meta.clone(),
-                words: 0,
-                opening: String::new(),
-            })
-            .collect();
+        let items = found.into_iter().map(|(n, depth)| Item::of(n, depth)).collect();
+        self.counted(items)
+    }
+
+    /// Fill in items' words and openings (afterwards: counting needs
+    /// `self` mutably, for its cache).
+    fn counted(&mut self, mut items: Vec<Item>) -> Vec<Item> {
         for item in &mut items {
             item.words = self.words_under(&item.id);
             if item.is_document && item.meta.synopsis.trim().is_empty() {
@@ -133,6 +209,42 @@ impl WriterApp {
         }
         items
     }
+}
+
+/// The keywords used in a folder (subfolders and all), each with how many
+/// items have it, by name (any case counts as one, shown as first met).
+fn keyword_counts(folder: &Node) -> Vec<(String, usize)> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for node in folder.subtree().into_iter().skip(1) {
+        for keyword in &node.meta.keywords {
+            match counts.iter_mut().find(|(k, _)| k.eq_ignore_ascii_case(keyword)) {
+                Some((_, n)) => *n += 1,
+                None => counts.push((keyword.clone(), 1)),
+            }
+        }
+    }
+    counts.sort_by_key(|(k, _)| k.to_lowercase());
+    counts
+}
+
+/// An item's title, bold and cut short to fit, with a small globe at the
+/// right if it has a web address (where it's published): click that to
+/// open it in the browser.
+fn title_row(ui: &mut egui::Ui, item: &Item, actions: &mut Vec<ViewAction>) {
+    let icon = if item.is_document { "\u{1F4C4}" } else { "\u{1F4C1}" };
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if let Some(url) = &item.url {
+                let mark = egui::Button::new("\u{1F310}").frame(false);
+                if ui.add(mark).on_hover_text(format!("Open {url}")).clicked() {
+                    actions.push(ViewAction::OpenUrl(url.clone()));
+                }
+            }
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(RichText::new(format!("{icon} {}", item.title)).strong()).truncate().selectable(false));
+            });
+        });
+    });
 }
 
 fn collect<'a>(nodes: &'a [Node], depth: usize, nested: bool, out: &mut Vec<(&'a Node, usize)>) {
@@ -152,13 +264,14 @@ fn corkboard(
     statuses: &[String],
     labels: &[Label],
     dragging: Option<&str>,
+    reorder: bool,
     actions: &mut Vec<ViewAction>,
 ) {
     dot_grid(ui, ui.max_rect().min, GRID_STEP, 1.0);
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(CARD_GAP);
         for item in items {
-            card(ui, item, statuses, labels, dragging, actions);
+            card(ui, item, statuses, labels, dragging, reorder, actions);
         }
     });
 }
@@ -238,6 +351,7 @@ fn card(
     statuses: &[String],
     labels: &[Label],
     dragging: Option<&str>,
+    reorder: bool,
     actions: &mut Vec<ViewAction>,
 ) {
     // The card's background takes clicks and drags; the synopsis field,
@@ -261,8 +375,7 @@ fn card(
     {
         let ui = &mut contents;
         ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
-        let icon = if item.is_document { "\u{1F4C4}" } else { "\u{1F4C1}" };
-        ui.add(egui::Label::new(RichText::new(format!("{icon} {}", item.title)).strong()).truncate().selectable(false));
+        title_row(ui, item, actions);
         // Nothing drawn past the card's edge…
         ui.set_clip_rect(rect.intersect(ui.clip_rect()));
         let mut synopsis = item.meta.synopsis.clone();
@@ -303,7 +416,9 @@ fn card(
     if response.double_clicked() {
         actions.push(ViewAction::Open(item.id.clone()));
     }
-    drag_and_drop(ui, &response, item, dragging, true, actions);
+    if reorder {
+        drag_and_drop(ui, &response, item, dragging, true, actions);
+    }
 }
 
 // ----- outline ---------------------------------------------------------------
@@ -319,6 +434,7 @@ fn outline(
     statuses: &[String],
     labels: &[Label],
     dragging: Option<&str>,
+    reorder: bool,
     actions: &mut Vec<ViewAction>,
 ) {
     let row_height = 44.0;
@@ -359,11 +475,8 @@ fn outline(
         row.allocate_ui(Vec2::new(title_w, row_height), |ui| {
             ui.add_space(indent);
             ui.vertical(|ui| {
-                let icon = match (item.is_document, item.has_children) {
-                    (true, _) => "\u{1F4C4}",
-                    (false, _) => "\u{1F4C1}",
-                };
-                ui.add(egui::Label::new(RichText::new(format!("{icon} {}", item.title)).strong()).truncate().selectable(false));
+                ui.set_width(title_w - indent - 12.0);
+                title_row(ui, item, actions);
                 let hint = synopsis_hint(ui, &item.opening);
                 ui.add(
                     egui::TextEdit::singleline(&mut meta.synopsis)
@@ -420,7 +533,9 @@ fn outline(
             actions.push(ViewAction::Open(item.id.clone()));
         }
         if !blocked {
-            drag_and_drop(ui, &response, item, dragging, false, actions);
+            if reorder {
+                drag_and_drop(ui, &response, item, dragging, false, actions);
+            }
         } else if response.dragged() {
             drag_ghost(ui.ctx(), &item.title);
         }

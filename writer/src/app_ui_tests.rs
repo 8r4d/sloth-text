@@ -2919,3 +2919,61 @@ fn copy_in_the_inspector_puts_the_text_formatted_on_the_clipboard() {
         harness.render().unwrap().save(format!("{dir}/copy.png")).unwrap();
     }
 }
+
+#[test]
+fn a_folders_cards_can_be_filtered_by_keyword_and_show_where_theyre_published() {
+    let dir = TempDir::new("keyword-filter");
+    let mut p = project(&dir, "");
+    let m = Place::Into("manuscript".into());
+    let one = p.add_folder(&m, "Chapter One").unwrap();
+    let two = p.add_folder(&m, "Chapter Two").unwrap();
+    let mut add = |folder: &String, title: &str, keywords: &[&str], url: &str| {
+        let id = p.add_document(&Place::Into(folder.clone()), title).unwrap();
+        let meta = crate::project::Meta { keywords: keywords.iter().map(|k| k.to_string()).collect(), url: url.into(), ..Default::default() };
+        p.set_meta(&id, meta);
+        id
+    };
+    add(&one, "Walking", &["travel"], "myblog.example.com/walking");
+    add(&one, "Weather", &["home"], "");
+    add(&two, "Trains", &["Travel", "home"], "");
+    add(&two, "Rain", &[], "");
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().select("manuscript".into());
+    harness.run_steps(3);
+
+    // The Manuscript's corkboard shows its chapters; the menu, its keywords.
+    in_view(&harness, "📁 Chapter One");
+    harness.get_by_label("All keywords").click();
+    harness.run_steps(2);
+    harness.get_by_label("home  (2)");
+    harness.get_by_label("travel  (2)").click();
+    harness.run_steps(3);
+    // From both chapters, any case.
+    let ids: Vec<String> = harness.state_mut().keyword_items("manuscript", "travel").into_iter().map(|i| i.title).collect();
+    assert_eq!(ids, ["Walking", "Trains"]);
+    // Each once in the binder, and once on a card.
+    assert_eq!(harness.query_all_by_label("📄 Walking").count(), 2);
+    assert_eq!(harness.query_all_by_label("📄 Trains").count(), 2);
+    assert_eq!(harness.query_all_by_label("📄 Weather").count(), 1, "only in the binder: not tagged travel");
+    harness.get_by_label("Keyword: travel");
+
+    // Walking is published: its globe opens it.
+    harness.get_by_label("\u{1F310}").click();
+    harness.run_steps(2);
+    assert!(super::inspector::opened_for_test().contains(&"https://myblog.example.com/walking".to_owned()));
+
+    // Back to everything.
+    harness.get_by_label("Keyword: travel").click();
+    harness.run_steps(2);
+    harness.get_by_label("All keywords").click();
+    harness.run_steps(3);
+    in_view(&harness, "📁 Chapter Two");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.get_by_label("All keywords").click();
+        harness.run_steps(2);
+        harness.get_by_label("travel  (2)").click();
+        harness.run_steps(3);
+        harness.render().unwrap().save(format!("{dir}/keywords.png")).unwrap();
+    }
+}

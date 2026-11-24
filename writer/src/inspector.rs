@@ -119,13 +119,23 @@ pub(super) fn copied_for_test(ctx: &egui::Context) -> Option<(String, String)> {
 }
 
 /// Open a web address in the default browser.
-fn open_in_browser(url: &str) {
+pub(super) fn open_in_browser(url: &str) {
     #[cfg(not(test))]
     {
         let _ = std::process::Command::new("open").arg(url).spawn();
     }
+    // Tests note it instead (see `opened_for_test`).
     #[cfg(test)]
-    let _ = url;
+    OPENED.lock().unwrap().push(url.to_owned());
+}
+
+#[cfg(test)]
+static OPENED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Every address tests have asked to open, in any test.
+#[cfg(test)]
+pub(super) fn opened_for_test() -> Vec<String> {
+    OPENED.lock().unwrap().clone()
 }
 
 /// How many words of a document's opening a card shows.
