@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.40.1
+
+- Outline rows have more room above the title: the title and synopsis sit in the middle of the row, clear of its top edge.
+
 ## 1.40.0
 
 The web editor's project page, redone for bigger projects.

@@ -424,7 +424,10 @@ fn card(
 // ----- outline ---------------------------------------------------------------
 
 /// An outline row's height, and the space between rows.
-const ROW_HEIGHT: f32 = 52.0;
+const ROW_HEIGHT: f32 = 58.0;
+/// Space above a row's title: the title and synopsis (about 36 points)
+/// sit in the middle of the row, clear of its top edge.
+const ROW_TOP: f32 = 11.0;
 const ROW_GAP: f32 = 4.0;
 /// The room at a row's left before its title: the handle and a gap.
 const GRIP_W: f32 = 32.0;
@@ -499,6 +502,7 @@ fn outline(
             ui.add_space(indent);
             ui.vertical(|ui| {
                 ui.set_width(title_w - indent - 12.0);
+                ui.add_space(ROW_TOP);
                 title_row(ui, item, actions);
                 let hint = synopsis_hint(ui, &item.opening);
                 ui.add(
