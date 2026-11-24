@@ -408,8 +408,8 @@ impl WriterApp {
             ui.label(RichText::new("Links to").small().weak());
             ui.horizontal_wrapped(|ui| {
                 for (id, title) in to {
-                    let chip = egui::Button::new(RichText::new(format!("[[{title}]]")).small().color(ui.visuals().hyperlink_color)).frame(false);
-                    if ui.add(chip).on_hover_text("Open it beside this one").clicked() {
+                    // A link, as Linked from's are below: the same size and look.
+                    if ui.link(format!("[[{title}]]")).on_hover_text("Open it beside this one").clicked() {
                         picked = Some(LinkPick::Open(id.clone()));
                     }
                 }
