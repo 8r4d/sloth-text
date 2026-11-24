@@ -46,7 +46,9 @@ impl WriterApp {
                 ui.separator();
                 self.split_contents(ui);
             });
-        self.split_open = open;
+        // Closed by the pane itself (its ×, inside the closure above) or by
+        // the panel: either one closes it. (Just `open` would undo the ×.)
+        self.split_open = open && self.split_open;
     }
 
     fn split_header(&mut self, ui: &mut egui::Ui) {

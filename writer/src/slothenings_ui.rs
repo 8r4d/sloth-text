@@ -114,18 +114,22 @@ impl WriterApp {
     }
 }
 
+/// The size of a document's title in the rule above it: the interface's
+/// usual size, so it reads easily (and is easy to click).
+const DIVIDER_TITLE_SIZE: f32 = 14.0;
+
 /// Between documents: a faint rule across the text's column with the next
 /// one's title in it. Clicking it opens that document on its own.
 fn divider(ui: &mut egui::Ui, title: &str, column: f32, first: bool) -> egui::Response {
     ui.add_space(if first { 4.0 } else { 26.0 });
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 20.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 24.0), Sense::click());
     let text_width = column.min(width);
     let left = rect.left() + (width - text_width) / 2.0;
     let visuals = ui.visuals();
     let color = if response.hovered() { visuals.hyperlink_color } else { visuals.weak_text_color() };
     let painter = ui.painter();
-    let galley = painter.layout_no_wrap(title.to_owned(), egui::FontId::proportional(11.0), color);
+    let galley = painter.layout_no_wrap(title.to_owned(), egui::FontId::proportional(DIVIDER_TITLE_SIZE), color);
     let mid = rect.center().y;
     let label_left = left + 2.0;
     painter.galley(egui::pos2(label_left, mid - galley.size().y / 2.0), galley.clone(), color);

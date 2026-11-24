@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.32.2
+
+- In Slothenings, each document's title in the rule above it is bigger (the interface's usual size), easier to read and to click.
+- Fixed: the split view's × didn't close it (the click was undone the moment it was made). ⌘\ and the Split button always worked.
+
 ## 1.32.1
 
 - The inspector's Links: what a document links to is the same size and look as where it's linked from.

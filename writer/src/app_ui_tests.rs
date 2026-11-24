@@ -2790,3 +2790,16 @@ fn a_document_has_a_web_address_to_open() {
         harness.render().unwrap().save(format!("{dir}/link.png")).unwrap();
     }
 }
+
+#[test]
+fn the_split_views_close_button_closes_it() {
+    let dir = TempDir::new("split-close");
+    let mut harness = harness(project(&dir, "Words."));
+    harness.state_mut().show_inspector = false;
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Backslash);
+    harness.run_steps(3);
+    assert!(harness.state().split_open);
+    harness.get_by_label("\u{d7}").click();
+    harness.run_steps(3);
+    assert!(!harness.state().split_open, "closed by its ×");
+}
