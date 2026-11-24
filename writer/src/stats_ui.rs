@@ -112,6 +112,7 @@ impl WriterApp {
         let chapters = self.chapters();
         let most_used = self.most_used_words(ctx.input(|i| i.time));
         let mut find_word = None;
+        let common = super::repetition_ui::watch_list(&self.settings.common_words);
         let Some(project) = self.project.as_mut() else { return };
         let goals = &mut project.manifest.goals;
         let fields = self.goal_fields.get_or_insert_with(|| {
@@ -162,7 +163,7 @@ impl WriterApp {
                             ui.end_row();
                         }
                     });
-                    find_word = super::repetition_ui::most_used_section(ui, &most_used);
+                    find_word = super::repetition_ui::most_used_section(ui, &most_used, &common);
                     target_section(ui, goals, total, written, today);
                     ui.add_space(8.0);
                     ui.separator();
@@ -186,9 +187,13 @@ impl WriterApp {
         if *goals != before {
             self.manifest_dirty = true;
         }
-        if let Some(word) = find_word {
-            self.find.query = word;
-            self.open_find(true);
+        match find_word {
+            Some(super::repetition_ui::MostUsedAction::Find(word)) => {
+                self.find.query = word;
+                self.open_find(true);
+            }
+            Some(super::repetition_ui::MostUsedAction::Common(word, common)) => self.set_common(&word, common),
+            None => {}
         }
         if !open {
             self.stats_open = false;

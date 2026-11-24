@@ -82,6 +82,9 @@ pub struct WriterSettings {
     pub show_repetition: bool,
     /// Words and phrases to underline when they come up, commas between.
     pub watch_words: String,
+    /// Your own common words, commas between: left out of the most used,
+    /// and never echoes (as the built-in common words aren't).
+    pub common_words: String,
 }
 
 impl Default for WriterSettings {
@@ -110,6 +113,7 @@ impl Default for WriterSettings {
             focus_paragraph: true,
             show_repetition: false,
             watch_words: crate::repetition::default_watch_list().join(", "),
+            common_words: String::new(),
             theme: ThemeChoice::default(),
         }
     }
@@ -305,6 +309,10 @@ impl WriterApp {
                         .on_hover_text("A word used again within about 100 words is tinted; words you watch for are underlined.");
                     row(ui, "Watch for", &mut |ui| {
                         ui.add(egui::TextEdit::singleline(&mut settings.watch_words).desired_width(320.0).hint_text("just, suddenly, began to"));
+                    });
+                    row(ui, "Common words", &mut |ui| {
+                        ui.add(egui::TextEdit::singleline(&mut settings.common_words).desired_width(320.0).hint_text("people, really, maybe"))
+                            .on_hover_text("Left out of Statistics' most used words, and never tinted as repeats, like the little words Writer already leaves out. Commas between. In Statistics, right-click a word to add it.");
                     });
                     ui.checkbox(&mut settings.celebrate_goals, "Celebrate reaching the day's goal")
                         .on_hover_text("Once a day: the goal ring pulses, and the sloth says so.");

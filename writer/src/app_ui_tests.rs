@@ -2458,6 +2458,39 @@ fn repeated_words_are_marked_and_the_most_used_listed() {
     assert!(!harness.state().settings.show_repetition);
 }
 
+#[test]
+fn a_most_used_word_can_be_left_out_and_brought_back() {
+    let dir = TempDir::new("common-words");
+    let mut harness = harness(project(&dir, "People said people were people. The harbour, the harbour."));
+    harness.run_steps(2);
+    harness.state_mut().open_stats();
+    harness.run_steps(3);
+
+    // Right-click → Leave Out.
+    let pos = harness.get_by_label("people  3").rect().center();
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE });
+        harness.run_steps(1);
+    }
+    harness.run_steps(2);
+    harness.get_by_label("Leave Out").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().settings.common_words, "people");
+    assert!(harness.query_by_label("people  3").is_none());
+    harness.get_by_label("harbour  2");
+    harness.event(egui::Event::PointerMoved(egui::pos2(990.0, 690.0)));
+    harness.run_steps(2);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/common.png")).unwrap();
+    }
+
+    // Listed as left out; click it to count it again.
+    harness.get_by_label("people \u{d7}").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().settings.common_words, "");
+    harness.get_by_label("people  3");
+}
+
 // ----- comments ------------------------------------------------------------------------------
 
 #[test]

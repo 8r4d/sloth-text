@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.32.0
+
+- Common words of your own: in Statistics, right-click one of the most used words and choose Leave Out. It's listed under Left out, where a click brings it back, and all of them are in Settings → Writing → Common words. Like the little words Writer already leaves out, they're never tinted as repeats either. They're yours, so they apply to every project.
+
 ## 1.31.0
 
 - A Web address for each document (and folder), in the inspector's Details: where it's published, say. Open beside it takes you there in your browser. `https://` can be left off; only web addresses open.
