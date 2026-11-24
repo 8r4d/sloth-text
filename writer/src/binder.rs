@@ -23,6 +23,12 @@ pub enum BinderAction {
     /// Show this in the split view (⌥-click, or the menu).
     OpenInSplit(String),
     RemoveProfileFolder(String),
+    /// Break Up…: a document's parts (at headings or scene breaks) as documents of their own.
+    BreakUp(String),
+    /// Combine into One Document…: a folder's documents as one.
+    Combine(String),
+    /// Combine with Next…: this document and the one after it as one.
+    CombineWithNext(String),
 }
 
 /// What's being dragged: a binder item's id.
@@ -49,7 +55,7 @@ pub fn show(
     let dragging = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).map(|d| d.0.clone());
     let mut tree = Tree { labels, kinds, selected, notepad, renaming, dragging: dragging.as_deref(), actions: &mut actions };
     for node in binder {
-        node_ui(ui, node, false, node.role, &mut tree);
+        node_ui(ui, node, false, node.role, None, &mut tree);
     }
     actions
 }
@@ -71,27 +77,28 @@ struct Tree<'a> {
 /// `inside`: this row is the dragged item or inside it, so nothing can be
 /// dropped on it.
 /// `top`: the role folder this node is in, for its icon.
-fn node_ui(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &mut Tree<'_>) {
+/// `next`: the item after it in the same folder, if any.
+fn node_ui(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Option<&Node>, tree: &mut Tree<'_>) {
     let inside = inside || tree.dragging == Some(node.id.as_str());
     if node.children.is_empty() {
         ui.horizontal(|ui| {
             // Line up with siblings that have an open/close arrow.
             ui.add_space(ui.spacing().icon_width + ui.spacing().item_spacing.x);
-            row(ui, node, inside, top, tree);
+            row(ui, node, inside, top, next, tree);
         });
     } else {
         let id = ui.make_persistent_id(("binder", &node.id));
         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
-            .show_header(ui, |ui| row(ui, node, inside, top, tree))
+            .show_header(ui, |ui| row(ui, node, inside, top, next, tree))
             .body(|ui| {
-                for child in &node.children {
-                    node_ui(ui, child, inside, top, tree);
+                for (i, child) in node.children.iter().enumerate() {
+                    node_ui(ui, child, inside, top, node.children.get(i + 1), tree);
                 }
             });
     }
 }
 
-fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &mut Tree<'_>) {
+fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Option<&Node>, tree: &mut Tree<'_>) {
     let actions = &mut *tree.actions;
     if let Some(r) = tree.renaming.as_mut().filter(|r| r.id == node.id) {
         let response = ui.add(egui::TextEdit::singleline(&mut r.text).desired_width(f32::INFINITY));
@@ -234,6 +241,27 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, tree: &m
                 actions.push(BinderAction::StartRename(node.id.clone()));
                 ui.close();
             }
+            ui.separator();
+            if node.is_document()
+                && ui.button("Break Up\u{2026}").on_hover_text("Make each part (from a heading or a scene break) a document of its own").clicked()
+            {
+                actions.push(BinderAction::BreakUp(node.id.clone()));
+                ui.close();
+            }
+            if !node.children.is_empty()
+                && ui.button("Combine into One Document\u{2026}").on_hover_text("Everything in it as one document").clicked()
+            {
+                actions.push(BinderAction::Combine(node.id.clone()));
+                ui.close();
+            }
+            if node.is_document()
+                && next.is_some_and(|n| n.is_document() && n.children.is_empty())
+                && ui.button("Combine with Next\u{2026}").on_hover_text("This document and the one after it as one").clicked()
+            {
+                actions.push(BinderAction::CombineWithNext(node.id.clone()));
+                ui.close();
+            }
+            ui.separator();
             if ui.button("Move to Trash").clicked() {
                 actions.push(BinderAction::Trash(node.id.clone()));
                 ui.close();

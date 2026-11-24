@@ -2495,3 +2495,129 @@ fn the_split_pane_never_opens_a_second_editor_on_a_document() {
     harness.get_by_label("Open in the main editor.");
     assert_eq!(editors(&harness), 4, "the main one, and the other three beside it");
 }
+
+// ----- Break Up and Combine ------------------------------------------------------------
+
+const CHAPTER: &str = "Why these essays.\n\n# On Walking\n\nI walk.\n\n## A detour\n\nStill walking.\n\n# The Long Way\n\nIt was long.";
+
+#[test]
+fn break_up_makes_a_document_of_each_essay() {
+    let dir = TempDir::new("break-up");
+    let mut harness = harness(project(&dir, CHAPTER));
+    let id = harness.state().selected.clone().unwrap();
+    harness.state_mut().apply(BinderAction::BreakUp(id.clone()));
+    harness.run_steps(2);
+    // It starts at the top headings, and says what it'll make.
+    harness.get_by_label("2 documents:");
+    harness.get_by_label("📄 On Walking");
+    harness.get_by_label("The 3 words before the first break stay in “Untitled” itself.");
+    harness.get_by_label("Break Up").click();
+    harness.run_steps(3);
+
+    let app = harness.state();
+    let project = app.project.as_ref().unwrap();
+    let node = project.node(&id).unwrap();
+    let children: Vec<_> = node.children.iter().map(|n| n.title.as_str()).collect();
+    assert_eq!(children, ["On Walking", "The Long Way"]);
+    let read = |id: &str| fs::read_to_string(project.file_path(id).unwrap()).unwrap();
+    assert_eq!(read(&id), "Why these essays.");
+    assert_eq!(read(&node.children[0].id), "I walk.\n\n## A detour\n\nStill walking.");
+    assert_eq!(read(&node.children[1].id), "It was long.");
+    let snapshots = crate::snapshots::list(&project.root, &id);
+    assert_eq!(snapshots[0].text().unwrap(), CHAPTER, "the whole text is kept");
+    // Moved, not written.
+    harness.get_by_label("Today: 0 words");
+}
+
+#[test]
+fn breaking_up_with_nothing_before_the_first_heading_leaves_a_folder() {
+    let dir = TempDir::new("break-up-folder");
+    let mut harness = harness(project(&dir, "## One\n\na\n\n## Two\n\nb"));
+    let id = harness.state().selected.clone().unwrap();
+    harness.state_mut().apply(BinderAction::BreakUp(id.clone()));
+    harness.run_steps(2);
+    harness.get_by_label("“Untitled” becomes a folder holding them.");
+    harness.get_by_label("Break Up").click();
+    harness.run_steps(3);
+    let project = harness.state().project.as_ref().unwrap();
+    let node = project.node(&id).unwrap();
+    assert!(!node.is_document());
+    assert!(!dir.0.join("manuscript/untitled.md").exists());
+    assert_eq!(node.children.len(), 2);
+}
+
+#[test]
+fn break_up_can_go_by_scene_breaks_instead() {
+    let dir = TempDir::new("break-up-scenes");
+    let mut harness = harness(project(&dir, "First bit.\n\n* * *\n\nSecond bit."));
+    let id = harness.state().selected.clone().unwrap();
+    harness.state_mut().apply(BinderAction::BreakUp(id.clone()));
+    harness.run_steps(2);
+    // No headings: scene breaks are chosen already.
+    harness.get_by_label("1 document:");
+    harness.get_by_label("Break Up").click();
+    harness.run_steps(3);
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.node(&id).unwrap().children[0].title, "Second bit.");
+}
+
+#[test]
+fn combine_puts_a_folder_back_together_under_headings() {
+    let dir = TempDir::new("combine");
+    let mut harness = harness(project(&dir, CHAPTER));
+    let id = harness.state().selected.clone().unwrap();
+    harness.state_mut().apply(BinderAction::BreakUp(id.clone()));
+    harness.run_steps(2);
+    harness.get_by_label("Break Up").click();
+    harness.run_steps(3);
+
+    harness.state_mut().apply(BinderAction::Combine(id.clone()));
+    harness.run_steps(2);
+    harness.get_by_label("2 documents:");
+    harness.get_by_label("Combine").click();
+    harness.run_steps(3);
+
+    assert_eq!(current_text(&mut harness).as_deref(), Some(CHAPTER), "back as it was");
+    let project = harness.state().project.as_ref().unwrap();
+    assert!(project.node(&id).unwrap().children.is_empty());
+    let trash = project.manifest.binder.iter().find(|n| n.role == Some(crate::project::Role::Trash)).unwrap();
+    assert_eq!(trash.children.len(), 2, "the essays are in the Trash");
+    harness.get_by_label("Today: 0 words");
+}
+
+#[test]
+fn combine_makes_a_folder_a_document() {
+    let dir = TempDir::new("combine-folder");
+    let mut p = project(&dir, "");
+    let folder = p.add_folder(&Place::Into("manuscript".into()), "Chapter").unwrap();
+    for (title, text) in [("One", "a"), ("Two", "b")] {
+        let doc = p.add_document(&Place::Into(folder.clone()), title).unwrap();
+        fs::write(p.file_path(&doc).unwrap(), text).unwrap();
+    }
+    let mut harness = harness(p);
+    harness.state_mut().apply(BinderAction::Combine(folder.clone()));
+    harness.run_steps(2);
+    harness.get_by_label("With a scene break between each").click();
+    harness.run_steps(1);
+    harness.get_by_label("Combine").click();
+    harness.run_steps(3);
+    let project = harness.state().project.as_ref().unwrap();
+    assert!(project.node(&folder).unwrap().is_document());
+    assert_eq!(fs::read_to_string(project.file_path(&folder).unwrap()).unwrap(), "a\n\n#\n\nb");
+}
+
+#[test]
+fn combine_with_next_joins_two_documents() {
+    let dir = TempDir::new("combine-next");
+    let mut p = project(&dir, "The ferry had gone.");
+    let second = p.add_document(&Place::Into("manuscript".into()), "Later").unwrap();
+    fs::write(p.file_path(&second).unwrap(), "Next morning she walked.").unwrap();
+    let mut harness = harness(p);
+    let first = harness.state().selected.clone().unwrap();
+    harness.state_mut().apply(BinderAction::CombineWithNext(first.clone()));
+    harness.run_steps(2);
+    harness.get_by_label("Combine").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("The ferry had gone.\n\nNext morning she walked."));
+    assert_eq!(manuscript_titles(&harness), ["Untitled"]);
+}

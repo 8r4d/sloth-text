@@ -80,6 +80,11 @@ impl WriterApp {
                         });
                     ui.end_row();
 
+                    ui.label("Documents");
+                    ui.checkbox(&mut settings.document_titles, "Their titles as headings")
+                        .on_hover_text("Each document in a chapter under its own title: for essays and posts, rather than scenes. No break mark is needed between them.");
+                    ui.end_row();
+
                     ui.label("Scene breaks");
                     ui.horizontal(|ui| {
                         // Named, not shown: the interface font has no asterism (⁂),

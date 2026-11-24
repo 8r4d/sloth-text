@@ -136,6 +136,9 @@ pub struct CompileSettings {
     pub contact: String,
     pub format: Format,
     pub chapter_headings: ChapterHeadings,
+    /// Each document inside a chapter headed with its title (for essays
+    /// and posts, rather than scenes).
+    pub document_titles: bool,
     pub paper: Paper,
     pub typeface: Typeface,
     pub scene_break: SceneBreak,
@@ -154,6 +157,7 @@ pub struct Preset {
     pub name: String,
     pub format: Format,
     pub chapter_headings: ChapterHeadings,
+    pub document_titles: bool,
     pub paper: Paper,
     pub typeface: Typeface,
     pub scene_break: SceneBreak,
@@ -173,6 +177,7 @@ impl Preset {
             name: name.to_owned(),
             format: s.format,
             chapter_headings: s.chapter_headings,
+            document_titles: s.document_titles,
             paper: s.paper,
             typeface: s.typeface,
             scene_break: s.scene_break,
@@ -185,6 +190,7 @@ impl Preset {
     pub fn apply(&self, s: &mut CompileSettings) {
         s.format = self.format;
         s.chapter_headings = self.chapter_headings;
+        s.document_titles = self.document_titles;
         s.paper = self.paper;
         s.typeface = self.typeface;
         s.scene_break = self.scene_break;
@@ -335,7 +341,7 @@ pub fn gather(project: &Project, settings: &CompileSettings, text: impl Fn(&Node
     };
     for item in manuscript.children.iter().filter(|n| !n.meta.exclude_from_compile) {
         let mut scenes = Vec::new();
-        collect_scenes(item, &text, &mut prepare, &mut scenes);
+        collect_scenes(item, &text, &mut prepare, settings.document_titles.then_some(0), &mut scenes);
         if scenes.is_empty() && !item.is_document() && item.children.is_empty() {
             continue; // an empty folder
         }
@@ -352,19 +358,36 @@ pub fn gather(project: &Project, settings: &CompileSettings, text: impl Fn(&Node
 }
 
 /// The scenes in an item, in order, skipping anything not included.
-fn collect_scenes(node: &Node, text: &impl Fn(&Node) -> String, prepare: &mut impl FnMut(&str) -> String, out: &mut Vec<String>) {
+/// `titled`: how deep this item is in its chapter, when documents are
+/// headed with their titles (the chapter's own title is its heading).
+fn collect_scenes(
+    node: &Node,
+    text: &impl Fn(&Node) -> String,
+    prepare: &mut impl FnMut(&str) -> String,
+    titled: Option<usize>,
+    out: &mut Vec<String>,
+) {
     if node.meta.exclude_from_compile {
         return;
     }
     if node.is_document() {
         let scene = prepare(&text(node));
-        if !scene.trim().is_empty() {
-            out.push(scene.trim().to_owned());
+        let scene = scene.trim();
+        if !scene.is_empty() {
+            out.push(match titled {
+                Some(depth) if depth > 0 => format!("## {}\n\n{scene}", node.title.trim()),
+                _ => scene.to_owned(),
+            });
         }
     }
     for child in &node.children {
-        collect_scenes(child, text, prepare, out);
+        collect_scenes(child, text, prepare, titled.map(|d| d + 1), out);
     }
+}
+
+/// A scene that opens with a heading needs no break mark before it.
+fn break_before(i: usize, scene: &str) -> bool {
+    i > 0 && !scene.lines().map(str::trim).find(|l| !l.is_empty()).is_some_and(|l| l.starts_with('#') && !is_scene_break(l))
 }
 
 /// Remove inline notes: everything from `<!--` to `-->` (an unclosed one
@@ -491,7 +514,7 @@ pub fn to_markdown(m: &Manuscript, settings: &CompileSettings) -> String {
     for chapter in &m.chapters {
         out.push_str(&format!("\n# {}\n", chapter.heading));
         for (i, scene) in chapter.scenes.iter().enumerate() {
-            if i > 0 {
+            if break_before(i, scene) {
                 out.push_str(&format!("\n{separator}\n"));
             }
             for line in scene.lines().map(str::trim).filter(|l| !l.is_empty()) {
@@ -613,7 +636,7 @@ pub fn to_docx(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
                 .add_run(run(face).add_text(&chapter.heading)),
         );
         for (i, scene) in chapter.scenes.iter().enumerate() {
-            if i > 0 {
+            if break_before(i, scene) {
                 doc = doc.add_paragraph(scene_break(mark, face));
             }
             for block in blocks(scene) {
@@ -783,7 +806,7 @@ pub fn to_epub(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
     for (n, chapter) in m.chapters.iter().enumerate() {
         let mut body = format!("<h1>{}</h1>\n", xml(&chapter.heading));
         for (i, scene) in chapter.scenes.iter().enumerate() {
-            if i > 0 {
+            if break_before(i, scene) {
                 body.push_str(&format!("<p class=\"break\">{}</p>\n", xml(mark)));
             }
             for block in blocks(scene) {
@@ -942,6 +965,21 @@ mod tests {
         let numbered = CompileSettings { chapter_headings: ChapterHeadings::NumbersAndTitles, ..Default::default() };
         let m = gather(&p, &numbered, read(&p));
         assert_eq!(m.chapters[1].heading, "Chapter 2: The Harbour");
+    }
+
+    #[test]
+    fn documents_can_be_headed_with_their_titles() {
+        let dir = TempDir::new("doc-titles");
+        let p = book(&dir);
+        let settings = CompileSettings { document_titles: true, ..Default::default() };
+        let m = gather(&p, &settings, read(&p));
+        assert_eq!(m.chapters[0].scenes, ["## Quay\n\nMara was *late*.\nThe ferry had gone.", "## Letter\n\nDear Mara,\n\n**Come home.**"]);
+        // A chapter that's one document: its title is the chapter's heading.
+        assert_eq!(m.chapters[1].scenes, ["The harbour froze."]);
+        // Each opens with its heading, so no break mark between them.
+        let md = to_markdown(&m, &settings);
+        assert!(md.contains("# Arrival\n\n## Quay\n\nMara was *late*.\n\nThe ferry had gone.\n\n## Letter\n"), "{md}");
+        assert!(!md.contains("* * *"), "{md}");
     }
 
     #[test]

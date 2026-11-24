@@ -711,6 +711,41 @@ impl Project {
         self.add(place, title, false)
     }
 
+    /// A document becomes a plain folder (keeping its children, metadata
+    /// and snapshots): its file is removed. Returns the file's path.
+    pub fn make_folder(&mut self, id: &str) -> io::Result<PathBuf> {
+        let node = self.node(id).ok_or_else(|| invalid("That item no longer exists."))?;
+        let rel = node.path.clone().ok_or_else(|| invalid("That's already a folder."))?;
+        let path = self.root.join(&rel);
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+        self.node_mut(id).expect("checked above").path = None;
+        self.save()?;
+        Ok(path)
+    }
+
+    /// A folder becomes a document (keeping its children and metadata),
+    /// with a new file holding `text`. Returns the file's path.
+    pub fn make_document(&mut self, id: &str, text: &str) -> io::Result<PathBuf> {
+        let node = self.node(id).ok_or_else(|| invalid("That item no longer exists."))?;
+        if node.role.is_some() {
+            return Err(invalid("The top-level folders can't hold text."));
+        }
+        if node.is_document() {
+            return Err(invalid("That's already a document."));
+        }
+        let dir = self.top_of(id).expect("checked above").id.clone();
+        let rel = self.free_path(&dir, &slug(&node.title), None);
+        let path = self.root.join(&rel);
+        write_atomically(&path, text.as_bytes())?;
+        self.node_mut(id).expect("checked above").path = Some(rel);
+        self.save()?;
+        Ok(path)
+    }
+
     fn add(&mut self, place: &Place, title: &str, document: bool) -> io::Result<String> {
         self.check_place(None, place)?;
         let title = clean_title(title)?;
@@ -1243,6 +1278,28 @@ mod tests {
 
     fn titles(nodes: &[Node]) -> Vec<&str> {
         nodes.iter().map(|n| n.title.as_str()).collect()
+    }
+
+    #[test]
+    fn a_document_becomes_a_folder_and_back() {
+        let dir = TempDir::new("doc-folder");
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        let chapter = p.add_document(&manuscript(), "Chapter One").unwrap();
+        let essay = p.add_document(&Place::Into(chapter.clone()), "Essay").unwrap();
+        let file = p.make_folder(&chapter).unwrap();
+        assert!(!file.exists());
+        assert!(!p.node(&chapter).unwrap().is_document());
+        assert_eq!(titles(&p.node(&chapter).unwrap().children), ["Essay"]);
+        assert!(p.make_folder(&chapter).is_err(), "already a folder");
+        assert!(p.make_document("manuscript", "").is_err(), "not a top-level folder");
+
+        let file = p.make_document(&chapter, "All of it").unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "All of it");
+        assert_eq!(p.file_path(&chapter).unwrap(), file);
+        assert!(p.node(&essay).is_some());
+        // Saved: it's still so when opened again.
+        let again = Project::open(&dir.0).unwrap();
+        assert!(again.node(&chapter).unwrap().is_document());
     }
 
     #[test]

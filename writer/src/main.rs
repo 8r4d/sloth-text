@@ -5,6 +5,7 @@
 mod app;
 mod backup;
 mod binder;
+mod breakup;
 mod canvas;
 mod character;
 mod compile;

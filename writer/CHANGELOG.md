@@ -2,6 +2,16 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.28.0
+
+Break Up and Combine.
+
+- Break Up… (right-click a document in the binder): each part becomes a document of its own inside it, named from its heading. Break at `#` headings, `#` and `##`, deeper, any heading, or at scene breaks (a piece after a break is named from its first words). The window lists what it'll make before anything changes.
+- Text before the first break stays in the document; with none, it becomes a folder. A snapshot of the whole text is kept first, and each new document keeps the status, label and keywords. Headings come out of the text unless you keep them.
+- Combine into One Document… (right-click a folder) puts everything in it back into one document, each under its title as a heading (`#`, `##` or `###`, a level deeper for subfolders), with a scene break between each, or just one after another. Combine with Next… does the same for a document and the one after it. What's taken in goes to the Trash, so it can still be got back.
+- Words moved either way don't count as written today.
+- Compile: Documents → Their titles as headings, for essays and posts: each document in a chapter under its own title. A document (or scene) that opens with a heading gets no break mark before it.
+
 ## 1.27.0
 
 Writing on the web.

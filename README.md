@@ -125,6 +125,9 @@ change another program made, and saves itself every few seconds.
 - Prose in a reading font, in a centred column.
 - Bold, italics and headings shown as you type. Formatting, Change Case, Remove
   Blank Lines and Split at Cursor (⌘K) are in the right-click menu.
+- Break Up… turns a document's parts (at headings or scene breaks) into
+  documents of their own; Combine puts a folder (or a document and the next)
+  back into one.
 - Two hyphens make an em dash, and spelling is checked with the Mac's own
   spell checker.
 - Notes to yourself, either `<!-- in the text -->` or in a panel above it,
@@ -253,6 +256,7 @@ to include Writer.
 | `writer/src/binder.rs`, `views.rs` | The binder; the corkboard and outline views |
 | `writer/src/inspector.rs` | The inspector, the notes panel, and the Labels and Statuses windows |
 | `writer/src/profiles_ui.rs`, `character.rs` | Profiles (characters, locations…) and their sections |
+| `writer/src/breakup.rs`, `breakup_ui.rs` | Break Up and Combine: the text, and the windows |
 | `writer/src/search.rs`, `split_ui.rs` | Find in the document and the project; the split view |
 | `writer/src/snapshots.rs`, `snapshots_ui.rs` | Snapshots, and comparing them |
 | `writer/src/stats.rs`, `stats_ui.rs` | Words written each day, goals, and the Statistics window |

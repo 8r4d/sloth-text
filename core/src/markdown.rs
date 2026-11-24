@@ -309,7 +309,7 @@ pub fn is_scene_break(line: &str) -> bool {
 }
 
 /// `# Title` to `###### Title`: the number of `#`s.
-fn heading_level(line: &str) -> Option<usize> {
+pub fn heading_level(line: &str) -> Option<usize> {
     let hashes = line.chars().take_while(|&c| c == '#').count();
     ((1..=6).contains(&hashes) && line[hashes..].starts_with(' ')).then_some(hashes)
 }

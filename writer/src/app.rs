@@ -18,6 +18,8 @@ use crate::binder::{self, BinderAction, Renaming};
 mod about_ui;
 #[path = "profiles_ui.rs"]
 mod profiles_ui;
+#[path = "breakup_ui.rs"]
+mod breakup_ui;
 #[path = "canvas_ui.rs"]
 mod canvas_ui;
 #[path = "comments_ui.rs"]
@@ -171,6 +173,10 @@ pub struct WriterApp {
     /// what one item in it is called.
     new_profile_folder: Option<(String, String)>,
 
+    /// The Break Up and Combine windows (see breakup_ui.rs).
+    breaking_up: Option<breakup_ui::BreakingUp>,
+    combining: Option<breakup_ui::Combining>,
+
     // The split view (see split_ui.rs).
     split_open: bool,
     /// What it shows.
@@ -301,6 +307,8 @@ impl WriterApp {
             create_menu: None,
             editing_sections: None,
             new_profile_folder: None,
+            breaking_up: None,
+            combining: None,
             split_open: false,
             split: None,
             stats: Default::default(),
@@ -472,6 +480,8 @@ impl WriterApp {
         self.profile_sheet.clear();
         self.editing_sections = None;
         self.new_profile_folder = None;
+        self.breaking_up = None;
+        self.combining = None;
         self.split = None;
         self.canvas_open = false;
         self.canvas = None;
@@ -936,6 +946,9 @@ impl WriterApp {
             BinderAction::AddProfileFolder(Some(kind)) => self.add_profile_folder(kind),
             BinderAction::AddProfileFolder(None) => self.new_profile_folder = Some((String::new(), String::new())),
             BinderAction::OpenInSplit(id) => self.open_in_split(id),
+            BinderAction::BreakUp(id) => self.start_break_up(&id),
+            BinderAction::Combine(id) => self.start_combine(&id, false),
+            BinderAction::CombineWithNext(id) => self.start_combine(&id, true),
             BinderAction::RemoveProfileFolder(kind) => {
                 let Some(project) = self.project.as_mut() else { return };
                 match project.remove_profile_folder(&kind) {
@@ -1667,6 +1680,8 @@ impl eframe::App for WriterApp {
         self.rename_project_window(&ctx);
         self.sections_window(&ctx);
         self.new_profile_folder_window(&ctx);
+        self.break_up_window(&ctx);
+        self.combine_window(&ctx);
         self.settings_window(&ctx);
         self.help_window(&ctx);
         self.stats_window(&ctx);
