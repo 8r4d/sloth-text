@@ -2655,3 +2655,16 @@ fn combine_with_next_joins_two_documents() {
     assert_eq!(current_text(&mut harness).as_deref(), Some("The ferry had gone.\n\nNext morning she walked."));
     assert_eq!(manuscript_titles(&harness), ["Untitled"]);
 }
+
+#[test]
+fn a_pill_moves_at_depth_two() {
+    let dir = TempDir::new("canvas-depth-drag");
+    let (mut harness, _, alice, _) = canvas_harness(&dir);
+    harness.get_by_label("2").click();
+    harness.run_steps(3);
+    let [x, y] = canvas_place(&harness, &alice);
+    let start = on_screen(&harness, [x + 85.0, y + 30.0]);
+    drag_points(&mut harness, start, start + egui::vec2(0.0, 120.0));
+    harness.run_steps(3);
+    assert_ne!(canvas_place(&harness, &alice), [x, y]);
+}

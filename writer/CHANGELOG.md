@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.29.1
+
+- Fixed: moving a profile's pill on the Canvas could close Writer. Working out where a string meets the pill's rounded end could trip over a rounding error a hair wide, depending on exactly where the pill was while carried.
+
 ## 1.29.0
 
 A tidier Canvas.

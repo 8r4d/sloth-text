@@ -508,7 +508,10 @@ fn rounded_edge_point(rect: Rect, radius: f32, toward: Pos2) -> Pos2 {
     }
     // The corners' circles are centred on the rect shrunk by the radius.
     let inner = rect.shrink(r);
-    let k = Pos2::new(square.x.clamp(inner.left(), inner.right()), square.y.clamp(inner.top(), inner.bottom()));
+    // Not `clamp`: for a pill (r half its height) rounding can leave the
+    // top a hair below the bottom, and `clamp` panics on that.
+    let between = |v: f32, lo: f32, hi: f32| v.max(lo.min(hi)).min(lo.max(hi));
+    let k = Pos2::new(between(square.x, inner.left(), inner.right()), between(square.y, inner.top(), inner.bottom()));
     let in_corner = (square.x - k.x).abs() > f32::EPSILON && (square.y - k.y).abs() > f32::EPSILON;
     if !in_corner {
         return square;
@@ -1029,6 +1032,20 @@ fn background(ui: &egui::Ui, state: &mut CanvasState, cards: &[Card], response: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pill_anywhere_never_trips_over_rounding() {
+        // Lifted cards sit at fractional places, where a pill shrunk by
+        // half its height can come out a hair inside out.
+        let toward = Pos2::new(900.0, 300.0);
+        for i in 0..400_000 {
+            let y = -60.0 + i as f32 * 0.003_17;
+            let lift = (i % 97) as f32 * 0.041;
+            let pill = Rect::from_min_size(Pos2::new(240.0, y), PROFILE_SIZE).translate(Vec2::new(0.0, -lift));
+            let p = rounded_edge_point(pill, PROFILE_SIZE.y / 2.0, toward);
+            assert!(p.x.is_finite() && p.y.is_finite());
+        }
+    }
 
     #[test]
     fn strings_meet_rounded_ends() {
