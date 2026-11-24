@@ -4,7 +4,7 @@
 use eframe::egui::{self, Key};
 
 use crate::app::inspector::label_color;
-use crate::project::{Label, Node, Place, ProfileKind, Role, profile_presets};
+use crate::project::{Label, Manifest, Node, Place, ProfileKind, Role, profile_presets};
 
 pub enum BinderAction {
     Select(String),
@@ -29,6 +29,11 @@ pub enum BinderAction {
     Combine(String),
     /// Combine with Next…: this document and the one after it as one.
     CombineWithNext(String),
+    /// What's in an item gets this status (an index, or none): what's
+    /// directly in it, or (`deep`) what's in its subfolders too.
+    StatusInside { id: String, status: Option<usize>, deep: bool },
+    /// What's in an item gets this label, likewise.
+    LabelInside { id: String, label: Option<usize>, deep: bool },
 }
 
 /// What's being dragged: a binder item's id.
@@ -42,19 +47,28 @@ pub struct Renaming {
     pub focus: bool,
 }
 
+/// `manifest`: the project's binder, and its statuses, labels and profile
+/// kinds for the menus.
 pub fn show(
     ui: &mut egui::Ui,
-    binder: &[Node],
-    labels: &[Label],
-    kinds: &[ProfileKind],
+    manifest: &Manifest,
     selected: Option<&str>,
     notepad: Option<&str>,
     renaming: &mut Option<Renaming>,
 ) -> Vec<BinderAction> {
     let mut actions = Vec::new();
     let dragging = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).map(|d| d.0.clone());
-    let mut tree = Tree { labels, kinds, selected, notepad, renaming, dragging: dragging.as_deref(), actions: &mut actions };
-    for node in binder {
+    let mut tree = Tree {
+        statuses: &manifest.statuses,
+        labels: &manifest.labels,
+        kinds: &manifest.profiles,
+        selected,
+        notepad,
+        renaming,
+        dragging: dragging.as_deref(),
+        actions: &mut actions,
+    };
+    for node in &manifest.binder {
         node_ui(ui, node, false, node.role, None, &mut tree);
     }
     actions
@@ -62,6 +76,7 @@ pub fn show(
 
 /// What every row needs, bundled to keep the signatures short.
 struct Tree<'a> {
+    statuses: &'a [String],
     labels: &'a [Label],
     /// The project's profile kinds, to offer the rest as new folders.
     kinds: &'a [ProfileKind],
@@ -181,6 +196,7 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
         actions.push(BinderAction::StartRename(node.id.clone()));
     }
     let kinds = tree.kinds;
+    let (statuses, labels) = (tree.statuses, tree.labels);
     response.context_menu(|ui| {
         // At the top level: profile folders to add (and this one to remove).
         if node.role.is_some() {
@@ -248,6 +264,9 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
                 actions.push(BinderAction::BreakUp(node.id.clone()));
                 ui.close();
             }
+            if !node.children.is_empty() {
+                inside_menus(ui, node, statuses, labels, actions);
+            }
             if !node.children.is_empty()
                 && ui.button("Combine into One Document\u{2026}").on_hover_text("Everything in it as one document").clicked()
             {
@@ -268,6 +287,66 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
             }
         }
     });
+}
+
+/// The items in `node` that Set Status / Set Label for All Inside change:
+/// what's directly in it, or (`deep`) everything under it.
+pub fn inside(node: &Node, deep: bool) -> Vec<&Node> {
+    if deep { node.subtree().into_iter().skip(1).collect() } else { node.children.iter().collect() }
+}
+
+/// Set Status / Set Label for All Inside: what's in a folder at once. Only
+/// what's directly in it, unless Include subfolders is ticked (remembered
+/// while Writer's open). The choice they all have already is highlighted.
+fn inside_menus(ui: &mut egui::Ui, node: &Node, statuses: &[String], labels: &[Label], actions: &mut Vec<BinderAction>) {
+    let key = egui::Id::unique("binder-inside-subfolders");
+    let mut deep = ui.data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
+    let has_subfolders = node.children.iter().any(|c| !c.children.is_empty());
+    let subfolders = |ui: &mut egui::Ui, deep: &mut bool| {
+        if has_subfolders {
+            ui.checkbox(deep, "Include subfolders").on_hover_text("Also what's inside the folders in it");
+            ui.separator();
+        }
+    };
+    // Ticking Include subfolders leaves the menu open; picking closes it.
+    let submenu = |title: &'static str| {
+        let stay = egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        egui::containers::menu::SubMenuButton::new(title).config(stay)
+    };
+    submenu("Set Status for All Inside").ui(ui, |ui| {
+        subfolders(ui, &mut deep);
+        let items = inside(node, deep);
+        let all = |value: Option<usize>| items.iter().all(|n| n.meta.status == value);
+        for (i, name) in statuses.iter().enumerate() {
+            if ui.add(egui::Button::selectable(all(Some(i)), name.as_str())).clicked() {
+                actions.push(BinderAction::StatusInside { id: node.id.clone(), status: Some(i), deep });
+                ui.close();
+            }
+        }
+        ui.separator();
+        if ui.add(egui::Button::selectable(all(None), "No Status")).clicked() {
+            actions.push(BinderAction::StatusInside { id: node.id.clone(), status: None, deep });
+            ui.close();
+        }
+    });
+    submenu("Set Label for All Inside").ui(ui, |ui| {
+        subfolders(ui, &mut deep);
+        let items = inside(node, deep);
+        let all = |value: Option<usize>| items.iter().all(|n| n.meta.label == value);
+        for (i, label) in labels.iter().enumerate() {
+            let text = egui::RichText::new(format!("\u{25cf} {}", label.name)).color(label_color(label.color));
+            if ui.add(egui::Button::selectable(all(Some(i)), text)).clicked() {
+                actions.push(BinderAction::LabelInside { id: node.id.clone(), label: Some(i), deep });
+                ui.close();
+            }
+        }
+        ui.separator();
+        if ui.add(egui::Button::selectable(all(None), "No Label")).clicked() {
+            actions.push(BinderAction::LabelInside { id: node.id.clone(), label: None, deep });
+            ui.close();
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(key, deep));
 }
 
 /// Where a drop on this row would put the item, drawn as a line (before or

@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.33.0
+
+- Set Status for All Inside and Set Label for All Inside, in a folder's right-click menu in the binder: what's directly in the folder gets the status or label you pick. Tick Include subfolders (at the top of either menu) to reach into its subfolders too; that stays as you left it while Writer's open. The choice they all have already is highlighted, and the status bar says how many changed.
+
 ## 1.32.2
 
 - In Slothenings, each document's title in the rule above it is bigger (the interface's usual size), easier to read and to click.

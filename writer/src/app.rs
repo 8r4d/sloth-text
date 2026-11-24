@@ -949,6 +949,8 @@ impl WriterApp {
             BinderAction::BreakUp(id) => self.start_break_up(&id),
             BinderAction::Combine(id) => self.start_combine(&id, false),
             BinderAction::CombineWithNext(id) => self.start_combine(&id, true),
+            BinderAction::StatusInside { id, status, deep } => self.set_inside(&id, deep, |meta| meta.status = status),
+            BinderAction::LabelInside { id, label, deep } => self.set_inside(&id, deep, |meta| meta.label = label),
             BinderAction::RemoveProfileFolder(kind) => {
                 let Some(project) = self.project.as_mut() else { return };
                 match project.remove_profile_folder(&kind) {
@@ -961,6 +963,35 @@ impl WriterApp {
                 }
             }
         }
+    }
+
+    /// Change the metadata of what's in an item (not the item itself):
+    /// what's directly in it, or (`deep`) everything under it. Says how
+    /// many changed.
+    fn set_inside(&mut self, id: &str, deep: bool, change: impl Fn(&mut Meta)) {
+        let Some(project) = self.project.as_mut() else { return };
+        let Some(node) = project.node(id) else { return };
+        let inside: Vec<(String, Meta)> = binder::inside(node, deep).into_iter().map(|n| (n.id.clone(), n.meta.clone())).collect();
+        let mut changed = 0;
+        for (item, mut meta) in inside {
+            change(&mut meta);
+            if project.set_meta(&item, meta) {
+                changed += 1;
+            }
+        }
+        if changed > 0 {
+            self.manifest_dirty = true;
+            self.save_all();
+        }
+        let title = self.project.as_ref().and_then(|p| p.node(id)).map(|n| n.title.clone()).unwrap_or_default();
+        let what = match changed {
+            0 => "Nothing to change".to_owned(),
+            1 => "Changed 1 item".to_owned(),
+            n => format!("Changed {n} items"),
+        };
+        // The time of the last look at the disk: within a couple of seconds
+        // of now (binder actions don't carry the time).
+        self.status = Some((format!("{what} in \u{201c}{title}\u{201d}"), self.last_disk_check.max(0.0)));
     }
 
     fn add_profile_folder(&mut self, kind: crate::project::ProfileKind) {
@@ -1510,10 +1541,8 @@ impl WriterApp {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     if let Some(project) = &self.project {
                         let selected = self.selected.as_deref();
-                        let labels = &project.manifest.labels;
-                        let kinds = &project.manifest.profiles;
                         let notepad = project.notepad().map(|n| n.id.as_str());
-                        actions = binder::show(ui, &project.manifest.binder, labels, kinds, selected, notepad, &mut self.renaming);
+                        actions = binder::show(ui, &project.manifest, selected, notepad, &mut self.renaming);
                     }
                 });
             });

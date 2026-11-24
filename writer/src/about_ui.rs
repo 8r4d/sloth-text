@@ -61,7 +61,7 @@ const TIPS: &[&str] = &[
     "A line with only # on it is a scene break.",
     "Refer to a profile (a source, concept, theme or character) with [[its name]] where it comes up: typing [[ offers names (or makes a new one), hover to see it, \u{2318}-click to open it. Renaming a profile renames its references, and Compile can turn references to Sources into footnotes and a list of works cited. Like notes, references are left out of word counts and the compiled book, and each profile lists where it's referenced.",
     "Link to another document the same way, with [[its title]]: hover to see its synopsis, \u{2318}-click to open it beside. A document's inspector lists what it links to and what links to it, and renaming a document renames the links to it.",
-    "Right-click in the binder for more: new profile folders, snapshots, Open in Split View.",
+    "Right-click in the binder for more: new profile folders, snapshots, Open in Split View, and on a folder, Set Status or Set Label for everything in it at once.",
     "Double-click a binder item to rename it.",
     "Wrote several pieces in one document? Right-click it in the binder and choose Break Up\u{2026}: each part, from a heading or a scene break, becomes a document of its own. Combine into One Document\u{2026} (on a folder) and Combine with Next\u{2026} put them back together. For essays, tick Documents \u{2192} Their titles as headings in Compile.",
     "\u{2318}1 shows a folder (or the one the open document is in) as Slothenings: all its documents as one text to read and write through. \u{2318}2 is the corkboard, \u{2318}3 the outline.",

@@ -2803,3 +2803,63 @@ fn the_split_views_close_button_closes_it() {
     harness.run_steps(3);
     assert!(!harness.state().split_open, "closed by its ×");
 }
+
+#[test]
+fn a_folders_menu_sets_the_status_and_label_of_whats_inside() {
+    use egui_kittest::kittest::NodeT;
+    let dir = TempDir::new("status-inside");
+    let (mut p, chapter, scenes) = chapter_project(&dir);
+    let later = p.add_folder(&Place::Into(chapter.clone()), "Later").unwrap();
+    let spring = p.add_document(&Place::Into(later.clone()), "Spring").unwrap();
+    p.set_meta(&scenes[0], crate::project::Meta { status: Some(1), ..Default::default() });
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.run_steps(2);
+
+    let open_menu = |harness: &mut Harness<'static, WriterApp>| {
+        harness.get_by_label("📁 Chapter").click_secondary();
+        harness.run_steps(2);
+    };
+    // To start with, only what's directly in it: the subfolder, not what's in that.
+    open_menu(&mut harness);
+    harness.get_by_label("Set Status for All Inside").click();
+    harness.run_steps(2);
+    harness.get_by_label("Done").click();
+    harness.run_steps(3);
+    let meta = |h: &Harness<'static, WriterApp>, id: &str| h.state().project.as_ref().unwrap().node(id).unwrap().meta.clone();
+    for id in scenes.iter().chain([&later]) {
+        assert_eq!(meta(&harness, id).status, Some(4));
+    }
+    assert_eq!(meta(&harness, &spring).status, None, "not inside the subfolder");
+    assert_eq!(meta(&harness, &chapter).status, None, "nor the folder itself");
+    harness.get_by_label("Changed 4 items in “Chapter”");
+
+    // Include subfolders: Spring too, and it's remembered.
+    open_menu(&mut harness);
+    harness.get_by_label("Set Status for All Inside").click();
+    harness.run_steps(2);
+    harness.get_by_label("Include subfolders").click();
+    harness.run_steps(2);
+    harness.get_by_label("Done").click();
+    harness.run_steps(3);
+    assert_eq!(meta(&harness, &spring).status, Some(4));
+    harness.get_by_label("Changed 1 item in “Chapter”");
+
+    // Now they all have it: shown as chosen.
+    open_menu(&mut harness);
+    harness.get_by_label("Set Status for All Inside").click();
+    harness.run_steps(2);
+    assert_eq!(harness.get_by_label("Done").accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
+    harness.key_press(egui::Key::Escape);
+    harness.run_steps(2);
+
+    open_menu(&mut harness);
+    harness.get_by_label("Set Label for All Inside").click();
+    harness.run_steps(2);
+    harness.get_by_label("\u{25cf} Idea").click();
+    harness.run_steps(3);
+    assert!(scenes.iter().all(|id| meta(&harness, id).label == Some(2)));
+    // Saved.
+    let saved = Project::open(&dir.0).unwrap();
+    assert_eq!(saved.node(&spring).unwrap().meta.status, Some(4));
+}
