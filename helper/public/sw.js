@@ -1,6 +1,6 @@
-// Keeps the page itself (not your scenes) on the web, so it opens without a
-// connection. Scenes are always fetched fresh, or come from the drafts the
-// page keeps (see app.js).
+// Keeps the page itself on this device, so it opens without a connection.
+// Documents aren't the worker's: the page fetches them fresh, and keeps its
+// own copy of each project opened, and drafts, for offline (see app.js).
 //
 // index.php registers this with the page's files in its address
 // (sw.js?v=…&app=app.js?v=…&css=style.css?v=…), each carrying its file's

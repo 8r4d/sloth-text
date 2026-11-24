@@ -147,6 +147,13 @@ class Page {
     if (!this.workers.length) throw new Error(`No service worker to take offline: ${targets.map(t => t.type).join(', ')}`);
   }
 
+  // A connection that's there but slow: every request waits `latency` ms
+  // (0 for normal again). For the page only: the API isn't the worker's.
+  async setSlow(latency) {
+    await this.send('Network.enable');
+    await this.send('Network.emulateNetworkConditions', { offline: false, latency, downloadThroughput: -1, uploadThroughput: -1 });
+  }
+
   async setFiles(selector, files) {
     const { root } = await this.send('DOM.getDocument');
     const { nodeId } = await this.send('DOM.querySelector', { nodeId: root.nodeId, selector });

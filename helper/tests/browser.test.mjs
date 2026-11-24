@@ -160,6 +160,95 @@ test('offline: kept on the web, sent when back', { skip }, async () => {
   assert.match((await onHelper('letter')).text, /Written on a train\.$/);
 });
 
+test('a connection that hangs: kept here after a while, and the page moves on', { skip }, async () => {
+  await go(`#/p/${project}/s/letter`);
+  await page.waitFor(`document.getElementById('state')?.textContent === 'Saved'`);
+  // Give up after 1.5 s (rather than 15), on a connection taking 6.
+  await page.eval(`localStorage.setItem('writer-wait-ms', '1500')`);
+  await page.setSlow(6000);
+  await typeAtEnd(' Slowly.');
+  const started = Date.now();
+  await page.waitFor(`document.getElementById('state').textContent.startsWith('Offline')`, { what: 'the offline note', timeout: 6000 });
+  assert.ok(Date.now() - started < 5000, 'not left saving');
+  // Leaving isn't held up by the stuck save either.
+  const left = Date.now();
+  await go(`#/p/${project}`);
+  assert.ok(Date.now() - left < 6000, `left in ${Date.now() - left} ms`);
+  await page.setSlow(0);
+  await page.eval(`localStorage.removeItem('writer-wait-ms')`);
+  // Back with a connection, it's sent.
+  await go(`#/p/${project}/s/letter`);
+  await page.waitFor(`document.getElementById('state')?.textContent === 'Saved'`, { timeout: 8000 });
+  assert.match((await onHelper('letter')).text, /Slowly\.$/);
+});
+
+test("a save that got there though its reply didn't: no false clash", { skip }, async () => {
+  await go(`#/p/${project}/s/letter`);
+  await page.waitFor(`document.getElementById('state')?.textContent === 'Saved'`);
+  await page.setOffline(true);
+  await typeAtEnd(' Reply lost.');
+  await page.waitFor(`document.getElementById('state').textContent.startsWith('Offline')`, { timeout: 8000 });
+  // The helper has these very words (the save reached it, the reply didn't).
+  const typed = await page.eval(`document.getElementById('text').value`);
+  const { version } = await onHelper('letter');
+  await theMac.call('scene_put', { text: typed, base: version }, `&p=${project}&id=letter`);
+  await page.setOffline(false);
+  await page.eval(`window.dispatchEvent(new Event('online'))`);
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
+  assert.equal(await page.eval(`document.getElementById('clash').hidden`), true, 'no clash');
+  assert.equal(await page.eval(`localStorage.getItem('writer-drafts')`).then(d => (JSON.parse(d) || {})[`${project}/letter`]), undefined, 'nothing left waiting');
+});
+
+test('offline: projects opened here are kept, to read and write in', { skip }, async () => {
+  const trip = newProject();
+  await theMac.call('index_put', {
+    title: 'Travel Pieces',
+    index: [
+      { id: 'harbour', title: 'The harbour', chapter: 'Essays', path: [{ id: 'manuscript', title: 'Manuscript' }], words: 3 },
+      { id: 'trains', title: 'Trains', chapter: 'Essays', path: [{ id: 'manuscript', title: 'Manuscript' }], words: 2 },
+    ],
+    stats: { date: localDay(), today: 0, goal: null, total: 5, target: null, deadline: null },
+  }, `&p=${trip}`);
+  await theMac.call('scene_put', { text: 'The harbour froze.', base: 0 }, `&p=${trip}&id=harbour`);
+  await theMac.call('scene_put', { text: 'Trains are late.', base: 0 }, `&p=${trip}&id=trains`);
+  await theMac.call('scene_put', { text: 'Check the dates.', base: 0 }, `&p=${trip}&id=trains-notes`);
+  await go('#/');
+  // Opened with a connection: kept, documents and all, in one request.
+  await go(`#/p/${trip}`);
+  await page.waitFor(`JSON.parse(localStorage.getItem('writer-kept:${trip}') || '{}').whole === true`, { what: 'the project kept' });
+
+  await page.setOffline(true);
+  await go('#/');
+  await page.waitFor(`document.querySelector('.offline-note')`, { what: 'the projects, as kept' });
+  assert.match(await page.eval(`document.body.textContent`), /Travel Pieces/);
+  await go(`#/p/${trip}`);
+  await page.waitFor(`document.querySelectorAll('a.doc').length === 2`, { what: 'the documents, as kept' });
+  await snap('offline-project');
+  // One never opened here: there to read, and to write in, notes and all.
+  await go(`#/p/${trip}/s/trains`);
+  await page.waitFor(`document.getElementById('text')?.value === 'Trains are late.'`, { what: 'its text, as kept' });
+  await page.waitFor(`document.getElementById('notes').value === 'Check the dates.'`, { what: 'its notes, as kept' });
+  assert.ok(await page.eval(`Boolean(document.querySelector('.offline-note'))`));
+  await typeAtEnd(' Very late.');
+  await page.waitFor(`document.getElementById('state').textContent.startsWith('Offline')`, { timeout: 8000 });
+  await snap('offline-writing');
+
+  // The app opened from scratch with no connection (from the home screen,
+  // which starts at the projects): the page from the service worker, the
+  // projects and the project from this device.
+  await page.goto(URL_BASE);
+  await page.waitFor(`document.querySelector('.offline-note') && document.body.textContent.includes('Travel Pieces')`, { what: 'the projects, opened offline' });
+  await go(`#/p/${trip}`);
+  await page.waitFor(`document.querySelectorAll('a.doc').length === 2`, { what: 'the project, opened offline' });
+
+  // Back online: what was written is sent, against the version it was kept at.
+  await page.setOffline(false);
+  await go(`#/p/${trip}/s/trains`);
+  await page.waitFor(`document.getElementById('state')?.textContent === 'Saved'`, { timeout: 8000 });
+  assert.equal((await theMac.call('scene', undefined, `&p=${trip}&id=trains`)).body.text, 'Trains are late. Very late.');
+  assert.deepEqual(page.errors, [], 'no errors on the page');
+});
+
 test('a new scene goes to the inbox for the Mac', { skip }, async () => {
   await go(`#/p/${project}/new`);
   await page.waitFor(`document.getElementById('send')`);

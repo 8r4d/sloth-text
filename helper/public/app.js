@@ -20,7 +20,13 @@
 // Writing saves itself a moment after you stop typing, naming the version it
 // was edited from. If the Mac changed the scene meanwhile, the helper says so
 // and you choose whose words to keep. Until a save goes through (offline,
-// say), the words are kept on this device as a draft.
+// say), the words are kept on this device as a draft. A request the helper
+// doesn't answer within 15 seconds counts as offline, and a save refused
+// because an earlier try already got there (its reply lost) counts as saved.
+//
+// Each project opened here is kept on this device (its list and its
+// documents' text), so offline its pages can still be read and written in;
+// see "kept on this device" below.
 'use strict';
 
 const app = document.getElementById('app');
@@ -38,16 +44,28 @@ class ApiError extends Error {
 /// A network problem (offline), as opposed to the helper saying no.
 const offline = err => !(err instanceof ApiError);
 
+/// How long to wait for the helper before taking it that the connection's
+/// gone (a weak signal can leave a request hanging for minutes). Tests make
+/// it shorter.
+const waitLimit = () => Number(localStorage.getItem('writer-wait-ms')) || 15000;
+
 async function api(action, body, query = '', { keepalive = false } = {}) {
-  const res = await fetch(`api.php?action=${action}${query}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    keepalive,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`, res.status, data);
-  return data;
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), waitLimit());
+  try {
+    const res = await fetch(`api.php?action=${action}${query}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      keepalive,
+      signal: stop.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`, res.status, data);
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const q = (project, scene) => `&p=${encodeURIComponent(project)}` + (scene ? `&id=${encodeURIComponent(scene)}` : '');
@@ -173,6 +191,61 @@ function setDraft(key, draft) {
   } catch {
     // Storage full or blocked: the words are still on screen.
   }
+}
+
+// ----- kept on this device, to read and write offline ------------------------------------
+// Each project opened here is kept on the device: its list (the index), and
+// its documents' text with their versions (notes and the notepad too), from
+// the helper's changes since the last look (the first time, all of them).
+// Offline, pages show this copy; what's written goes in drafts as ever,
+// saved against the version it was kept at, so a change made on the Mac
+// meanwhile is a clash to choose from, not lost.
+
+const KEPT = 'writer-kept';                 // KEPT:project → { index, at, seq, whole, scenes }
+const KEPT_PROJECTS = 'writer-kept-projects';
+const keptKey = project => `${KEPT}:${project}`;
+
+function kept(project) {
+  return { scenes: {}, seq: 0, whole: false, ...load(keptKey(project), {}) };
+}
+
+/// Change the kept copy of a project. If the device has no room for its
+/// documents, the list is kept without them (and they're not fetched whole
+/// again); documents opened are still kept as they're opened.
+function keep(project, change) {
+  const copy = kept(project);
+  change(copy);
+  try {
+    localStorage.setItem(keptKey(project), JSON.stringify(copy));
+  } catch {
+    try {
+      localStorage.setItem(keptKey(project), JSON.stringify({ ...copy, scenes: {}, seq: 0, whole: false, tooBig: true }));
+    } catch {
+      // No room at all: the page works online as before.
+    }
+  }
+}
+
+function keepScene(project, id, text, version) {
+  keep(project, c => { c.scenes[id] = { text, version }; });
+}
+
+/// Bring the kept copy up to date: one request for whatever changed.
+async function refreshKept(project) {
+  const copy = kept(project);
+  if (copy.tooBig && !copy.whole) return;
+  const r = await api('changes', undefined, `${q(project)}&since=${copy.whole ? copy.seq : 0}`);
+  keep(project, c => {
+    for (const s of r.scenes) c.scenes[s.id] = { text: s.text, version: s.version };
+    c.seq = r.seq;
+    c.whole = true;
+  });
+}
+
+/// "Kept on this device, as of 2:05 pm": shown when a page is from the copy.
+function offlineNote(at) {
+  const when = at ? ` from ${new Date(at).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '';
+  return `<p class="offline-note">Offline: showing what's kept on this device${when}. What you write here is sent when you're back online.</p>`;
 }
 
 // ----- writing helpers ----------------------------------------------------------------
@@ -626,8 +699,18 @@ async function route() {
 }
 
 async function showProjects() {
-  const projects = await api('projects');
+  let projects;
+  let from = null;  // offline: the list as kept, and when
+  try {
+    projects = await api('projects');
+    store(KEPT_PROJECTS, { list: projects, at: Date.now() });
+  } catch (err) {
+    from = load(KEPT_PROJECTS, null);
+    if (!offline(err) || !from) throw err;
+    projects = from.list;
+  }
   render(`${nav()}
+    ${from ? offlineNote(from.at) : ''}
     <h1>Sloth Writer</h1>
     ${projects.length ? '' : `<p class="quiet">Nothing here yet. In Sloth Writer on your Mac, tick <em>Available on the web</em>
       in a document's or folder's inspector, and put this page's address and a token (from <a href="#/account">Account</a>) in its Settings.</p>`}
@@ -726,7 +809,19 @@ function docsIn(folder) {
 const folderHref = (project, id) => `#/p/${encodeURIComponent(project)}/f/${encodeURIComponent(id)}`;
 
 async function showProject(project, focus) {
-  const [info, inbox] = await Promise.all([api('index', undefined, q(project)), api('inbox', undefined, q(project))]);
+  let info, inbox;
+  let from = null;  // offline: the copy kept on this device
+  try {
+    [info, inbox] = await Promise.all([api('index', undefined, q(project)), api('inbox', undefined, q(project))]);
+    keep(project, c => { c.index = info; c.at = Date.now(); });
+    // Keep its documents up to date on this device, for offline (quietly).
+    refreshKept(project).catch(() => {});
+  } catch (err) {
+    from = kept(project);
+    if (!offline(err) || !from.index) throw err;
+    info = from.index;
+    inbox = [];
+  }
   keepLook(info);
   const { title } = info;
   const notepad = info.index.find(s => s.id === NOTEPAD);
@@ -771,6 +866,7 @@ async function showProject(project, focus) {
   const many = index.length > 5;
 
   render(`${nav({ href: '#/', label: 'Projects' })}
+    ${from ? offlineNote(from.at) : ''}
     <header class="project-head">
       <h1>${esc(title)}</h1>
       <p class="figures">
@@ -842,12 +938,25 @@ async function showScene(project, sceneId) {
   const isPad = sceneId === NOTEPAD;
   let info = { index: [] };
   let scene;
+  let from = null;  // offline: the copy kept on this device
   try {
     info = await api('index', undefined, q(project));
     keepLook(info);
     scene = await api('scene', undefined, q(project, sceneId));
+    keepScene(project, sceneId, scene.text, scene.version);
   } catch (err) {
-    if (!offline(err)) {
+    if (offline(err)) {
+      // From what's kept here: the list, and this document as last seen.
+      from = kept(project);
+      if (!info.index.length && from.index) {
+        info = from.index;
+        keepLook(info);
+      }
+      scene = from.scenes[sceneId];
+      // A notepad the kept copy (all of the project's) hasn't got: not started.
+      if (!scene && isPad && from.whole) scene = { text: '', version: 0 };
+      if (!scene) from = null;
+    } else {
       // A notepad not started yet: it is when something's written.
       if (err.status === 404 && isPad) {
         scene = { text: '', version: 0 };
@@ -898,6 +1007,7 @@ async function showScene(project, sceneId) {
   const back = folder ? { href: folderHref(project, folder.id), label: folder.title } : { href: `#/p/${encodeURIComponent(project)}`, label: info.title || 'Back' };
 
   render(`${nav(back)}
+    ${from ? offlineNote(from.at) : ''}
     <header class="scene-head">
       ${crumbs}
       <h1>${esc(title)}</h1>
@@ -951,13 +1061,14 @@ async function showScene(project, sceneId) {
     saving = true;
     const sending = textarea.value;
     show('Saving…');
-    try {
-      const r = await api('scene_put', { text: sending, base }, q(project, sceneId), { keepalive });
+    // Saved as `version`: carry on from there.
+    const savedAs = (version, at) => {
       const change = isPad ? 0 : words(sending) - words(saved);
-      if (!isPad) noteWritten(project, change, r.savedAt);
+      if (!isPad) noteWritten(project, change, at);
       savedHere += change;
-      base = r.version;
+      base = version;
       saved = sending;
+      keepScene(project, sceneId, sending, version);
       count();
       if (textarea.value === saved) {
         setDraft(key, null);
@@ -965,8 +1076,16 @@ async function showScene(project, sceneId) {
       } else {
         schedule();
       }
+    };
+    try {
+      const r = await api('scene_put', { text: sending, base }, q(project, sceneId), { keepalive });
+      savedAs(r.version, r.savedAt);
     } catch (err) {
-      if (err.status === 409 && isPad && err.data.current) {
+      if (err.status === 409 && err.data.current && err.data.current.text === sending) {
+        // An earlier try got there, though its reply didn't (the connection
+        // went as it came back): the helper has these very words already.
+        savedAs(err.data.current.version, Date.now());
+      } else if (err.status === 409 && isPad && err.data.current) {
         // Added to on the Mac meanwhile: keep both, and send that.
         const { text: macs, version } = err.data.current;
         const merged = mergePad(saved, macs, textarea.value);
@@ -1121,8 +1240,11 @@ function sceneNotes(project, sceneId, title) {
     let fromHelper = null;
     try {
       fromHelper = await api('scene', undefined, q(project, id));
+      keepScene(project, id, fromHelper.text, fromHelper.version);
     } catch (err) {
       if (err.status !== 404 && !offline(err)) throw err;
+      // Offline: the notes as kept on this device, if they are.
+      if (offline(err)) fromHelper = kept(project).scenes[id] || null;
     }
     base = fromHelper ? fromHelper.version : 0;
     saved = fromHelper ? fromHelper.text : '';
@@ -1145,6 +1267,7 @@ function sceneNotes(project, sceneId, title) {
       const r = await api('scene_put', { text: sending, base }, q(project, id), { keepalive });
       base = r.version;
       saved = sending;
+      keepScene(project, id, sending, r.version);
       if (field.value === saved) setDraft(key, null);
       else schedule();
     } catch (err) {
@@ -1211,7 +1334,8 @@ function showNewScene(project) {
 /// No connection: the scenes with unsaved words can still be opened.
 function showOffline() {
   const waiting = Object.entries(drafts()).filter(([key]) => !key.endsWith('/new') && !key.endsWith('-notes'));
-  render(`<h1>Sloth Writer</h1><p class="quiet">Offline. Documents you were writing here can still be opened;
+  render(`<h1>Sloth Writer</h1><p class="quiet">Offline, and this isn't kept on this device yet: projects are kept
+    here once they've been opened with a connection. Documents you were writing here can still be opened;
     they're saved when you're back online.</p>
     <ul class="list">${waiting.map(([key, d]) => {
       const [project, scene] = key.split('/');
@@ -1375,7 +1499,8 @@ async function start() {
     else if (me.needsSetup) showSetup();
     else showSignIn();
   } catch (err) {
-    if (offline(err)) showOffline();
+    // Offline: the pages show what's kept on this device (or say there's none).
+    if (offline(err)) route();
     else render(`<h1>Sloth Writer</h1><p class="error">${esc(err.message)}</p>`);
   }
 }

@@ -49,7 +49,7 @@ The database tables are created on the first request.
 | `public/api.php` | The whole service: accounts, tokens, projects, scenes with versions, history, the inbox |
 | `public/index.php` | The page's HTML, with each script and stylesheet versioned for Cloudflare |
 | `public/app.js`, `style.css` | The web editor page: projects, their documents in the binder's nested folders (open/close all, finding with where each is), writing with autosave and a trail back to its folder, clashes, offline drafts, new scenes, each project's Mobile Notes (the scene `notepad`), a paragraph editor showing its Markdown as you write (the plain box can be chosen per device under Account), ⌘B and ⌘I for Markdown emphasis, the goal ring and streak, Sloth Writer's theme colours (or the device's own), account |
-| `public/sw.js`, `manifest.json`, icons | Opening without a connection, and Add to Home Screen |
+| `public/sw.js`, `manifest.json`, icons | Opening without a connection, and Add to Home Screen (the page keeps each project opened on the device, to read and write offline) |
 | `writer-config.example.php` | The settings to copy and fill in |
 | `tests/run.sh` | Runs the API and browser tests, then Sloth Writer's sync, against a throwaway MariaDB and PHP server |
 

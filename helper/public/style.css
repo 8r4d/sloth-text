@@ -157,3 +157,6 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 /* There for password managers, not people. */
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
 .saved { color: var(--quiet); }
+
+/* Shown when a page comes from the copy kept on this device. */
+.offline-note { margin: 4px 0 10px; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 8px; font-size: 0.85em; color: var(--quiet); }

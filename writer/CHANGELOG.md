@@ -2,6 +2,16 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.41.0
+
+The web editor, offline.
+
+- Each project you open on the web is kept on that device: its list of documents, and their text and notes, updated each time with just what's changed. Without a connection (on a plane, say), you can still open the app, go through your projects and folders, and read and write any of their documents, not only ones you'd started; a note at the top says you're looking at what's kept on the device, and from when. What you write is sent when you're back online, and if your Mac changed the same document meanwhile you choose whose words to keep, as ever.
+- A connection that hangs (a weak signal) no longer leaves the page saying "Saving…" with Back and the trail waiting on it: after 15 seconds it counts as offline, the words kept on the device and sent later.
+- Fixed: if the connection dropped just as a save reached the helper, so the reply was lost, the next try said your Mac had changed the document. Now the helper having your very words counts as saved.
+
+Upload the helper's new app.js, style.css and sw.js to your host.
+
 ## 1.40.2
 
 - Nested rows in the outline step in as a whole, handle and all, so what's inside what reads at a glance, as in the binder. The Status, Label and Words columns stay lined up.
