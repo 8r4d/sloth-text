@@ -225,7 +225,7 @@ fn nearest_color(rgb: &str) -> u8 {
         let d = (h - wanted).abs();
         d.min(360.0 - d)
     };
-    crate::app::inspector::LABEL_COLORS
+    crate::app::inspector::LABEL_COLORS[..crate::app::inspector::FIRST_LABEL_COLORS]
         .iter()
         .enumerate()
         .min_by(|(_, a), (_, b)| {

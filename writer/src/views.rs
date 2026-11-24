@@ -426,10 +426,16 @@ fn card(
 /// An outline row's height, and the space between rows.
 const ROW_HEIGHT: f32 = 52.0;
 const ROW_GAP: f32 = 4.0;
-/// The strip at a row's left holding its handle.
-const GRIP_W: f32 = 26.0;
-/// The handle: a rounded bar in the label's colour, to drag the row by.
-const HANDLE_W: f32 = 12.0;
+/// The room at a row's left before its title: the handle and a gap.
+const GRIP_W: f32 = 32.0;
+/// The handle: an end cap on the row in its label's colour, to drag it by,
+/// rounded on the outside.
+const HANDLE_W: f32 = 18.0;
+const HANDLE_RADIUS: u8 = 6;
+/// Thin lines in the label's colour run on from the cap along the row's
+/// top and bottom, fading out this far across.
+const EDGE_REACH: f32 = 0.25;
+const EDGE_WIDTH: f32 = 1.5;
 
 /// Column widths, after the title (which takes what's left).
 const STATUS_W: f32 = 120.0;
@@ -477,7 +483,7 @@ fn outline(
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(ui.available_width(), row_height), Sense::click_and_drag());
         if response.hovered() {
-            ui.painter().rect_filled(rect, CornerRadius::same(4), ui.visuals().widgets.hovered.weak_bg_fill);
+            ui.painter().rect_filled(rect, CornerRadius::same(HANDLE_RADIUS), ui.visuals().widgets.hovered.weak_bg_fill);
         }
         // Its handle, in its label's colour: to drag it by (the whole row
         // drags; the handle says so), and to see its label at a glance.
@@ -561,9 +567,11 @@ fn outline(
 
 // ----- dragging ----------------------------------------------------------------
 
-/// A row's handle, at its left: a rounded bar in its label's colour (a
-/// quiet grey with none). When it can be dragged, it carries grip dots,
-/// a hand under the pointer, and stands out more while it's carried.
+/// A row's handle: an end cap on its left in its label's colour (a quiet
+/// grey with none), with thin lines running on along the row's top and
+/// bottom that fade out a quarter of the way across. When it can be
+/// dragged, the cap carries grip dots and a hand under the pointer, and
+/// shows its colour fully under the pointer or while carried.
 fn handle(ui: &egui::Ui, row: egui::Rect, response: &egui::Response, label: Option<Color32>, draggable: bool) {
     let area = egui::Rect::from_min_size(row.min, Vec2::new(GRIP_W, row.height()));
     let over = draggable && ui.ctx().pointer_hover_pos().is_some_and(|p| area.contains(p));
@@ -573,24 +581,45 @@ fn handle(ui: &egui::Ui, row: egui::Rect, response: &egui::Response, label: Opti
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
     }
     let visuals = ui.visuals();
-    let quiet = visuals.weak_text_color().gamma_multiply(0.35);
+    let lively = over || response.dragged();
     let fill = match label {
-        Some(color) if over || response.dragged() => color,
+        Some(color) if lively => color,
         Some(color) => color.gamma_multiply(0.85),
-        None if over || response.dragged() => visuals.weak_text_color().gamma_multiply(0.7),
-        None => quiet,
+        None if lively => visuals.weak_text_color().gamma_multiply(0.7),
+        None => visuals.weak_text_color().gamma_multiply(0.35),
     };
-    let bar = egui::Rect::from_center_size(area.center(), Vec2::new(HANDLE_W, row.height() - 14.0));
-    ui.painter().rect_filled(bar, CornerRadius::same((HANDLE_W / 2.0) as u8), fill);
+    let painter = ui.painter();
+    let cap = egui::Rect::from_min_size(row.min, Vec2::new(HANDLE_W, row.height()));
+    let r = HANDLE_RADIUS;
+    painter.rect_filled(cap, CornerRadius { nw: r, sw: r, ne: 0, se: 0 }, fill);
+    // The edges, fading from the cap's colour to nothing.
+    let reach = (row.width() * EDGE_REACH).max(HANDLE_W);
+    for y in [row.top(), row.bottom() - EDGE_WIDTH] {
+        let edge = egui::Rect::from_min_max(egui::pos2(cap.right(), y), egui::pos2(cap.right() + reach, y + EDGE_WIDTH));
+        fade_right(painter, edge, fill);
+    }
     if draggable {
-        // Dots that show on the bar, whatever its colour.
+        // Dots that show on the cap, whatever its colour.
         let dots = if visuals.dark_mode { Color32::from_black_alpha(110) } else { Color32::from_white_alpha(200) };
-        for dx in [-2.5, 2.5] {
-            for dy in [-6.0, 0.0, 6.0] {
-                ui.painter().circle_filled(bar.center() + Vec2::new(dx, dy), 1.3, dots);
+        for dx in [-3.0, 3.0] {
+            for dy in [-6.5, 0.0, 6.5] {
+                painter.circle_filled(cap.center() + Vec2::new(dx, dy), 1.5, dots);
             }
         }
     }
+}
+
+/// Fill a rect with a colour that fades out from left to right.
+fn fade_right(painter: &egui::Painter, rect: egui::Rect, color: Color32) {
+    let mut mesh = egui::Mesh::default();
+    let clear = Color32::TRANSPARENT;
+    mesh.colored_vertex(rect.left_top(), color);
+    mesh.colored_vertex(rect.right_top(), clear);
+    mesh.colored_vertex(rect.right_bottom(), clear);
+    mesh.colored_vertex(rect.left_bottom(), color);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(mesh);
 }
 
 /// Make an item draggable, and a place to drop others. On the corkboard

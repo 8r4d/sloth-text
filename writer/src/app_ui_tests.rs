@@ -3001,3 +3001,30 @@ fn an_outline_row_is_dragged_by_its_grip() {
         harness.render().unwrap().save(format!("{dir}/grip.png")).unwrap();
     }
 }
+
+#[test]
+fn a_labels_colour_is_picked_from_the_swatches() {
+    let dir = TempDir::new("label-colours");
+    let mut harness = harness(project(&dir, ""));
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().editing_labels = true;
+    harness.run_steps(2);
+    // The first label's dot opens the swatches; pick one of the new ones.
+    let dot = harness.get_all_by_label("\u{25cf}").next().unwrap().rect().center();
+    harness.event(egui::Event::PointerMoved(dot));
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton { pos: dot, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+        harness.run_steps(1);
+    }
+    harness.run_steps(2);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/swatches.png")).unwrap();
+    }
+    harness.get_by_label("Burgundy").click();
+    harness.run_steps(2);
+    let labels = &harness.state().project.as_ref().unwrap().manifest.labels;
+    assert_eq!(labels[0].color, 12);
+    assert_eq!(super::inspector::label_color(12), egui::Color32::from_rgb(0xA8, 0x32, 0x5E));
+    assert!(harness.state().manifest_dirty);
+}

@@ -18,8 +18,9 @@ use crate::binder::BinderAction;
 use crate::project::{Meta, Role};
 
 /// Label colours, by the index stored in the manifest. Mid tones, so they
-/// read on both light and dark backgrounds.
-pub const LABEL_COLORS: [Color32; 8] = [
+/// read on both light and dark backgrounds. New ones go at the end, so a
+/// project's labels keep their colours.
+pub const LABEL_COLORS: [Color32; 16] = [
     Color32::from_rgb(0xE5, 0x48, 0x4D), // red
     Color32::from_rgb(0xF7, 0x6B, 0x15), // orange
     Color32::from_rgb(0xE8, 0xB0, 0x2E), // yellow
@@ -28,7 +29,25 @@ pub const LABEL_COLORS: [Color32; 8] = [
     Color32::from_rgb(0x00, 0x90, 0xFF), // blue
     Color32::from_rgb(0x8E, 0x4E, 0xC6), // purple
     Color32::from_rgb(0xD6, 0x40, 0x9F), // pink
+    // Added in 1.39.0.
+    Color32::from_rgb(0x8C, 0xB8, 0x2E), // lime
+    Color32::from_rgb(0x38, 0xB6, 0xE0), // sky
+    Color32::from_rgb(0x5B, 0x61, 0xD6), // indigo
+    Color32::from_rgb(0xB4, 0x84, 0xE2), // lavender
+    Color32::from_rgb(0xA8, 0x32, 0x5E), // burgundy
+    Color32::from_rgb(0xA6, 0x72, 0x48), // brown
+    Color32::from_rgb(0x9C, 0x98, 0x3C), // olive
+    Color32::from_rgb(0x70, 0x80, 0x96), // slate
 ];
+
+/// Each colour's name, for the colour picker.
+pub const LABEL_COLOR_NAMES: [&str; 16] = [
+    "Red", "Orange", "Yellow", "Green", "Teal", "Blue", "Purple", "Pink", "Lime", "Sky", "Indigo", "Lavender", "Burgundy", "Brown", "Olive", "Slate",
+];
+
+/// The colours there were first: what labels from Scrivener are matched to
+/// (by hue, which the greyer later ones would muddle).
+pub const FIRST_LABEL_COLORS: usize = 8;
 
 pub fn label_color(index: u8) -> Color32 {
     LABEL_COLORS[index as usize % LABEL_COLORS.len()]
@@ -95,6 +114,33 @@ pub fn web_address(typed: &str) -> Option<String> {
     // Something after the scheme, with a dot in the host.
     let host = url.split("://").nth(1)?.split(['/', '?', '#']).next()?;
     (host.contains('.') && !host.starts_with('.') && !host.ends_with('.')).then_some(url)
+}
+
+/// The label colours as swatches, two rows of eight, the current one
+/// ringed. Returns the one clicked.
+fn color_picker(ui: &mut egui::Ui, current: u8) -> Option<u8> {
+    let mut picked = None;
+    let size = egui::Vec2::splat(22.0);
+    for row in LABEL_COLORS.chunks(8).enumerate() {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for (j, color) in row.1.iter().enumerate() {
+                let index = (row.0 * 8 + j) as u8;
+                let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+                let painter = ui.painter();
+                painter.circle_filled(rect.center(), 8.0, *color);
+                if index == current || response.hovered() {
+                    painter.circle_stroke(rect.center(), 10.5, egui::Stroke::new(1.5, ui.visuals().text_color()));
+                }
+                let name = LABEL_COLOR_NAMES[index as usize];
+                response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, index == current, name));
+                if response.on_hover_text(name).clicked() {
+                    picked = Some(index);
+                }
+            }
+        });
+    }
+    picked
 }
 
 /// Put formatted text on the clipboard. (Tests keep it for themselves,
@@ -571,12 +617,17 @@ impl WriterApp {
             .show(ctx, |ui| {
                 for (i, label) in project.manifest.labels.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        // Click the dot to try the next colour.
+                        // Click the dot to pick a colour.
                         let dot = RichText::new("\u{25cf}").size(18.0).color(label_color(label.color));
-                        if ui.button(dot).on_hover_text("Change colour").clicked() {
-                            label.color = (label.color + 1) % LABEL_COLORS.len() as u8;
-                            changed = true;
-                        }
+                        ui.menu_button(dot, |ui| {
+                            if let Some(color) = color_picker(ui, label.color) {
+                                label.color = color;
+                                changed = true;
+                                ui.close();
+                            }
+                        })
+                        .response
+                        .on_hover_text("Change colour");
                         changed |= ui.add(egui::TextEdit::singleline(&mut label.name).desired_width(180.0)).changed();
                         if ui.button("Remove").clicked() {
                             remove = Some(i);

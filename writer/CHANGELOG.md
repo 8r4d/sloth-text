@@ -2,6 +2,15 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.39.0
+
+- Eight more label colours, sixteen in all: lime, sky, indigo, lavender, burgundy, brown, olive and slate join red, orange, yellow, green, teal, blue, purple and pink. Labels you have keep their colours.
+- In the Labels window, click a label's dot to pick its colour from swatches (named when you point at them), rather than stepping through them one by one.
+
+## 1.38.1
+
+- The outline's handle is now an end cap on the row: its left end in the label's colour, rounded on the outside and wide enough to take hold of, with thin lines of the same colour running on along the row's top and bottom and fading out a quarter of the way across.
+
 ## 1.38.0
 
 - The outline, redesigned: rows sit on the usual background again, and each has a handle at its left, a rounded bar in its label's colour (a quiet grey without one), with grip dots on it to drag the row by. Status and Label are back to their usual pulldowns. This replaces 1.36.0's tinted rows.
