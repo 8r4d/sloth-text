@@ -423,15 +423,13 @@ fn card(
 
 // ----- outline ---------------------------------------------------------------
 
-/// How much of its label's colour an outline row is tinted with, blended
-/// into the background: enough to tell labels apart, light enough to read on.
-const ROW_TINT: f32 = 0.16;
 /// An outline row's height, and the space between rows.
 const ROW_HEIGHT: f32 = 52.0;
 const ROW_GAP: f32 = 4.0;
-/// The strip at a row's left with its drag grip, which keeps the title
-/// off the edge of its tint.
-const GRIP_W: f32 = 24.0;
+/// The strip at a row's left holding its handle.
+const GRIP_W: f32 = 26.0;
+/// The handle: a rounded bar in the label's colour, to drag the row by.
+const HANDLE_W: f32 = 12.0;
 
 /// Column widths, after the title (which takes what's left).
 const STATUS_W: f32 = 120.0;
@@ -451,7 +449,6 @@ fn outline(
     let columns = STATUS_W + LABEL_W + WORDS_W;
     // Headings, lined up with the rows' columns.
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
         ui.add_space(GRIP_W);
         let title_w = (ui.available_width() - columns).max(160.0);
         for (text, width) in [("Title and synopsis", title_w), ("Status", STATUS_W), ("Label", LABEL_W), ("Words", WORDS_W)] {
@@ -479,33 +476,14 @@ fn outline(
 
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(ui.available_width(), row_height), Sense::click_and_drag());
-        // Tinted with its label's colour, lightened (a little deeper under
-        // the pointer); unlabelled rows just show the pointer.
-        match item.meta.label.and_then(|i| labels.get(i)) {
-            Some(label) => {
-                let amount = ROW_TINT + if response.hovered() { 0.08 } else { 0.0 };
-                let tint = ui.visuals().extreme_bg_color.lerp_to_gamma(label_color(label.color), amount);
-                ui.painter().rect_filled(rect, CornerRadius::same(4), tint);
-            }
-            None if response.hovered() => {
-                ui.painter().rect_filled(rect, CornerRadius::same(4), ui.visuals().widgets.hovered.weak_bg_fill);
-            }
-            None => {}
+        if response.hovered() {
+            ui.painter().rect_filled(rect, CornerRadius::same(4), ui.visuals().widgets.hovered.weak_bg_fill);
         }
-        // The grip to drag it by (the whole row drags; this says so).
-        if reorder && !blocked {
-            grip(ui, rect, &response);
-        }
+        // Its handle, in its label's colour: to drag it by (the whole row
+        // drags; the handle says so), and to see its label at a glance.
+        let color = item.meta.label.and_then(|i| labels.get(i)).map(|l| label_color(l.color));
+        handle(ui, rect, &response, color, reorder && !blocked);
         let mut row = ui.new_child(UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
-        row.spacing_mut().item_spacing.x = 0.0;
-        // Pulldowns without their grey: just the choice and its arrow, on
-        // the row's tint, until the pointer's on them.
-        {
-            let widgets = &mut row.style_mut().visuals.widgets.inactive;
-            widgets.weak_bg_fill = Color32::TRANSPARENT;
-            widgets.bg_fill = Color32::TRANSPARENT;
-            widgets.bg_stroke = Stroke::NONE;
-        }
         row.add_space(GRIP_W);
         let title_w = (rect.width() - columns - GRIP_W).max(160.0);
         let indent = 18.0 * item.depth as f32;
@@ -583,23 +561,34 @@ fn outline(
 
 // ----- dragging ----------------------------------------------------------------
 
-/// Six dots at a row's left, to drag it by: faint, stronger under the
-/// pointer (with a hand), and as it's carried.
-fn grip(ui: &egui::Ui, row: egui::Rect, response: &egui::Response) {
+/// A row's handle, at its left: a rounded bar in its label's colour (a
+/// quiet grey with none). When it can be dragged, it carries grip dots,
+/// a hand under the pointer, and stands out more while it's carried.
+fn handle(ui: &egui::Ui, row: egui::Rect, response: &egui::Response, label: Option<Color32>, draggable: bool) {
     let area = egui::Rect::from_min_size(row.min, Vec2::new(GRIP_W, row.height()));
-    let over = ui.ctx().pointer_hover_pos().is_some_and(|p| area.contains(p));
-    if over && !response.dragged() {
+    let over = draggable && ui.ctx().pointer_hover_pos().is_some_and(|p| area.contains(p));
+    if draggable && response.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    } else if over {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
     }
-    if response.dragged() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-    }
-    let weak = ui.visuals().weak_text_color();
-    let color = if over || response.dragged() { ui.visuals().text_color() } else if response.hovered() { weak } else { weak.gamma_multiply(0.5) };
-    let center = area.center();
-    for dx in [-3.0, 3.0] {
-        for dy in [-6.0, 0.0, 6.0] {
-            ui.painter().circle_filled(center + Vec2::new(dx, dy), 1.5, color);
+    let visuals = ui.visuals();
+    let quiet = visuals.weak_text_color().gamma_multiply(0.35);
+    let fill = match label {
+        Some(color) if over || response.dragged() => color,
+        Some(color) => color.gamma_multiply(0.85),
+        None if over || response.dragged() => visuals.weak_text_color().gamma_multiply(0.7),
+        None => quiet,
+    };
+    let bar = egui::Rect::from_center_size(area.center(), Vec2::new(HANDLE_W, row.height() - 14.0));
+    ui.painter().rect_filled(bar, CornerRadius::same((HANDLE_W / 2.0) as u8), fill);
+    if draggable {
+        // Dots that show on the bar, whatever its colour.
+        let dots = if visuals.dark_mode { Color32::from_black_alpha(110) } else { Color32::from_white_alpha(200) };
+        for dx in [-2.5, 2.5] {
+            for dy in [-6.0, 0.0, 6.0] {
+                ui.painter().circle_filled(bar.center() + Vec2::new(dx, dy), 1.3, dots);
+            }
         }
     }
 }
