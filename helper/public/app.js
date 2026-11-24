@@ -1,12 +1,15 @@
-// Sloth Writer on the web: the scenes marked "Available on the web" in Sloth
-// Writer, to read and write in a browser. Talks to api.php; the Mac syncs with
-// the same helper, so the two never talk directly.
+// Sloth Writer on the web: the documents marked "Available on the web" in
+// Sloth Writer, to read and write in a browser. Talks to api.php; the Mac
+// syncs with the same helper, so the two never talk directly. (The API and
+// this code call them scenes, as Writer first did; the page says documents.)
 //
 // Pages (in the address's #):  #/                projects
-//                               #/p/ID            a project's scenes by chapter (folding, finding,
-//                                                 words against targets, today against the goal)
-//                               #/p/ID/s/SCENE    writing a scene, with its notes above it
-//                               #/p/ID/new        a new scene (goes to the Mac's inbox)
+//                               #/p/ID            a project's documents in the binder's folders
+//                                                 (folding, finding, words against targets, today
+//                                                 against the goal)
+//                               #/p/ID/s/SCENE    writing a document, with its notes above it
+//                               #/p/ID/f/FOLDER   the project, at that folder
+//                               #/p/ID/new        a new document (goes to the Mac's inbox)
 //                               #/account         tokens for the Mac, password, sign out
 //
 // Signed out: Sign In, with Forgot Password? (the setup password from
@@ -612,6 +615,7 @@ async function route() {
     if (kind === 'account') return await showAccount();
     if (kind === 'p' && sub === 's') return await showScene(project, scene);
     if (kind === 'p' && sub === 'new') return showNewScene(project);
+    if (kind === 'p' && sub === 'f') return await showProject(project, decodeURIComponent(scene || ''));
     if (kind === 'p') return await showProject(project);
     return await showProjects();
   } catch (err) {
@@ -626,10 +630,10 @@ async function showProjects() {
   render(`${nav()}
     <h1>Sloth Writer</h1>
     ${projects.length ? '' : `<p class="quiet">Nothing here yet. In Sloth Writer on your Mac, tick <em>Available on the web</em>
-      in a chapter's inspector, and put this page's address and a token (from <a href="#/account">Account</a>) in its Settings.</p>`}
+      in a document's or folder's inspector, and put this page's address and a token (from <a href="#/account">Account</a>) in its Settings.</p>`}
     <ul class="list projects">
       ${projects.map(p => `<li><a class="project" href="#/p/${encodeURIComponent(p.id)}"><strong>${esc(p.title)}</strong>
-        <span class="quiet">${p.scenes} ${p.scenes === 1 ? 'scene' : 'scenes'}</span></a>
+        <span class="quiet">${plural(p.scenes, 'document', 'documents')}</span></a>
         <a class="notepad-link" href="${notepadHref(p.id)}" title="Mobile Notes"
           aria-label="Mobile Notes for ${esc(p.title)}">${PEN}</a></li>`).join('')}
     </ul>`);
@@ -673,7 +677,55 @@ function entryHeading(at = new Date()) {
   return `## ${day.replace(/,/g, '')}, ${time}`;
 }
 
-async function showProject(project) {
+// ----- the binder's folders ------------------------------------------------------
+// Sloth Writer sends each document's path: the folders it's in, from its
+// top-level folder (Manuscript, Notes…) down, each with its id. Older
+// syncs sent only the folder it's directly in (`chapter`).
+
+const pathOf = s => (Array.isArray(s.path) ? s.path : s.chapter ? [{ id: `chapter:${s.chapter}`, title: s.chapter }] : []);
+
+/// The folders as a tree. Each folder holds its items in the binder's order:
+/// documents, and the folders inside it. A document with documents inside
+/// it (a chapter broken up into essays) is a folder too, its own text first.
+function folderTree(index) {
+  const root = { id: '', title: '', items: [], depth: -1, parent: null };
+  const folders = new Map();
+  for (const doc of index) {
+    let node = root;
+    for (const f of pathOf(doc)) {
+      let next = folders.get(f.id);
+      if (!next) {
+        next = { id: f.id, title: f.title, items: [], depth: node.depth + 1, parent: node };
+        folders.set(f.id, next);
+        node.items.push({ folder: next });
+      }
+      node = next;
+    }
+    node.items.push({ doc });
+  }
+  // A document that's also a folder: shown as the folder, in its place, with
+  // its own text first inside.
+  for (const folder of folders.values()) {
+    const parent = folder.parent;
+    const own = parent.items.findIndex(i => i.doc && i.doc.id === folder.id);
+    if (own < 0) continue;
+    const [item] = parent.items.splice(own, 1);
+    const at = parent.items.findIndex(i => i.folder === folder);
+    parent.items.splice(at, 1);
+    parent.items.splice(own, 0, { folder });
+    folder.items.unshift({ doc: item.doc, own: true });
+  }
+  return { root, folders };
+}
+
+/// Every document in a folder, its subfolders' too.
+function docsIn(folder) {
+  return folder.items.flatMap(i => (i.folder ? docsIn(i.folder) : [i.doc]));
+}
+
+const folderHref = (project, id) => `#/p/${encodeURIComponent(project)}/f/${encodeURIComponent(id)}`;
+
+async function showProject(project, focus) {
   const [info, inbox] = await Promise.all([api('index', undefined, q(project)), api('inbox', undefined, q(project))]);
   keepLook(info);
   const { title } = info;
@@ -682,26 +734,41 @@ async function showProject(project) {
   const local = drafts();
   const hasDraft = s => Boolean(local[`${project}/${s.id}`]);
   const wordsOf = s => (hasDraft(s) ? words(local[`${project}/${s.id}`].text) : s.words || 0);
-  // Grouped by the folder each is in, in the binder's order.
-  const groups = [];
-  for (const scene of index) {
-    const last = groups[groups.length - 1];
-    if (last && last.chapter === scene.chapter) last.scenes.push(scene);
-    else groups.push({ chapter: scene.chapter, scenes: [scene] });
-  }
+  const { root, folders } = folderTree(index);
   const closed = new Set(load(CLOSED, {})[project] || []);
+  // Going to a folder: it and everything above it open.
+  const opened = new Set();
+  for (let f = folders.get(focus); f && f !== root; f = f.parent) opened.add(f.id);
   const lastScene = index.find(s => s.id === load(LAST, {})[project]);
   const stats = info.stats || {};
   const href = s => `#/p/${encodeURIComponent(project)}/s/${encodeURIComponent(s.id)}`;
 
-  const row = s => {
+  // A document: its title (and status), synopsis and words, with a touch of
+  // its label's colour at the left. `own`: a folder's own text, first in it.
+  const row = (s, { own = false, crumbs = false } = {}) => {
     const w = wordsOf(s);
-    return `<li data-find="${esc(`${s.title} ${s.synopsis || ''} ${s.status || ''}`.toLowerCase())}"><a href="${href(s)}">
+    const label = s.label && /^#[0-9a-f]{6}$/i.test(s.label.color) ? s.label : null;
+    const where = pathOf(s).map(f => f.title).join(' › ');
+    return `<a class="doc${label ? ' labelled' : ''}" href="${href(s)}" ${label ? `style="--label:${label.color}" title="${esc(label.name)}"` : ''}
+      data-find="${esc(`${s.title} ${s.synopsis || ''} ${s.status || ''} ${label?.name || ''}`.toLowerCase())}">
       <span class="row-top"><strong>${esc(s.title)}</strong>${s.status ? `<span class="pill">${esc(s.status)}</span>` : ''}</span>
+      ${own ? '<span class="own quiet">Its own text</span>' : ''}
+      ${crumbs && where ? `<span class="crumbs quiet">${esc(where)}</span>` : ''}
       ${s.synopsis ? `<span class="synopsis">${esc(s.synopsis)}</span>` : ''}
       <span class="meta">${s.target ? `${fmt(w)} / ${fmt(s.target)} words${meter(w, s.target)}` : plural(w, 'word', 'words')}
-        ${hasDraft(s) ? '<span class="unsaved">not saved yet</span>' : ''}</span></a></li>`;
+        ${hasDraft(s) ? '<span class="unsaved">not saved yet</span>' : ''}</span></a>`;
   };
+  const folderHtml = f => {
+    const docs = docsIn(f);
+    const total = docs.reduce((sum, s) => sum + wordsOf(s), 0);
+    const open = opened.has(f.id) || !closed.has(f.id);
+    return `<details class="folder${f.depth === 0 ? ' top' : ''}" data-folder="${esc(f.id)}" ${open ? 'open' : ''}>
+      <summary><span class="name">${esc(f.title)}</span>
+        <span class="quiet">${plural(docs.length, 'document', 'documents')} · ${fmt(total)} words</span></summary>
+      <div class="inside">${itemsHtml(f.items)}</div></details>`;
+  };
+  const itemsHtml = items => items.map(i => (i.folder ? folderHtml(i.folder) : row(i.doc, { own: i.own }))).join('');
+  const many = index.length > 5;
 
   render(`${nav({ href: '#/', label: 'Projects' })}
     <header class="project-head">
@@ -716,48 +783,58 @@ async function showProject(project) {
       <span class="quiet">${notepad ? plural(wordsOf(notepad), 'word', 'words') : 'Start a notepad'}</span></a>
     <div class="project-tools">
       ${lastScene ? `<a class="continue" href="${href(lastScene)}">Continue <strong>${esc(lastScene.title)}</strong></a>` : '<span></span>'}
-      <a class="button" href="#/p/${encodeURIComponent(project)}/new">New Scene</a>
+      <a class="button" href="#/p/${encodeURIComponent(project)}/new">New Document</a>
     </div>
-    ${index.length > 5 ? '<input id="find" type="search" placeholder="Find a scene" autocomplete="off" aria-label="Find a scene">' : ''}
-    ${groups.map(g => {
-      const total = g.scenes.reduce((sum, s) => sum + wordsOf(s), 0);
-      return `<details class="chapter" data-chapter="${esc(g.chapter)}" ${closed.has(g.chapter) ? '' : 'open'}>
-        <summary><span class="name">${esc(g.chapter || title)}</span>
-          <span class="quiet">${plural(g.scenes.length, 'scene', 'scenes')} · ${fmt(total)} words</span></summary>
-        <ol class="scenes">${g.scenes.map(row).join('')}</ol></details>`;
-    }).join('')}
-    <p id="none" class="quiet" ${index.length ? 'hidden' : ''}>${index.length ? 'No scenes match.' : 'No scenes are on the web for this project.'}</p>
-    ${inbox.length ? `<p class="quiet">${plural(inbox.length, 'new scene is', 'new scenes are')}
+    ${many ? `<div class="find-bar">
+      <input id="find" type="search" placeholder="Find a document" autocomplete="off" aria-label="Find a document">
+      ${folders.size > 1 ? '<button id="open-all" type="button">Open All</button><button id="close-all" type="button">Close All</button>' : ''}
+    </div>` : ''}
+    <div id="tree">${itemsHtml(root.items)}</div>
+    <div id="results" class="results" hidden></div>
+    <p id="none" class="quiet" ${index.length ? 'hidden' : ''}>${index.length ? 'No documents match.' : 'No documents are on the web for this project.'}</p>
+    ${inbox.length ? `<p class="quiet">${plural(inbox.length, 'new document is', 'new documents are')}
       waiting for your Mac to take into the Manuscript.</p>` : ''}`);
 
-  // Folding a chapter is remembered.
-  app.querySelectorAll('details.chapter').forEach(d => d.addEventListener('toggle', () => {
-    if (app.querySelector('#find')?.value) return;  // opened by finding, not by hand
+  // Folding is remembered, by folder.
+  const remember = () => {
     const all = load(CLOSED, {});
-    const set = new Set(all[project] || []);
-    if (d.open) set.delete(d.dataset.chapter);
-    else set.add(d.dataset.chapter);
-    all[project] = [...set];
+    all[project] = [...app.querySelectorAll('details.folder')].filter(d => !d.open).map(d => d.dataset.folder);
     store(CLOSED, all);
+  };
+  app.querySelectorAll('details.folder').forEach(d => d.addEventListener('toggle', e => {
+    if (e.target === d) remember();
   }));
-  // Finding: titles, synopses and statuses.
+  const setAll = open => {
+    app.querySelectorAll('details.folder').forEach(d => { d.open = open; });
+    remember();
+  };
+  app.querySelector('#open-all')?.addEventListener('click', () => setAll(true));
+  app.querySelector('#close-all')?.addEventListener('click', () => setAll(false));
+
+  // Finding: every match in one list, each with where it is.
   const find = app.querySelector('#find');
+  const tree = app.querySelector('#tree');
+  const results = app.querySelector('#results');
   find?.addEventListener('input', () => {
     const wanted = find.value.trim().toLowerCase();
-    let shown = 0;
-    app.querySelectorAll('details.chapter').forEach(d => {
-      let here = 0;
-      d.querySelectorAll('li').forEach(li => {
-        const match = !wanted || li.dataset.find.includes(wanted);
-        li.hidden = !match;
-        here += match;
-      });
-      d.hidden = here === 0;
-      if (wanted && here) d.open = true;
-      shown += here;
-    });
-    app.querySelector('#none').hidden = shown > 0;
+    tree.hidden = Boolean(wanted);
+    results.hidden = !wanted;
+    if (!wanted) {
+      app.querySelector('#none').hidden = index.length > 0;
+      return;
+    }
+    const found = index.filter(s => `${s.title} ${s.synopsis || ''} ${s.status || ''} ${s.label?.name || ''}`.toLowerCase().includes(wanted));
+    results.innerHTML = found.map(s => row(s, { crumbs: true })).join('');
+    app.querySelector('#none').hidden = found.length > 0;
   });
+
+  // Arrived at a folder: bring it into view, briefly marked.
+  const target = focus && [...app.querySelectorAll('details.folder')].find(d => d.dataset.folder === focus);
+  if (target) {
+    target.scrollIntoView({ block: 'start' });
+    target.classList.add('focused');
+    setTimeout(() => target.classList.remove('focused'), 1600);
+  }
 }
 
 async function showScene(project, sceneId) {
@@ -776,8 +853,8 @@ async function showScene(project, sceneId) {
         scene = { text: '', version: 0 };
       } else if (err.status === 404) {
         const known = info.index.find(s => s.id === sceneId);
-        render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: 'Back' })}<h1>${esc(known?.title || 'Scene')}</h1>
-          <p class="quiet">This scene hasn't reached the helper yet: Sloth Writer sends it at its next sync.</p>`);
+        render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: 'Back' })}<h1>${esc(known?.title || 'Document')}</h1>
+          <p class="quiet">This document hasn't reached the helper yet: Sloth Writer sends it at its next sync.</p>`);
         return;
       } else {
         throw err;
@@ -801,13 +878,28 @@ async function showScene(project, sceneId) {
   if (isPad && scene && draft && draft.base !== scene.version) {
     text = mergePad(null, scene.text, draft.text);
   }
-  const title = entry.title || draft?.title || (isPad ? 'Mobile Notes' : 'Scene');
+  const title = entry.title || draft?.title || (isPad ? 'Mobile Notes' : 'Document');
   // Today's words when the page opened; what's typed here is added as it goes.
   const todayAtOpen = today(project, info);
   const sceneLink = s => `#/p/${encodeURIComponent(project)}/s/${encodeURIComponent(s.id)}`;
 
-  render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: entry.chapter || 'Back' })}
+  // Where it is: the project, then each folder down to it, each a way back
+  // to that folder in the project's list.
+  const path = pathOf(entry);
+  const folder = path[path.length - 1];
+  const crumbs = isPad ? '' : `<p class="crumbs"><a href="#/p/${encodeURIComponent(project)}">${esc(info.title || 'Project')}</a>${
+    path.map(f => ` <span class="sep">\u203a</span> <a href="${folderHref(project, f.id)}">${esc(f.title)}</a>`).join('')}</p>`;
+  // Into another folder: say which.
+  const inFolder = s => {
+    const there = pathOf(s);
+    const f = there[there.length - 1];
+    return f && f.id !== folder?.id ? `<span class="quiet">in ${esc(f.title)}</span>` : '';
+  };
+  const back = folder ? { href: folderHref(project, folder.id), label: folder.title } : { href: `#/p/${encodeURIComponent(project)}`, label: info.title || 'Back' };
+
+  render(`${nav(back)}
     <header class="scene-head">
+      ${crumbs}
       <h1>${esc(title)}</h1>
       <div class="tools">
         <span id="state" class="quiet"></span>
@@ -820,14 +912,14 @@ async function showScene(project, sceneId) {
     <div id="clash" class="clash" hidden></div>
     ${isPad ? '' : `<details id="notes-box" class="notes">
       <summary>Notes <span id="notes-glimpse" class="quiet"></span></summary>
-      <textarea id="notes" readonly placeholder="Notes about this scene: not part of the book. They sync with Sloth Writer's notes."
+      <textarea id="notes" readonly placeholder="Notes about this document: not part of the text. They sync with Sloth Writer's notes."
         aria-label="Notes"></textarea>
     </details>`}
     ${writingArea({ label: title })}
     <article id="preview" class="preview" hidden></article>
     <nav class="scene-nav">
-      ${prev ? `<a href="${sceneLink(prev)}" class="prev">‹ ${esc(prev.title)}</a>` : '<span></span>'}
-      ${next ? `<a href="${sceneLink(next)}" class="next">${esc(next.title)} ›</a>` : '<span></span>'}
+      ${prev ? `<a href="${sceneLink(prev)}" class="prev">‹ ${esc(prev.title)} ${inFolder(prev)}</a>` : '<span></span>'}
+      ${next ? `<a href="${sceneLink(next)}" class="next">${esc(next.title)} ${inFolder(next)} ›</a>` : '<span></span>'}
     </nav>`);
   const textarea = setUpWriting(document.getElementById('text'), text);
   const stateEl = document.getElementById('state');
@@ -905,8 +997,8 @@ async function showScene(project, sceneId) {
     show('Changed on your Mac');
     const box = document.getElementById('clash');
     box.hidden = false;
-    box.innerHTML = `<p><strong>Your Mac changed this scene</strong> while you were writing here.</p>
-      <p class="quiet">Keep yours to replace the Mac's (its words stay in the scene's history), or use the Mac's
+    box.innerHTML = `<p><strong>Your Mac changed this document</strong> while you were writing here.</p>
+      <p class="quiet">Keep yours to replace the Mac's (its words stay in the document's history), or use the Mac's
       (yours are saved as a new scene, for you to sort out in Sloth Writer).</p>
       <button id="keep-mine" class="primary">Keep Mine</button> <button id="use-macs">Use the Mac's</button>`;
     document.getElementById('keep-mine').onclick = () => {
@@ -1094,10 +1186,10 @@ function showNewScene(project) {
   const key = `${project}/new`;
   const draft = drafts()[key] || { title: '', text: '' };
   render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: 'Back' })}
-    <h1>New Scene</h1>
+    <h1>New Document</h1>
     <p class="quiet">It goes to your Mac, which puts it in the Manuscript at its next sync.</p>
     <input id="title" placeholder="Title" value="${esc(draft.title)}">
-    ${writingArea({ label: 'New scene', placeholder: 'Write…' })}
+    ${writingArea({ label: 'New document', placeholder: 'Write…' })}
     <p class="error" id="error"></p>
     <button id="send" class="primary">Send to My Mac</button>`);
   const textarea = setUpWriting(document.getElementById('text'), draft.text);
@@ -1119,7 +1211,7 @@ function showNewScene(project) {
 /// No connection: the scenes with unsaved words can still be opened.
 function showOffline() {
   const waiting = Object.entries(drafts()).filter(([key]) => !key.endsWith('/new') && !key.endsWith('-notes'));
-  render(`<h1>Sloth Writer</h1><p class="quiet">Offline. Scenes you were writing here can still be opened;
+  render(`<h1>Sloth Writer</h1><p class="quiet">Offline. Documents you were writing here can still be opened;
     they're saved when you're back online.</p>
     <ul class="list">${waiting.map(([key, d]) => {
       const [project, scene] = key.split('/');

@@ -79,12 +79,12 @@ test('sign in, and the project and its scenes', { skip }, async () => {
   await snap('projects');
 
   await go(`#/p/${project}`);
-  await page.waitFor(`document.querySelectorAll('ol.scenes li').length === 2`, { what: 'the scene list' });
-  const listed = await page.eval(`[...document.querySelectorAll('ol.scenes li strong')].map(s => s.textContent)`);
+  await page.waitFor(`document.querySelectorAll('a.doc').length === 2`, { what: 'the scene list' });
+  const listed = await page.eval(`[...document.querySelectorAll('a.doc strong')].map(s => s.textContent)`);
   assert.deepEqual(listed, ['The arrival', 'A letter']);
-  assert.equal(await page.eval(`document.querySelector('details.chapter .name').textContent`), 'Chapter 1');
-  assert.equal(await page.eval(`document.querySelector('ol.scenes .pill').textContent`), 'First draft');
-  const meta = await page.eval(`[...document.querySelectorAll('ol.scenes .meta')].map(m => m.textContent.trim())`);
+  assert.equal(await page.eval(`document.querySelector('details.folder .name').textContent`), 'Chapter 1');
+  assert.equal(await page.eval(`document.querySelector('a.doc .pill').textContent`), 'First draft');
+  const meta = await page.eval(`[...document.querySelectorAll('a.doc .meta')].map(m => m.textContent.trim())`);
   assert.deepEqual(meta, ['4 / 2,000 words', '2 words']);
   assert.match(await page.eval(`document.querySelector('.figures').textContent`), /Today 100 \/ 500/);
   await snap('scenes');
@@ -210,7 +210,7 @@ test("today's words: the Mac's count, and what's written here since", { skip }, 
   assert.match(await page.eval(`document.querySelector('.figures').textContent`), new RegExp(`Today ${n + 3} / 500`));
 });
 
-test('the scene list: continue where you were, find a scene, fold a chapter', { skip }, async () => {
+test('the document list: continue where you were, fold a folder', { skip }, async () => {
   await page.waitFor(`document.querySelector('.continue')`);
   assert.match(await page.eval(`document.querySelector('.continue').textContent`), /Continue\s+A letter/);
   // Prev and next on the scene itself.
@@ -220,15 +220,102 @@ test('the scene list: continue where you were, find a scene, fold a chapter', { 
   assert.equal(await page.eval(`document.querySelector('.scene-nav .prev')`), null);
   // Folding a chapter is remembered.
   await go(`#/p/${project}`);
-  await page.waitFor(`document.querySelector('details.chapter')`);
-  await page.eval(`document.querySelector('details.chapter > summary').click()`);
-  await page.waitFor(`!document.querySelector('details.chapter').open`);
+  await page.waitFor(`document.querySelector('details.folder')`);
+  await page.eval(`document.querySelector('details.folder > summary').click()`);
+  await page.waitFor(`!document.querySelector('details.folder').open`);
   await go(`#/p/${project}/s/arrival`);
   await go(`#/p/${project}`);
-  await page.waitFor(`document.querySelector('details.chapter')`);
-  assert.equal(await page.eval(`document.querySelector('details.chapter').open`), false);
-  await page.eval(`document.querySelector('details.chapter > summary').click()`);
+  await page.waitFor(`document.querySelector('details.folder')`);
+  assert.equal(await page.eval(`document.querySelector('details.folder').open`), false);
+  await page.eval(`document.querySelector('details.folder > summary').click()`);
   await snap('scene-list');
+});
+
+test('nested folders: the binder as it is, finding with where things are, and the way back', { skip }, async () => {
+  // A bigger project: a part holding chapters, a chapter broken up into
+  // essays (a document with documents inside it), notes, and labels.
+  const big = newProject();
+  const m = { id: 'manuscript', title: 'Manuscript' };
+  const part = { id: 'part1', title: 'Part One' };
+  const ch1 = { id: 'ch1', title: 'Chapter 1' };
+  const ch2 = { id: 'ch2', title: 'Chapter 2' };
+  const notes = { id: 'notes', title: 'Notes' };
+  await theMac.call('index_put', {
+    title: 'Essays',
+    index: [
+      { id: 'intro', title: 'Introduction', chapter: 'Manuscript', path: [m], words: 50 },
+      { id: 'walk', title: 'On Walking', chapter: 'Chapter 1', path: [m, part, ch1], words: 300, label: { name: 'Draft', color: '#e5484d' } },
+      { id: 'rain', title: 'Rain', chapter: 'Chapter 1', path: [m, part, ch1], words: 200 },
+      // Chapter 2 is a document: its own text, then the essays in it.
+      { id: 'ch2', title: 'Chapter 2', chapter: 'Part One', path: [m, part], words: 40 },
+      { id: 'trains', title: 'Trains', chapter: 'Chapter 2', path: [m, part, ch2], words: 400 },
+      { id: 'ideas', title: 'Ideas', chapter: 'Notes', path: [notes], words: 10 },
+      // Another "Rain", elsewhere: finding tells them apart.
+      { id: 'rain2', title: 'Rain', chapter: 'Notes', path: [notes], words: 5 },
+    ],
+    stats: { date: localDay(), today: 0, goal: null, total: 990, target: null, deadline: null },
+  }, `&p=${big}`);
+  await theMac.call('scene_put', { text: 'It rained.', base: 0 }, `&p=${big}&id=rain`);
+
+  await go(`#/p/${big}`);
+  await page.waitFor(`document.querySelectorAll('a.doc').length === 7`, { what: 'the documents' });
+  // Each folder where the binder has it, with what's in it (subfolders too).
+  const tree = await page.eval(`(() => {
+    const walk = el => [...el.children].map(c => c.matches('details.folder')
+      ? { folder: c.querySelector(':scope > summary .name').textContent, count: c.querySelector(':scope > summary .quiet').textContent,
+          inside: walk(c.querySelector(':scope > .inside')) }
+      : c.querySelector('strong').textContent + (c.querySelector('.own') ? ' (own)' : ''));
+    return walk(document.getElementById('tree'));
+  })()`);
+  assert.deepEqual(tree, [
+    { folder: 'Manuscript', count: '5 documents · 990 words', inside: [
+      'Introduction',
+      { folder: 'Part One', count: '4 documents · 940 words', inside: [
+        { folder: 'Chapter 1', count: '2 documents · 500 words', inside: ['On Walking', 'Rain'] },
+        { folder: 'Chapter 2', count: '2 documents · 440 words', inside: ['Chapter 2 (own)', 'Trains'] },
+      ] },
+    ] },
+    { folder: 'Notes', count: '2 documents · 15 words', inside: ['Ideas', 'Rain'] },
+  ]);
+  // A label, as a touch of its colour.
+  assert.equal(await page.eval(`getComputedStyle([...document.querySelectorAll('a.doc')].find(a => a.textContent.includes('On Walking'))).borderLeftColor`), 'rgb(229, 72, 77)');
+  await snap('nested');
+
+  // Close All, then Open All; folding is kept by folder, not by name.
+  await page.eval(`document.getElementById('close-all').click()`);
+  assert.equal(await page.eval(`[...document.querySelectorAll('details.folder')].some(d => d.open)`), false);
+  await page.eval(`document.getElementById('open-all').click()`);
+  assert.equal(await page.eval(`[...document.querySelectorAll('details.folder')].every(d => d.open)`), true);
+  await page.eval(`document.querySelector('details.folder[data-folder="ch1"] > summary').click()`);
+  await go(`#/p/${big}/s/intro`);
+  await go(`#/p/${big}`);
+  await page.waitFor(`document.querySelector('details.folder[data-folder="ch1"]')`);
+  assert.deepEqual(await page.eval(`[...document.querySelectorAll('details.folder')].filter(d => !d.open).map(d => d.dataset.folder)`), ['ch1']);
+
+  // Finding: one list, each with where it is.
+  await page.eval(`(() => { const f = document.getElementById('find'); f.value = 'rain'; f.dispatchEvent(new Event('input')); })()`);
+  assert.equal(await page.eval(`document.getElementById('tree').hidden`), true);
+  const found = await page.eval(`[...document.querySelectorAll('#results a.doc')].map(a => a.querySelector('strong').textContent + ' · ' + a.querySelector('.crumbs').textContent)`);
+  // (Trains too: "rain" is in it.)
+  assert.deepEqual(found, ['Rain · Manuscript \u203a Part One \u203a Chapter 1', 'Trains · Manuscript \u203a Part One \u203a Chapter 2', 'Rain · Notes']);
+  await snap('nested-find');
+
+  // Writing in one: where it is, above its title, and back to its folder.
+  await go(`#/p/${big}/s/rain`);
+  await page.waitFor(`document.querySelector('.scene-head .crumbs')`);
+  assert.equal(await page.eval(`document.querySelector('.scene-head .crumbs').textContent.replace(/\\s+/g, ' ').trim()`),
+    'Essays \u203a Manuscript \u203a Part One \u203a Chapter 1');
+  assert.match(await page.eval(`document.querySelector('nav.bar .back').textContent`), /Chapter 1/);
+  // Next leads into another folder: it says which.
+  assert.match(await page.eval(`document.querySelector('.scene-nav .next').textContent`), /Chapter 2\s+in Part One/);
+  await snap('nested-crumbs');
+
+  // Back: the project at Chapter 1, opened (though it was folded) and in view.
+  await page.eval(`document.querySelector('nav.bar .back').click()`);
+  await page.waitFor(`document.getElementById('app').dataset.shown === '#/p/${big}/f/ch1'`, { what: 'the folder' });
+  assert.equal(await page.eval(`document.querySelector('details.folder[data-folder="ch1"]').open`), true);
+  assert.equal(await page.eval(`document.querySelector('details.folder[data-folder="ch1"]').classList.contains('focused')`), true);
+  assert.deepEqual(page.errors, [], 'no errors on the page');
 });
 
 test('typing at the end of a long scene keeps the page where it is', { skip }, async () => {
@@ -287,13 +374,15 @@ test('password managers see the account password, and Forgot Password works', { 
 
 test('the mobile notepad: on the project list, first in the project, started here with dated entries', { skip }, async () => {
   await go('#/');
-  await page.waitFor(`document.querySelector('a.notepad-link')`, { what: 'the notepad link' });
-  assert.equal(await page.eval(`document.querySelector('a.notepad-link').getAttribute('href')`), `#/p/${project}/s/notepad`);
+  // This project's (another test's project may be listed too).
+  const link = `document.querySelector('a.notepad-link[href^="#/p/${project}/"]')`;
+  await page.waitFor(link, { what: 'the notepad link' });
+  assert.equal(await page.eval(`${link}.getAttribute('href')`), `#/p/${project}/s/notepad`);
   await snap('notepad-projects');
 
   await go(`#/p/${project}`);
   assert.match(await page.eval(`document.querySelector('.notepad-row').textContent`), /Mobile Notes\s+Start a notepad/);
-  assert.doesNotMatch(await page.eval(`document.querySelector('details.chapter').textContent`), /Mobile Notes/);
+  assert.doesNotMatch(await page.eval(`document.querySelector('details.folder').textContent`), /Mobile Notes/);
   await snap('notepad-in-project');
 
   // Not on the helper yet: it starts empty, and is made when written in.

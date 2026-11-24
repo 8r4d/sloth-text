@@ -1077,18 +1077,27 @@ impl Project {
     /// The documents on the web (outside the Trash), in binder order, each
     /// with the folder it's in (for the web editor's list).
     pub fn ipad_documents(&self) -> Vec<(&Node, String)> {
-        fn walk<'a>(nodes: &'a [Node], parent: &str, marked: bool, out: &mut Vec<(&'a Node, String)>) {
+        self.web_documents().into_iter().map(|(n, path)| (n, path.last().map(|p| p.title.clone()).unwrap_or_default())).collect()
+    }
+
+    /// The documents on the web (outside the Trash), in binder order, each
+    /// with the items it's inside, from its top-level folder down (for the
+    /// web editor to show the binder's folders as they are).
+    pub fn web_documents(&self) -> Vec<(&Node, Vec<&Node>)> {
+        fn walk<'a>(nodes: &'a [Node], path: &mut Vec<&'a Node>, marked: bool, out: &mut Vec<(&'a Node, Vec<&'a Node>)>) {
             for n in nodes {
                 let marked = marked || n.meta.on_ipad;
                 if marked && n.is_document() {
-                    out.push((n, parent.to_owned()));
+                    out.push((n, path.clone()));
                 }
-                walk(&n.children, &n.title, marked, out);
+                path.push(n);
+                walk(&n.children, path, marked, out);
+                path.pop();
             }
         }
         let mut out = Vec::new();
         for top in self.manifest.binder.iter().filter(|n| n.role != Some(Role::Trash)) {
-            walk(std::slice::from_ref(top), "", false, &mut out);
+            walk(std::slice::from_ref(top), &mut Vec::new(), false, &mut out);
         }
         out
     }
@@ -1584,6 +1593,13 @@ mod tests {
         assert!(p.on_ipad(&a) && p.on_ipad(&chapter));
         let listed: Vec<(String, String)> = p.ipad_documents().into_iter().map(|(n, parent)| (n.title.clone(), parent)).collect();
         assert_eq!(listed, [("Untitled".into(), "Manuscript".into()), ("A".into(), "Chapter 1".into()), ("B".into(), "Chapter 1".into())]);
+
+        // Each with the whole way down to it: a part, then a chapter in it.
+        let part = p.add_folder(&manuscript(), "Part One").unwrap();
+        p.move_node(&chapter, &Place::Into(part.clone())).unwrap();
+        let paths: Vec<(String, Vec<String>)> =
+            p.web_documents().into_iter().map(|(n, path)| (n.title.clone(), path.iter().map(|f| f.title.clone()).collect())).collect();
+        assert_eq!(paths[1], ("A".to_owned(), vec!["Manuscript".to_owned(), "Part One".to_owned(), "Chapter 1".to_owned()]));
 
         // Trashed: off the web editor.
         p.trash(&b).unwrap();

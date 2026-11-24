@@ -2,6 +2,20 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.40.0
+
+The web editor's project page, redone for bigger projects.
+
+- Documents are shown in the binder's folders as they are, nested: Manuscript, then a part, then its chapters, each set in with a faint line down its side, with how many documents and words are in it, subfolders and all. Before, only the folder a document was directly in came across, so parts and nesting were lost (and two folders of the same name were muddled).
+- A chapter that's a document with documents inside (after Break Up) is a folder, its own text first in it.
+- Open All and Close All beside Find. Folding is remembered folder by folder.
+- Find lists every match together, each with where it is (Manuscript › Part One › Chapter 1), so two of the same name are told apart.
+- Writing a document, where it is shows above its title, each folder a link back to it in the project page (opened and brought into view). Back goes to its folder, and the next or previous document says which folder it's in when it's another.
+- A document's label shows as a thin bar of its colour.
+- The page says documents, not scenes.
+
+Writer now sends each document's folders, from its top-level folder down, and its label, at each sync. (Upload the helper's new app.js and style.css to your host too.)
+
 ## 1.39.0
 
 - Eight more label colours, sixteen in all: lime, sky, indigo, lavender, burgundy, brown, olive and slate join red, orange, yellow, green, teal, blue, purple and pink. Labels you have keep their colours.

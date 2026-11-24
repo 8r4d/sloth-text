@@ -118,15 +118,26 @@ impl WriterApp {
             index.push(json!({ "id": sync::NOTEPAD, "title": title, "notepad": true, "words": count_words(&text) }));
             scenes.insert(sync::NOTEPAD.to_owned(), text);
         }
-        for (node, folder) in project.ipad_documents() {
+        let labels = project.manifest.labels.clone();
+        for (node, path) in project.web_documents() {
             if notepad.as_ref().is_some_and(|(id, _)| *id == node.id) {
                 continue;
             }
             let Some(text) = text_of(&node.id) else { continue };
+            let folder = path.last().map(|f| f.title.clone()).unwrap_or_default();
+            // Its label, for a touch of its colour on the web.
+            let label = node.meta.label.and_then(|i| labels.get(i)).map(|l| {
+                let c = super::inspector::label_color(l.color);
+                json!({ "name": l.name, "color": format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()) })
+            });
             index.push(json!({
                 "id": node.id,
                 "title": node.title,
+                // The folder it's in (what older web pages group by), and
+                // the whole way down to it, from its top-level folder.
                 "chapter": folder,
+                "path": path.iter().map(|f| json!({ "id": f.id, "title": f.title })).collect::<Vec<_>>(),
+                "label": label,
                 "synopsis": node.meta.synopsis,
                 "status": node.meta.status.and_then(|i| statuses.get(i)),
                 "target": node.meta.target_words,
