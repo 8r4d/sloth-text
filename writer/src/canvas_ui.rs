@@ -9,6 +9,11 @@
 //! a card's pin to another card to tie a string between them, and again to
 //! untie it; click a string to pick it, Delete to untie it, right-click to
 //! say what it means.
+//!
+//! Depth (above it) shows only so many levels into each top-level folder:
+//! an item at the last level with things inside is one card for them all,
+//! and their strings roll up to it (see `canvas::shown` and `roll_up`).
+//! Folders above that level are outlined round their cards.
 
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -48,6 +53,12 @@ pub(super) struct CanvasState {
     fit: bool,
     edges: Vec<Edge>,
     edges_at: Option<f64>,
+    /// The strings as drawn: rolled up to the cards shown (see `canvas::roll_up`).
+    drawn_edges: Vec<Edge>,
+    /// Each item's card: its own, or the one standing for it at the depth shown.
+    stand_in: HashMap<String, String>,
+    /// Folders to outline: title, the cards in them, folders nested inside.
+    outlines: Vec<(String, Vec<String>, usize)>,
     /// The card picked: its strings and neighbours stand out.
     focus: Option<String>,
     /// The binder's selection when last seen, so the canvas can follow it.
@@ -81,6 +92,9 @@ impl CanvasState {
             fit: true,
             edges: Vec::new(),
             edges_at: None,
+            drawn_edges: Vec::new(),
+            stand_in: HashMap::new(),
+            outlines: Vec::new(),
             focus: None,
             seen_selected: None,
             drawn: 0,
@@ -104,6 +118,11 @@ impl CanvasState {
         &self.edges
     }
 
+    #[cfg(test)]
+    pub(super) fn drawn_edges(&self) -> &[Edge] {
+        &self.drawn_edges
+    }
+
     /// Write the canvas out if it's changed.
     pub(super) fn save(&mut self, root: &Path) -> io::Result<()> {
         if self.dirty {
@@ -124,8 +143,11 @@ impl CanvasState {
 
 /// What a card is, as the canvas draws it.
 enum Kind {
-    /// With its status, as a stamp: the name and its colour.
-    Document { synopsis: String, label: Option<Color32>, status: Option<(String, Color32)> },
+    /// With its status, as a stamp: the name and its colour. `inside`:
+    /// documents in it, shown as part of this card at the depth chosen.
+    Document { synopsis: String, label: Option<Color32>, status: Option<(String, Color32)>, inside: usize },
+    /// A folder standing for what's in it, at the depth chosen.
+    Folder { synopsis: String, label: Option<Color32>, inside: usize },
     /// A profile: its kind ("Character") and the kind's colour.
     Profile { kind: String, color: Color32 },
     Note,
@@ -185,17 +207,52 @@ impl WriterApp {
             }
         }
 
-        // Every document outside the Trash, a top-level folder at a time.
-        let groups: Vec<(String, String, Vec<&crate::project::Node>)> = project
+        // Every top-level folder outside the Trash, as deep as chosen.
+        let depth = state.data.depth;
+        let groups: Vec<(String, String, canvas::Shown)> = project
             .manifest
             .binder
             .iter()
             .filter(|top| top.role != Some(Role::Trash))
-            .map(|top| (top.id.clone(), top.title.clone(), top.subtree().into_iter().filter(|n| n.is_document()).collect()))
+            .map(|top| (top.id.clone(), top.title.clone(), canvas::shown(top, depth)))
             .collect();
         state.dirty |= state.data.prune(|id| project.node(id).is_some());
-        let ids: Vec<Vec<String>> = groups.iter().map(|(_, _, nodes)| nodes.iter().map(|n| n.id.clone()).collect()).collect();
+        // A card standing for a folder's contents goes where they are;
+        // every document has a place, shown or not, so changing the depth
+        // never moves anything.
+        for (_, _, shown) in &groups {
+            state.dirty |= state.data.place_with_contents(&shown.cards);
+        }
+        let ids: Vec<Vec<String>> = project
+            .manifest
+            .binder
+            .iter()
+            .filter(|top| top.role != Some(Role::Trash))
+            .zip(&groups)
+            .flat_map(|(top, (_, _, shown))| {
+                // Each folder's documents a block, and folder cards (when
+                // their contents have no places either) one more.
+                let mut blocks = canvas::blocks(top);
+                blocks.push(shown.cards.iter().filter(|n| !n.is_document()).map(|n| n.id.clone()).collect());
+                blocks
+            })
+            .collect();
         state.dirty |= state.data.place_missing(&ids);
+        state.stand_in.clear();
+        state.outlines.clear();
+        for (top, _, shown) in &groups {
+            if state.data.hidden.contains(top) {
+                continue;
+            }
+            state.stand_in.extend(shown.stand_in.iter().map(|(a, b)| (a.clone(), b.clone())));
+            if !state.data.hide_folders {
+                state.outlines.extend(shown.folders.iter().map(|(n, cards, nesting)| (n.title.clone(), cards.clone(), *nesting)));
+            }
+        }
+        for note in &state.data.notes {
+            state.stand_in.insert(note.id.clone(), note.id.clone());
+        }
+        state.drawn_edges = canvas::roll_up(&state.edges, &state.stand_in);
 
         let labels = &project.manifest.labels;
         let statuses = &project.manifest.statuses;
@@ -205,20 +262,23 @@ impl WriterApp {
             Rect::from_min_size(Pos2::new(x, y), size)
         };
         let mut cards = Vec::new();
-        for (top, _, nodes) in &groups {
+        for (top, _, shown) in &groups {
             if state.data.hidden.contains(top) {
                 continue;
             }
-            for node in nodes {
+            for node in &shown.cards {
+                // What's inside it, shown as part of it.
+                let inside = node.subtree().iter().skip(1).filter(|n| n.is_document()).count();
+                let label = node.meta.label.and_then(|i| labels.get(i)).map(|l| label_color(l.color));
                 let (kind, size) = match project.profile_of(&node.id) {
+                    _ if !node.is_document() => (Kind::Folder { synopsis: node.meta.synopsis.clone(), label, inside }, DOC_SIZE),
                     Some(k) => {
                         let index = kinds.iter().position(|o| o.id == k.id).unwrap_or(0);
                         (Kind::Profile { kind: k.item.clone(), color: label_color(index as u8 + 1) }, PROFILE_SIZE)
                     }
                     None => {
-                        let label = node.meta.label.and_then(|i| labels.get(i)).map(|l| label_color(l.color));
                         let status = node.meta.status.filter(|&i| i < statuses.len()).map(|i| (statuses[i].clone(), super::views::status_color(i, statuses.len())));
-                        (Kind::Document { synopsis: node.meta.synopsis.clone(), label, status }, DOC_SIZE)
+                        (Kind::Document { synopsis: node.meta.synopsis.clone(), label, status, inside }, DOC_SIZE)
                     }
                 };
                 cards.push(Card { id: node.id.clone(), title: node.title.clone(), kind, rect: place(&node.id, size) });
@@ -318,6 +378,20 @@ fn canvas_bar(ui: &mut egui::Ui, state: &mut CanvasState, folders: &[(String, St
             })
             .response
             .on_hover_text("Which folders' documents are on the canvas");
+            let before = state.data.depth;
+            ui.add_space(8.0);
+            ui.label("Depth").on_hover_text("How far into each folder to show cards: at 1, each chapter (say) is one card, standing for everything in it, its strings gathered together");
+            for (d, name) in [(Some(1), "1"), (Some(2), "2"), (Some(3), "3"), (None, "All")] {
+                ui.selectable_value(&mut state.data.depth, d, name);
+            }
+            if state.data.depth != before {
+                state.dirty = true;
+            }
+            let mut folders = !state.data.hide_folders;
+            if ui.checkbox(&mut folders, "Folders").on_hover_text("Outline each folder's cards, with its title").changed() {
+                state.data.hide_folders = !folders;
+                state.dirty = true;
+            }
             if ui.button("Fit").on_hover_text("Bring everything into view").clicked() {
                 state.fit = true;
             }
@@ -330,6 +404,16 @@ fn canvas_bar(ui: &mut egui::Ui, state: &mut CanvasState, folders: &[(String, St
             });
         });
     });
+}
+
+/// A folder's outline: a faint rounded frame round its cards, its title at
+/// the top left.
+fn painter_outline(ui: &mut egui::Ui, area: Rect, title: &str, color: Color32) {
+    ui.painter().rect(area, CornerRadius::same(12), color.gamma_multiply(0.04), Stroke::new(1.0, color.gamma_multiply(0.35)), StrokeKind::Inside);
+    // A label (not just paint), so it can be read out; it takes no clicks.
+    let at = Rect::from_min_size(area.min + Vec2::new(12.0, 5.0), Vec2::new((area.width() - 24.0).max(40.0), 16.0));
+    let label = egui::Label::new(RichText::new(title).size(12.0).color(color)).selectable(false).truncate().sense(Sense::hover());
+    ui.scope_builder(UiBuilder::new().max_rect(at).layout(egui::Layout::left_to_right(egui::Align::Min)), |ui| ui.add(label));
 }
 
 /// Nothing on the canvas (every folder hidden, say): the sloth and a hint,
@@ -447,7 +531,7 @@ fn corner_radius(card: &Card) -> f32 {
     match card.kind {
         Kind::Profile { .. } => card.rect.height() / 2.0,
         Kind::Note => 4.0,
-        Kind::Document { .. } => 6.0,
+        Kind::Document { .. } | Kind::Folder { .. } => 6.0,
     }
 }
 
@@ -520,12 +604,13 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     let mut near: HashSet<String> = HashSet::new();
     if let Some(f) = focus {
         near.insert(f.to_owned());
-        let pairs = state.edges.iter().map(|e| (&e.from, &e.to));
-        for (a, b) in pairs.chain(state.data.strings.iter().map(|t| (&t.a, &t.b))) {
+        let pairs = state.drawn_edges.iter().map(|e| (e.from.as_str(), e.to.as_str()));
+        let ties = state.data.strings.iter().filter_map(|t| Some((state.stand_in.get(&t.a)?.as_str(), state.stand_in.get(&t.b)?.as_str())));
+        for (a, b) in pairs.chain(ties) {
             if a == f {
-                near.insert(b.clone());
+                near.insert(b.to_owned());
             } else if b == f {
-                near.insert(a.clone());
+                near.insert(a.to_owned());
             }
         }
     }
@@ -558,7 +643,16 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     let weak = ui.visuals().weak_text_color();
     let painter = ui.painter().clone();
     let mut nearest = reach;
-    for (i, edge) in state.edges.iter().enumerate() {
+    // Each folder's cards, outlined with its title: the outer ones wider.
+    let outline = ui.visuals().weak_text_color();
+    for (title, inside, nesting) in &state.outlines {
+        let Some(bounds) = inside.iter().filter_map(|id| rects.get(id.as_str())).copied().reduce(|a, b| a.union(b)) else { continue };
+        let pad = 14.0 + 14.0 * *nesting as f32;
+        let area = Rect::from_min_max(bounds.min - Vec2::new(pad, pad + 16.0), bounds.max + Vec2::splat(pad));
+        painter_outline(ui, area, title, outline);
+    }
+
+    for (i, edge) in state.drawn_edges.iter().enumerate() {
         let (Some(a), Some(b)) = (rects.get(edge.from.as_str()), rects.get(edge.to.as_str())) else { continue };
         let points = swaying_string(shape(&edge.from, a), shape(&edge.to, b), wobble_of(&edge.from, &edge.to));
         let full = if focus.is_some() { 0.9 } else { 0.7 };
@@ -577,8 +671,13 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
     let mut nearest_tie = reach;
     let mut tie_points = Vec::new();
     for (i, tie) in state.data.strings.iter().enumerate() {
-        let (Some(a), Some(b)) = (rects.get(tie.a.as_str()), rects.get(tie.b.as_str())) else { continue };
-        let points = swaying_string(shape(&tie.a, a), shape(&tie.b, b), wobble_of(&tie.a, &tie.b));
+        // Tied to something inside a card shown for it: to that card.
+        let (Some(ta), Some(tb)) = (state.stand_in.get(&tie.a), state.stand_in.get(&tie.b)) else { continue };
+        if ta == tb {
+            continue;
+        }
+        let (Some(a), Some(b)) = (rects.get(ta.as_str()), rects.get(tb.as_str())) else { continue };
+        let points = swaying_string(shape(ta, a), shape(tb, b), wobble_of(ta, tb));
         if let Some(p) = pointer.filter(|_| !over_card) {
             let d = distance_to(&points, p);
             if d < nearest_tie {
@@ -586,7 +685,7 @@ fn draw(ui: &mut egui::Ui, state: &mut CanvasState, cards: &[Card], actions: &mu
                 hovered.tie = Some(i);
             }
         }
-        tie_points.push((i, points, glow_of(&tie.a, &tie.b)));
+        tie_points.push((i, points, glow_of(ta, tb)));
     }
     // A string tied by hand wins over one the project draws.
     if hovered.tie.is_some() {
@@ -677,8 +776,13 @@ fn card_ui(
     let border = if picked || targeted { Stroke::new(2.0, visuals.selection.stroke.color) } else { visuals.widgets.noninteractive.bg_stroke };
     let painter = ui.painter().clone();
     match &card.kind {
-        Kind::Document { synopsis, label, status } => {
+        Kind::Document { synopsis, label, status, inside } => {
             let fill = if visuals.dark_mode { Color32::from_gray(48) } else { Color32::from_rgb(0xFD, 0xFB, 0xF4) };
+            // Holding more than itself: another card peeking out behind.
+            if *inside > 0 {
+                let behind = rect.translate(Vec2::new(4.0, 4.0));
+                painter.rect(behind, CornerRadius::same(6), fill, visuals.widgets.noninteractive.bg_stroke, StrokeKind::Inside);
+            }
             painter.rect(rect, CornerRadius::same(6), fill, border, StrokeKind::Inside);
             if let Some(color) = label {
                 let strip = Rect::from_min_size(rect.min, Vec2::new(5.0, rect.height()));
@@ -696,6 +800,32 @@ fn card_ui(
             if let Some((name, color)) = status {
                 super::views::stamp(&painter, rect.right_bottom() + Vec2::new(-8.0, -6.0), name, *color);
             }
+            if *inside > 0 {
+                let text = format!("+ {inside} inside");
+                painter.text(rect.left_bottom() + Vec2::new(12.0, -7.0), egui::Align2::LEFT_BOTTOM, text, FontId::proportional(10.5), visuals.weak_text_color());
+            }
+        }
+        Kind::Folder { synopsis, label, inside } => {
+            // A folder: a tab on top, a tint, and what's in it.
+            let tint = visuals.selection.bg_fill;
+            let fill = if visuals.dark_mode { Color32::from_gray(44) } else { Color32::from_rgb(0xF6, 0xF4, 0xEC) }.lerp_to_gamma(tint, 0.12);
+            let tab = Rect::from_min_size(rect.min - Vec2::new(0.0, 7.0), Vec2::new(64.0, 12.0));
+            painter.rect(tab, CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 }, fill, border, StrokeKind::Inside);
+            painter.rect(rect, CornerRadius { nw: 0, ne: 6, sw: 6, se: 6 }, fill, border, StrokeKind::Inside);
+            painter.rect_filled(Rect::from_min_size(tab.min + Vec2::new(1.0, 6.0), Vec2::new(62.0, 8.0)), CornerRadius::ZERO, fill);
+            if let Some(color) = label {
+                let strip = Rect::from_min_size(rect.min, Vec2::new(5.0, rect.height()));
+                painter.rect_filled(strip, CornerRadius { nw: 0, sw: 6, ne: 0, se: 0 }, *color);
+            }
+            let inner = rect.shrink2(Vec2::new(12.0, 9.0));
+            let title = Rect::from_min_size(inner.min, Vec2::new(inner.width(), 18.0));
+            title_label(ui, title, &card.title);
+            let count = format!("{inside} document{}", if *inside == 1 { "" } else { "s" });
+            let line = if synopsis.is_empty() { count } else { format!("{count} \u{b7} {synopsis}") };
+            let mut job = egui::text::LayoutJob::simple(line, FontId::proportional(11.5), visuals.weak_text_color(), inner.width());
+            job.wrap.max_rows = 2;
+            job.wrap.overflow_character = Some('\u{2026}');
+            painter.galley(Pos2::new(inner.left(), title.bottom() + 4.0), painter.layout_job(job), visuals.weak_text_color());
         }
         Kind::Profile { kind, color } => {
             let radius = (rect.height() / 2.0) as u8;
@@ -843,7 +973,7 @@ fn background(ui: &egui::Ui, state: &mut CanvasState, cards: &[Card], response: 
         state.new_note(p);
     }
     if let Some(i) = hovered.edge
-        && let Some(edge) = state.edges.get(i)
+        && let Some(edge) = state.drawn_edges.get(i)
     {
         let title = |id: &str| cards.iter().find(|c| c.id == id).map_or("", |c| c.title.as_str());
         let how = match (edge.references, edge.linked) {

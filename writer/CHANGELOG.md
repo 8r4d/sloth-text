@@ -2,6 +2,17 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.29.0
+
+A tidier Canvas.
+
+- Depth, above the Canvas: 1, 2, 3 or All. At 1, what's straight inside each top-level folder gets one card (a chapter, say), standing for everything in it, and the strings from what's inside are gathered onto it, thicker for more references. Hover a string to see the count. At 2, it's the next level down, and so on.
+- A folder's card has a tab and tells how many documents are in it; a document holding others shows "+ 12 inside". Each one first sits where the first thing inside it already is. Double-click it to see the folder in the split pane.
+- Folders (ticked to start with): each folder's cards are outlined, with its title, the outer folders' outlines wider.
+- Strings tied by hand to something inside a card follow it onto that card.
+- New cards arrive a folder at a time, each folder's on rows of its own, rather than mixed together.
+- Nothing moves when the depth changes: every card keeps its place for when it's shown again.
+
 ## 1.28.0
 
 Break Up and Combine.

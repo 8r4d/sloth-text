@@ -8,7 +8,7 @@
 //! it's a thinking space, so moving cards about doesn't touch the project
 //! file. Notes and strings are kept in backups with the rest of `.sloth`.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io;
 use std::path::Path;
 
@@ -39,6 +39,113 @@ pub struct Canvas {
     /// Top-level folders (by id) whose documents are left off.
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub hidden: BTreeSet<String>,
+    /// How deep into each top-level folder cards go: 1 is what's straight
+    /// inside it (chapters, say), each standing for everything in it.
+    /// `None` is all the way down.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<usize>,
+    /// Don't outline each folder's cards with its title.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hide_folders: bool,
+}
+
+/// A top-level folder's items in blocks for placing new cards: the
+/// documents straight inside each item (the folder itself, a chapter…)
+/// together, in binder order, after the item itself if it's a document.
+pub fn blocks(top: &Node) -> Vec<Vec<String>> {
+    fn walk(node: &Node, out: &mut Vec<Vec<String>>) {
+        let mut block: Vec<String> = Vec::new();
+        for child in &node.children {
+            if child.is_document() {
+                block.push(child.id.clone());
+            }
+        }
+        out.push(block);
+        for child in node.children.iter().filter(|c| !c.children.is_empty()) {
+            walk(child, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(top, &mut out);
+    out.retain(|b| !b.is_empty());
+    out
+}
+
+/// What the canvas shows of one top-level folder, at a depth.
+#[derive(Debug, Default, PartialEq)]
+pub struct Shown<'a> {
+    /// The cards, in binder order: every document above the depth, and
+    /// whatever's at the depth with things inside (standing for them all).
+    pub cards: Vec<&'a Node>,
+    /// Each item's card: its own, or the one standing for it.
+    pub stand_in: HashMap<String, String>,
+    /// Folders above the depth, each with the cards inside it (at any
+    /// level) and how many levels of folders are inside it, for outlines.
+    pub folders: Vec<(&'a Node, Vec<String>, usize)>,
+}
+
+/// What of `top` (a top-level folder) is on the canvas, `depth` levels in.
+pub fn shown(top: &Node, depth: Option<usize>) -> Shown<'_> {
+    /// Returns the cards under `node`'s children, and its folder nesting.
+    fn walk<'a>(nodes: &'a [Node], level: usize, depth: Option<usize>, out: &mut Shown<'a>) -> (Vec<String>, usize) {
+        let mut cards = Vec::new();
+        let mut nesting = 0;
+        for node in nodes {
+            if depth.is_some_and(|d| level >= d) && !node.children.is_empty() {
+                // At the depth: one card for all of it.
+                out.cards.push(node);
+                for inner in node.subtree() {
+                    out.stand_in.insert(inner.id.clone(), node.id.clone());
+                }
+                cards.push(node.id.clone());
+                continue;
+            }
+            if node.is_document() {
+                out.cards.push(node);
+                out.stand_in.insert(node.id.clone(), node.id.clone());
+                cards.push(node.id.clone());
+            }
+            if !node.children.is_empty() {
+                let at = out.folders.len();
+                if !node.is_document() {
+                    out.folders.push((node, Vec::new(), 0));
+                }
+                let (inside, inner_nesting) = walk(&node.children, level + 1, depth, out);
+                if !node.is_document() {
+                    out.folders[at].1 = inside.clone();
+                    out.folders[at].2 = inner_nesting;
+                    nesting = nesting.max(inner_nesting + 1);
+                } else {
+                    nesting = nesting.max(inner_nesting);
+                }
+                cards.extend(inside);
+            }
+        }
+        (cards, nesting)
+    }
+    let mut out = Shown::default();
+    walk(&top.children, 1, depth, &mut out);
+    // A folder with nothing on the canvas has nothing to outline.
+    out.folders.retain(|(_, cards, _)| !cards.is_empty());
+    out
+}
+
+/// The project's strings as the canvas draws them: each end moved to the
+/// card standing for it (dropped if it has none), strings that would join
+/// a card to itself left out, and strings between the same two cards made
+/// one (their references added up).
+pub fn roll_up(edges: &[Edge], stand_in: &HashMap<String, String>) -> Vec<Edge> {
+    let mut found: BTreeMap<(String, String), (usize, bool)> = BTreeMap::new();
+    for edge in edges {
+        let (Some(from), Some(to)) = (stand_in.get(&edge.from), stand_in.get(&edge.to)) else { continue };
+        if from == to {
+            continue;
+        }
+        let entry = found.entry((from.clone(), to.clone())).or_default();
+        entry.0 += edge.references;
+        entry.1 |= edge.linked;
+    }
+    found.into_iter().map(|((from, to), (references, linked))| Edge { from, to, references, linked }).collect()
 }
 
 /// A free note: an idea on the canvas that isn't a document (yet).
@@ -163,6 +270,23 @@ impl Canvas {
         places != self.places.len() || strings != self.strings.len()
     }
 
+    /// A card standing for what's inside it (shown at a depth) goes where
+    /// the first of those already is, if it has no place of its own.
+    /// Returns whether any were placed.
+    pub fn place_with_contents(&mut self, cards: &[&Node]) -> bool {
+        let mut placed = false;
+        for card in cards.iter().filter(|c| !c.children.is_empty()) {
+            if self.places.contains_key(&card.id) {
+                continue;
+            }
+            if let Some(at) = card.subtree().iter().skip(1).find_map(|n| self.places.get(&n.id).copied()) {
+                self.places.insert(card.id.clone(), at);
+                placed = true;
+            }
+        }
+        placed
+    }
+
     /// Give a place to cards that have none, a group (a top-level folder's
     /// documents, in binder order) at a time. On an empty canvas the groups
     /// sit side by side; later arrivals go in rows below everything else, so
@@ -192,12 +316,16 @@ impl Canvas {
                 row_height = row_height.max(height);
             }
         } else {
+            // Below everything, each group on rows of its own.
             let left = self.places.values().map(|p| p[0]).fold(f32::INFINITY, f32::min);
-            let top = self.places.values().map(|p| p[1]).fold(f32::NEG_INFINITY, f32::max) + CELL[1];
+            let mut top = self.places.values().map(|p| p[1]).fold(f32::NEG_INFINITY, f32::max) + CELL[1];
             const ROW: usize = COLUMNS * 2;
-            for (i, id) in missing.into_iter().flatten().enumerate() {
-                let (col, row) = (i % ROW, i / ROW);
-                self.places.insert(id.clone(), [left + col as f32 * CELL[0], top + row as f32 * CELL[1]]);
+            for group in missing.into_iter().filter(|g| !g.is_empty()) {
+                for (i, id) in group.iter().enumerate() {
+                    let (col, row) = (i % ROW, i / ROW);
+                    self.places.insert((*id).clone(), [left + col as f32 * CELL[0], top + row as f32 * CELL[1]]);
+                }
+                top += group.len().div_ceil(ROW) as f32 * CELL[1];
             }
         }
         true
@@ -300,11 +428,12 @@ mod tests {
         assert_eq!(c.places["d7"], [0.0, 2.0 * CELL[1] + GROUP_GAP], "too wide: below");
         assert!(!c.place_missing(&[ids(0..9)]), "all placed");
 
-        // A newcomer goes below the lot.
+        // Newcomers go below the lot, each group on a row of its own.
         c.places.insert("d0".into(), [-50.0, 0.0]);
-        assert!(c.place_missing(&[ids(0..10)]));
+        assert!(c.place_missing(&[ids(0..10), ids(10..12)]));
         assert_eq!(c.places["d9"], [-50.0, 3.0 * CELL[1] + GROUP_GAP]);
-        assert_eq!(c.places.len(), 10);
+        assert_eq!(c.places["d10"], [-50.0, 4.0 * CELL[1] + GROUP_GAP]);
+        assert_eq!(c.places.len(), 12);
     }
 
     #[test]
@@ -327,6 +456,72 @@ mod tests {
         ];
         want.sort_by(|a, b| a.from.cmp(&b.from));
         assert_eq!(edges, want);
+    }
+
+    /// Manuscript: Part (a folder) holding Chapter (a folder) holding two
+    /// essays, and a loose essay at the top.
+    fn nested(dir: &TempDir) -> (Project, [String; 5]) {
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        let loose = p.manifest.binder[0].children[0].id.clone();
+        let part = p.add_folder(&Place::Into("manuscript".into()), "Part").unwrap();
+        let chapter = p.add_folder(&Place::Into(part.clone()), "Chapter").unwrap();
+        let a = p.add_document(&Place::Into(chapter.clone()), "A").unwrap();
+        let b = p.add_document(&Place::Into(chapter.clone()), "B").unwrap();
+        (p, [loose, part, chapter, a, b])
+    }
+
+    fn ids(nodes: &[&Node]) -> Vec<String> {
+        nodes.iter().map(|n| n.id.clone()).collect()
+    }
+
+    #[test]
+    fn depth_gathers_what_is_deeper_into_one_card() {
+        let dir = TempDir::new("canvas-depth");
+        let (p, [loose, part, chapter, a, b]) = nested(&dir);
+        let top = &p.manifest.binder[0];
+
+        let all = shown(top, None);
+        assert_eq!(ids(&all.cards), [loose.clone(), a.clone(), b.clone()]);
+        let outlines: Vec<_> = all.folders.iter().map(|(n, cards, nesting)| (n.id.clone(), cards.clone(), *nesting)).collect();
+        assert_eq!(outlines, [(part.clone(), vec![a.clone(), b.clone()], 1), (chapter.clone(), vec![a.clone(), b.clone()], 0)]);
+
+        let one = shown(top, Some(1));
+        assert_eq!(ids(&one.cards), [loose.clone(), part.clone()]);
+        assert_eq!(one.stand_in[&a], part);
+        assert!(one.folders.is_empty());
+
+        let two = shown(top, Some(2));
+        assert_eq!(ids(&two.cards), [loose, chapter.clone()]);
+        assert_eq!(two.stand_in[&b], chapter);
+        assert_eq!(two.folders.len(), 1, "Part, around Chapter's card");
+    }
+
+    #[test]
+    fn each_folder_is_a_block_of_its_own() {
+        let dir = TempDir::new("canvas-blocks");
+        let (p, [loose, _, _, a, b]) = nested(&dir);
+        assert_eq!(blocks(&p.manifest.binder[0]), [vec![loose], vec![a, b]]);
+    }
+
+    #[test]
+    fn strings_roll_up_to_the_card_standing_for_them() {
+        let edge = |from: &str, to: &str, references| Edge { from: from.into(), to: to.into(), references, linked: false };
+        let stand_in: HashMap<String, String> =
+            [("a", "ch"), ("b", "ch"), ("ch", "ch"), ("alice", "alice")].map(|(x, y)| (x.to_owned(), y.to_owned())).into();
+        let edges = [edge("a", "alice", 2), edge("b", "alice", 3), edge("a", "b", 1), edge("a", "hidden", 1)];
+        assert_eq!(roll_up(&edges, &stand_in), [edge("ch", "alice", 5)]);
+    }
+
+    #[test]
+    fn a_card_for_a_folder_goes_where_its_contents_are() {
+        let dir = TempDir::new("canvas-depth-place");
+        let (p, [_, part, _, a, _]) = nested(&dir);
+        let mut c = Canvas::default();
+        c.places.insert(a, [480.0, 240.0]);
+        let one = shown(&p.manifest.binder[0], Some(1));
+        assert!(c.place_with_contents(&one.cards));
+        assert_eq!(c.places[&part], [480.0, 240.0]);
+        assert!(!c.place_with_contents(&one.cards), "once");
     }
 
     #[test]

@@ -2051,6 +2051,40 @@ fn the_canvas_shows_every_document_strung_to_what_it_refers_to() {
 }
 
 #[test]
+fn the_canvas_can_show_each_chapter_as_one_card() {
+    let dir = TempDir::new("canvas-depth");
+    let mut p = project(&dir, "");
+    let alice = p.add_document(&Place::Into("characters".into()), "Alice").unwrap();
+    let chapter = p.add_folder(&Place::Into("manuscript".into()), "Chapter One").unwrap();
+    for (title, text) in [("Walking", "With [[Alice]]."), ("The Long Way", "[[Alice]] again, [[Alice]].")] {
+        let essay = p.add_document(&Place::Into(chapter.clone()), title).unwrap();
+        fs::write(p.file_path(&essay).unwrap(), text).unwrap();
+    }
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().show_binder = false;
+    harness.run_steps(2);
+    harness.get_by_label("Canvas").click();
+    harness.run_steps(3);
+    // All levels: each essay, outlined with its chapter's title.
+    harness.get_by_label("Walking");
+    harness.get_by_label("The Long Way");
+    harness.get_by_label("Chapter One");
+
+    harness.get_by_label("1").click();
+    harness.run_steps(3);
+    assert_eq!(harness.query_all_by_label("Walking").count(), 0, "inside the chapter's card");
+    harness.get_by_label("Chapter One");
+    let state = harness.state().canvas.as_ref().unwrap();
+    assert_eq!(state.data().depth, Some(1));
+    let drawn: Vec<_> = state.drawn_edges().iter().map(|e| (e.from.clone(), e.to.clone(), e.references)).collect();
+    assert_eq!(drawn, [(chapter.clone(), alice.clone(), 3)], "both essays' strings, as one");
+    // It sits where its first essay was.
+    let first = harness.state().project.as_ref().unwrap().node(&chapter).unwrap().children[0].id.clone();
+    assert_eq!(canvas_place(&harness, &chapter), canvas_place(&harness, &first));
+}
+
+#[test]
 fn cards_move_freely_without_changing_the_binder() {
     let dir = TempDir::new("canvas-drag");
     let (mut harness, first, _, second) = canvas_harness(&dir);
