@@ -9,6 +9,7 @@ mod breakup;
 mod canvas;
 mod character;
 mod compile;
+mod crash_log;
 mod keychain;
 mod lock;
 mod project;
@@ -24,6 +25,8 @@ mod version;
 use eframe::egui;
 
 fn main() -> eframe::Result {
+    // Before anything else, so any crash is recorded (see crash_log.rs).
+    crash_log::install();
     // `sloth-writer path/to/project` opens that project.
     let open = std::env::args_os().nth(1).map(std::path::PathBuf::from);
     #[allow(unused_mut)] // Only changed on macOS.
