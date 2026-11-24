@@ -427,7 +427,7 @@ fn card(
 const ROW_HEIGHT: f32 = 58.0;
 /// Space above a row's title: the title and synopsis (about 36 points)
 /// sit in the middle of the row, clear of its top edge.
-const ROW_TOP: f32 = 11.0;
+const ROW_TOP: f32 = 8.0;
 const ROW_GAP: f32 = 4.0;
 /// How far each level of nesting steps a row in.
 const INDENT: f32 = 22.0;
