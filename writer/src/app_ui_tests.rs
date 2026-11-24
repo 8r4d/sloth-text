@@ -2977,3 +2977,27 @@ fn a_folders_cards_can_be_filtered_by_keyword_and_show_where_theyre_published() 
         harness.render().unwrap().save(format!("{dir}/keywords.png")).unwrap();
     }
 }
+
+#[test]
+fn an_outline_row_is_dragged_by_its_grip() {
+    let dir = TempDir::new("outline-grip");
+    let (p, chapter, _) = chapter_project(&dir);
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().select(chapter.clone());
+    harness.run_steps(3);
+    harness.get_by_label("Outline").click();
+    harness.run_steps(3);
+    // The grip: in the strip left of the title.
+    let harbour = in_view(&harness, "📄 Harbour").rect();
+    let grip = egui::pos2(harbour.left() - 12.0, harbour.center().y + 8.0);
+    // To the top edge of Arrival's row: before it.
+    let arrival = in_view(&harness, "📄 Arrival").rect();
+    drag_points(&mut harness, grip, egui::pos2(arrival.center().x, arrival.top() - 4.0));
+    assert_eq!(chapter_titles(&harness, &chapter), ["Harbour", "Arrival", "Letter"]);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.event(egui::Event::PointerMoved(egui::pos2(990.0, 690.0)));
+        harness.run_steps(2);
+        harness.render().unwrap().save(format!("{dir}/grip.png")).unwrap();
+    }
+}

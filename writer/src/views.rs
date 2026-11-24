@@ -426,6 +426,12 @@ fn card(
 /// How much of its label's colour an outline row is tinted with, blended
 /// into the background: enough to tell labels apart, light enough to read on.
 const ROW_TINT: f32 = 0.16;
+/// An outline row's height, and the space between rows.
+const ROW_HEIGHT: f32 = 52.0;
+const ROW_GAP: f32 = 4.0;
+/// The strip at a row's left with its drag grip, which keeps the title
+/// off the edge of its tint.
+const GRIP_W: f32 = 24.0;
 
 /// Column widths, after the title (which takes what's left).
 const STATUS_W: f32 = 120.0;
@@ -441,10 +447,12 @@ fn outline(
     reorder: bool,
     actions: &mut Vec<ViewAction>,
 ) {
-    let row_height = 44.0;
+    let row_height = ROW_HEIGHT;
     let columns = STATUS_W + LABEL_W + WORDS_W;
-    // Headings.
+    // Headings, lined up with the rows' columns.
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space(GRIP_W);
         let title_w = (ui.available_width() - columns).max(160.0);
         for (text, width) in [("Title and synopsis", title_w), ("Status", STATUS_W), ("Label", LABEL_W), ("Words", WORDS_W)] {
             ui.allocate_ui_with_layout(Vec2::new(width, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -457,7 +465,10 @@ fn outline(
 
     // Items inside the one being dragged can't take it.
     let mut inside_depth: Option<usize> = None;
-    for item in items {
+    for (n, item) in items.iter().enumerate() {
+        if n > 0 {
+            ui.add_space(ROW_GAP);
+        }
         if inside_depth.is_some_and(|d| item.depth <= d) {
             inside_depth = None;
         }
@@ -481,8 +492,22 @@ fn outline(
             }
             None => {}
         }
+        // The grip to drag it by (the whole row drags; this says so).
+        if reorder && !blocked {
+            grip(ui, rect, &response);
+        }
         let mut row = ui.new_child(UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
-        let title_w = (rect.width() - columns).max(160.0);
+        row.spacing_mut().item_spacing.x = 0.0;
+        // Pulldowns without their grey: just the choice and its arrow, on
+        // the row's tint, until the pointer's on them.
+        {
+            let widgets = &mut row.style_mut().visuals.widgets.inactive;
+            widgets.weak_bg_fill = Color32::TRANSPARENT;
+            widgets.bg_fill = Color32::TRANSPARENT;
+            widgets.bg_stroke = Stroke::NONE;
+        }
+        row.add_space(GRIP_W);
+        let title_w = (rect.width() - columns - GRIP_W).max(160.0);
         let indent = 18.0 * item.depth as f32;
         let mut meta = item.meta.clone();
 
@@ -557,6 +582,27 @@ fn outline(
 }
 
 // ----- dragging ----------------------------------------------------------------
+
+/// Six dots at a row's left, to drag it by: faint, stronger under the
+/// pointer (with a hand), and as it's carried.
+fn grip(ui: &egui::Ui, row: egui::Rect, response: &egui::Response) {
+    let area = egui::Rect::from_min_size(row.min, Vec2::new(GRIP_W, row.height()));
+    let over = ui.ctx().pointer_hover_pos().is_some_and(|p| area.contains(p));
+    if over && !response.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+    }
+    if response.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    }
+    let weak = ui.visuals().weak_text_color();
+    let color = if over || response.dragged() { ui.visuals().text_color() } else if response.hovered() { weak } else { weak.gamma_multiply(0.5) };
+    let center = area.center();
+    for dx in [-3.0, 3.0] {
+        for dy in [-6.0, 0.0, 6.0] {
+            ui.painter().circle_filled(center + Vec2::new(dx, dy), 1.5, color);
+        }
+    }
+}
 
 /// Make an item draggable, and a place to drop others. On the corkboard
 /// (`cards`), the left or right half of a card means before or after it.

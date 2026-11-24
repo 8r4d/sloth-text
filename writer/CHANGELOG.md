@@ -2,6 +2,12 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.37.0
+
+- Outline rows have a grip on the left (six dots, a hand under the pointer) to drag them by, to reorder them or drop one into another, as the binder does. (The whole row always dragged; the grip says so.) Not while filtered by keyword.
+- The outline breathes more: a little space between rows, and the title and synopsis off the edge of the tint.
+- Status and Label in the outline no longer sit in grey boxes on the label's tint: just the choice and its arrow, until the pointer's on them.
+
 ## 1.36.0
 
 - Outline rows are tinted with a light wash of their label's colour (a little deeper under the pointer), so labels stand out down the list. Rows without a label are as before.
