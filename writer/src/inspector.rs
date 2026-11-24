@@ -45,21 +45,68 @@ pub(super) struct Buffers {
 /// Word counts of documents that aren't open, by file, remembered until
 /// the file changes.
 #[derive(Default)]
-pub(super) struct WordCache(HashMap<PathBuf, (Option<SystemTime>, u64, usize)>);
+pub(super) struct WordCache(HashMap<PathBuf, (Option<SystemTime>, u64, Counted)>);
+
+/// What's kept of a saved document: its words, and how it opens.
+#[derive(Clone, Default)]
+struct Counted {
+    words: usize,
+    opening: String,
+}
 
 impl WordCache {
-    fn count(&mut self, path: PathBuf) -> usize {
-        let Ok(stat) = fs::metadata(&path) else { return 0 };
+    /// A file's words and opening, read again only once it's changed.
+    fn get(&mut self, path: PathBuf) -> Counted {
+        let Ok(stat) = fs::metadata(&path) else { return Counted::default() };
         let stamp = (stat.modified().ok(), stat.len());
-        if let Some(&(modified, len, words)) = self.0.get(&path)
-            && (modified, len) == stamp
+        if let Some((modified, len, counted)) = self.0.get(&path)
+            && (*modified, *len) == stamp
         {
-            return words;
+            return counted.clone();
         }
-        let words = fs::read(&path).map(|b| count_words(&String::from_utf8_lossy(&b))).unwrap_or(0);
-        self.0.insert(path, (stamp.0, stamp.1, words));
-        words
+        let text = fs::read(&path).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+        let counted = Counted { words: count_words(&text), opening: opening(&text) };
+        self.0.insert(path, (stamp.0, stamp.1, counted.clone()));
+        counted
     }
+
+    fn count(&mut self, path: PathBuf) -> usize {
+        self.get(path).words
+    }
+}
+
+/// How many words of a document's opening a card shows.
+const OPENING_WORDS: usize = 40;
+
+/// A document's first words as they read, for a card with no synopsis:
+/// Markdown, notes, comments and references left out, and headings and
+/// scene breaks skipped.
+pub fn opening(text: &str) -> String {
+    let text = sloth_core::markdown::strip_comments(text);
+    let text = crate::compile::strip_notes(&text);
+    let mut words: Vec<String> = Vec::new();
+    let mut more = false;
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() || sloth_core::markdown::is_scene_break(line) || sloth_core::markdown::heading_level(line).is_some() {
+            continue;
+        }
+        let plain = sloth_core::markdown::formatted(line).plain;
+        for word in plain.split_whitespace() {
+            if words.len() == OPENING_WORDS {
+                more = true;
+                break;
+            }
+            words.push(word.to_owned());
+        }
+        if more {
+            break;
+        }
+    }
+    let mut out = words.join(" ");
+    if more {
+        out.push('\u{2026}');
+    }
+    out
 }
 
 /// Words as targets and compile count them: inline notes (`<!-- … -->`)
@@ -89,6 +136,16 @@ impl WriterApp {
             };
         }
         total
+    }
+
+    /// A document's opening words (see `opening`): as open in the editor,
+    /// or as saved.
+    pub(super) fn opening_of(&mut self, id: &str) -> String {
+        if let Some(tab) = self.open.get(id).and_then(|&tab| self.docs.get(tab)) {
+            return opening(&tab.doc.text);
+        }
+        let Some(path) = self.project.as_ref().and_then(|p| p.file_path(id)) else { return String::new() };
+        self.word_cache.get(path).opening
     }
 
     pub(super) fn inspector(&mut self, ui: &mut egui::Ui) {
@@ -505,7 +562,17 @@ fn section(ui: &mut egui::Ui, title: &str, id: &str, open: bool, add: impl FnOnc
 
 #[cfg(test)]
 mod tests {
-    use super::count_words;
+    use super::{count_words, opening};
+
+    #[test]
+    fn a_documents_opening_reads_as_text() {
+        let text = "# On Walking\n\n<!-- fix this -->I *walk* to [[Alice]]'s house, {==slowly==}{>>too slow?<<}.\n\n* * *\n\nThen **back**.";
+        assert_eq!(opening(text), "I walk to 's house, slowly. Then back.");
+        let long = (1..=50).map(|n| n.to_string()).collect::<Vec<_>>().join(" ");
+        let shown = opening(&long);
+        assert!(shown.starts_with("1 2 3") && shown.ends_with("40\u{2026}"), "{shown}");
+        assert_eq!(opening("# Only a heading"), "");
+    }
 
     #[test]
     fn notes_dont_count_as_words() {

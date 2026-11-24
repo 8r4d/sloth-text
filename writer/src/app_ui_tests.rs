@@ -671,6 +671,25 @@ fn drag_points(harness: &mut Harness<'static, WriterApp>, start: egui::Pos2, end
 }
 
 #[test]
+fn a_card_with_no_synopsis_shows_how_the_document_opens() {
+    let dir = TempDir::new("cards-opening");
+    let (mut p, chapter, scenes) = chapter_project(&dir);
+    fs::write(p.file_path(&scenes[0]).unwrap(), "# Arrival\n\nMara was *late*, and the ferry had gone.").unwrap();
+    fs::write(p.file_path(&scenes[1]).unwrap(), "Dear Mara,").unwrap();
+    p.set_meta(&scenes[1], crate::project::Meta { synopsis: "The letter.".into(), ..Default::default() });
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().select(chapter.clone());
+    harness.run_steps(3);
+    let items = harness.state_mut().view_items(&chapter, false);
+    let openings: Vec<&str> = items.iter().map(|i| i.opening.as_str()).collect();
+    assert_eq!(openings, ["Mara was late, and the ferry had gone.", "", ""], "a synopsis wins; an empty document has none");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/corkboard.png")).unwrap();
+    }
+}
+
+#[test]
 fn a_folder_shows_its_items_as_cards() {
     let dir = TempDir::new("cards");
     let (p, chapter, scenes) = chapter_project(&dir);
@@ -2346,6 +2365,21 @@ fn a_sprint_counts_its_words_and_says_how_it_went() {
 }
 
 #[test]
+fn a_sprint_counts_even_on_a_day_with_more_cut_than_written() {
+    let dir = TempDir::new("sprint-negative");
+    let mut harness = harness(project(&dir, "Already here."));
+    harness.run_steps(2);
+    harness.state_mut().stats.add(crate::stats::today(), -239);
+    let now = harness.ctx.input(|i| i.time);
+    harness.state_mut().start_sprint(now, 25);
+    harness.run_steps(2);
+    harness.event(egui::Event::Text(" Then the snow came.".into()));
+    harness.run_steps(2);
+    assert_eq!(harness.state().sprint_words(), 4);
+    harness.get_by_label("Today: 0 words");
+}
+
+#[test]
 fn a_sprint_stopped_early_isnt_kept() {
     let dir = TempDir::new("sprint-stop");
     let mut harness = harness(project(&dir, ""));
@@ -2559,8 +2593,8 @@ fn break_up_makes_a_document_of_each_essay() {
     assert_eq!(read(&node.children[1].id), "It was long.");
     let snapshots = crate::snapshots::list(&project.root, &id);
     assert_eq!(snapshots[0].text().unwrap(), CHAPTER, "the whole text is kept");
-    // Moved, not written.
-    harness.get_by_label("Today: 0 words");
+    // Moved, not written: the headings that became titles too.
+    assert_eq!(harness.state().today_net_and_total().0, 0);
 }
 
 #[test]
@@ -2616,7 +2650,8 @@ fn combine_puts_a_folder_back_together_under_headings() {
     assert!(project.node(&id).unwrap().children.is_empty());
     let trash = project.manifest.binder.iter().find(|n| n.role == Some(crate::project::Role::Trash)).unwrap();
     assert_eq!(trash.children.len(), 2, "the essays are in the Trash");
-    harness.get_by_label("Today: 0 words");
+    // Moved both ways: nothing written, nothing cut.
+    assert_eq!(harness.state().today_net_and_total().0, 0);
 }
 
 #[test]

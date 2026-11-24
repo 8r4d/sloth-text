@@ -29,7 +29,7 @@ const CARD_GAP: f32 = 16.0;
 
 /// One item as a view shows it, copied out of the project so the view can
 /// be drawn while the project changes underneath.
-struct Item {
+pub(super) struct Item {
     id: String,
     title: String,
     is_document: bool,
@@ -38,6 +38,9 @@ struct Item {
     depth: usize,
     meta: Meta,
     words: usize,
+    /// A document's first words, shown on its card in place of a synopsis
+    /// it doesn't have (corkboard only).
+    pub(super) opening: String,
 }
 
 /// What the person did in a view; applied once it's drawn.
@@ -104,7 +107,7 @@ impl WriterApp {
 
     /// The folder's items: its children, or for the outline everything
     /// under it, in order.
-    fn view_items(&mut self, folder: &str, nested: bool) -> Vec<Item> {
+    pub(super) fn view_items(&mut self, folder: &str, nested: bool) -> Vec<Item> {
         let Some(node) = self.project.as_ref().and_then(|p| p.node(folder)) else { return Vec::new() };
         let mut found = Vec::new();
         collect(&node.children, 0, nested, &mut found);
@@ -119,10 +122,14 @@ impl WriterApp {
                 depth,
                 meta: node.meta.clone(),
                 words: 0,
+                opening: String::new(),
             })
             .collect();
         for item in &mut items {
             item.words = self.words_under(&item.id);
+            if !nested && item.is_document && item.meta.synopsis.trim().is_empty() {
+                item.opening = self.opening_of(&item.id);
+            }
         }
         items
     }
@@ -244,6 +251,12 @@ fn card(
         // Nothing drawn past the card's edge…
         ui.set_clip_rect(rect.intersect(ui.clip_rect()));
         let mut synopsis = item.meta.synopsis.clone();
+        // No synopsis: the document's opening, faint, until one's written.
+        let hint = if item.opening.is_empty() {
+            RichText::new("Synopsis")
+        } else {
+            RichText::new(&item.opening).italics().color(ui.visuals().weak_text_color().gamma_multiply(0.8))
+        };
         // …and a long synopsis scrolls inside the card, above the footer.
         let room = (ui.available_height() - FOOTER_HEIGHT).max(20.0);
         let field = egui::ScrollArea::vertical()
@@ -254,7 +267,7 @@ fn card(
                 ui.add(
                     egui::TextEdit::multiline(&mut synopsis)
                         .id_salt(("card-synopsis", &item.id))
-                        .hint_text("Synopsis")
+                        .hint_text(hint)
                         .frame(egui::Frame::NONE)
                         .desired_rows(4)
                         .desired_width(f32::INFINITY),

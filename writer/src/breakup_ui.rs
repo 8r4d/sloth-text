@@ -209,6 +209,12 @@ impl WriterApp {
             }
         }
         self.manifest_dirty = true;
+        // Moved, not written, headings (now titles) included: the counts
+        // change before the text does, so saving it adds nothing to today.
+        self.note_moved(id, &broken.lead);
+        for (new, text) in &made {
+            self.note_moved(new, text);
+        }
         // What's left: the text before the first break, or nothing (a folder).
         if broken.lead.is_empty() {
             if let Some(tab) = self.open.remove(id) {
@@ -223,10 +229,6 @@ impl WriterApp {
             }
         } else {
             self.set_text(ctx, id, &broken.lead);
-        }
-        self.note_words(id, &broken.lead);
-        for (new, text) in &made {
-            self.note_words(new, text);
         }
         self.save_all();
         self.select(id.to_owned());
@@ -369,12 +371,16 @@ impl WriterApp {
         let (title, was_document) = (node.title.clone(), node.is_document());
         let lead = if was_document { self.document_text(id).unwrap_or_default() } else { String::new() };
         let text = breakup::combine(&lead, &parts, join);
-        // The words leave the documents taken in (before they're in the
-        // Trash, where words don't count), then arrive here: moved, not written.
         let taken_docs: Vec<String> = {
             let project = self.project.as_ref().expect("checked above");
             taken.iter().flat_map(|t| project.documents_under(t)).map(|n| n.id.clone()).collect()
         };
+        // Moved, not written, titles (now headings) included: the counts
+        // change before the text does, so saving it adds nothing to today.
+        for doc in &taken_docs {
+            self.note_moved(doc, "");
+        }
+        self.note_moved(id, &text);
         if was_document {
             let project = self.project.as_ref().expect("checked above");
             if let Err(e) = crate::snapshots::take(&project.root, id, &lead, "Before Combine") {
@@ -389,10 +395,6 @@ impl WriterApp {
                 return;
             }
         }
-        for doc in &taken_docs {
-            self.note_words(doc, "");
-        }
-        self.note_words(id, &text);
         for item in &taken {
             self.trash(item);
         }

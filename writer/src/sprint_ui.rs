@@ -25,7 +25,9 @@ impl WriterApp {
     /// today's as it stands now.
     fn written_ever(&self) -> i64 {
         let today = self.stats.days.get(&stats::key(stats::today())).copied().unwrap_or(0);
-        self.stats.all_written() - today + self.today_and_total().0 as i64
+        // Not today's as shown (never below 0): a day that started with
+        // more cut than written would hold the sprint at 0 too.
+        self.stats.all_written() - today + self.today_net_and_total().0
     }
 
     pub(super) fn start_sprint(&mut self, now: f64, minutes: u32) {

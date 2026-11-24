@@ -45,6 +45,12 @@ impl WriterApp {
         }
     }
 
+    /// A document's words changed by moving them (Break Up, Combine), not
+    /// by writing: its count follows, and today's doesn't.
+    pub(super) fn note_moved(&mut self, id: &str, text: &str) {
+        self.word_counts.insert(id.to_owned(), count_words(text) as u32);
+    }
+
     /// The Manuscript's documents.
     fn manuscript_ids(&self) -> Vec<String> {
         let Some(project) = &self.project else { return Vec::new() };
@@ -62,7 +68,15 @@ impl WriterApp {
     }
 
     /// Today's words, and the Manuscript's length, up to the last keystroke.
+    /// A day with more cut than written shows as 0.
     pub(super) fn today_and_total(&self) -> (u32, u32) {
+        let (net, total) = self.today_net_and_total();
+        (net.max(0) as u32, total)
+    }
+
+    /// Today's words as they stand, below nothing if more were cut, and the
+    /// Manuscript's length.
+    pub(super) fn today_net_and_total(&self) -> (i64, u32) {
         let today = stats::today();
         let mut net = self.stats.days.get(&stats::key(today)).copied().unwrap_or(0);
         let mut total = 0;
@@ -71,7 +85,7 @@ impl WriterApp {
             net += now as i64 - self.word_counts.get(&id).copied().unwrap_or(0) as i64;
             total += now;
         }
-        (net.max(0) as u32, total)
+        (net, total)
     }
 
     /// For the status bar: "Today: 412 / 1,000".

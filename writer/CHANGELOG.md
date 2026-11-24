@@ -2,6 +2,12 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.30.0
+
+- A corkboard card for a document with no synopsis shows how the document opens: its first words, faint and in italics, as they read (no Markdown, notes or headings). Click in to write a synopsis, which takes their place.
+- Fixed: Break Up counted the headings it turns into titles as words cut, so a day of breaking up chapters started below zero, and Today (which never shows less than 0) stayed at 0 while you wrote. Now every word Break Up and Combine move counts as moved, headings and titles included.
+- Fixed: a sprint on a day with more cut than written stayed at 0 words. It now counts from where it started, whatever the day's total.
+
 ## 1.29.2
 
 - If Writer ever closes on an error, what went wrong is kept in ~/Library/Logs/Sloth Writer/crash.log (when, the version, the message and where in the code), so it can be fixed without having to make it happen again.
