@@ -230,6 +230,12 @@ pub struct WriterApp {
     sync_now: bool,
     /// How the last sync went, for the Sync button's tooltip.
     sync_message: String,
+    /// Syncs started so far, and which of them (by number) last finished
+    /// well and last failed: for Break Up and Combine to wait for a sync
+    /// begun after they opened (see breakup_ui.rs).
+    syncs_started: u64,
+    sync_ok: u64,
+    sync_failed: u64,
 }
 
 impl WriterApp {
@@ -258,6 +264,9 @@ impl WriterApp {
             last_sync: None,
             sync_now: false,
             sync_message: String::new(),
+            syncs_started: 0,
+            sync_ok: 0,
+            sync_failed: 0,
             renaming: None,
             error: None,
             confirm_empty_trash: false,

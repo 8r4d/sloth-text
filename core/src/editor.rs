@@ -1201,14 +1201,19 @@ fn copy_as_formatted(ctx: &egui::Context) {
     });
     let Some(markdown) = copied.into_iter().last() else { return };
     let formatted = markdown::formatted(&markdown);
-    let written = arboard::Clipboard::new()
-        .and_then(|mut c| c.set().html(formatted.html.as_str(), Some(formatted.plain.as_str())));
-    if written.is_ok() {
+    if copy_html(&formatted.html, &formatted.plain) {
         ctx.data_mut(|d| d.insert_temp(last_copy_id(), (formatted.plain, markdown)));
     } else {
         // Couldn't reach the clipboard ourselves: let egui copy it as it was.
         ctx.copy_text(markdown);
     }
+}
+
+/// Put formatted text on the clipboard: `html` for apps that take
+/// formatting (a word processor, WordPress), `plain` for the rest.
+/// Returns whether it got there.
+pub fn copy_html(html: &str, plain: &str) -> bool {
+    arboard::Clipboard::new().and_then(|mut c| c.set().html(html, Some(plain))).is_ok()
 }
 
 /// Pasting back what was copied from here gives back its Markdown, so

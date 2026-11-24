@@ -14,6 +14,12 @@
 //! in go to the Trash, so they can still be got back.
 //!
 //! The words move; none count as written.
+//!
+//! If anything they'd change is on the web (and syncing is set up), they
+//! sync first, and wait for a sync begun after they opened: otherwise
+//! something written on the web since the last sync would have no
+//! document to come back to. If that sync fails, they say so and can go
+//! ahead anyway.
 
 use eframe::egui::{self, Key};
 use sloth_core::editor;
@@ -22,12 +28,38 @@ use super::WriterApp;
 use crate::breakup::{self, BreakAt, Join, Part};
 use crate::project::{Meta, Node, Place};
 
+/// Where the sync a window waits for has got to.
+#[derive(Debug, PartialEq)]
+enum Web {
+    /// Not on the web (or syncing isn't set up): nothing to wait for.
+    NotNeeded,
+    Waiting,
+    Synced,
+    Failed,
+}
+
+/// How a window waiting on the sync begun after it opened (`after`: the
+/// syncs started by then) stands, from the last syncs to finish well and
+/// to fail.
+fn web_state(after: Option<u64>, ok: u64, failed: u64) -> Web {
+    match after {
+        None => Web::NotNeeded,
+        Some(after) if ok > after => Web::Synced,
+        Some(after) if failed > after => Web::Failed,
+        Some(_) => Web::Waiting,
+    }
+}
+
 /// The Break Up window, open on a document.
 pub(super) struct BreakingUp {
     id: String,
     title: String,
-    /// The document's text when the window opened.
+    /// The document's text when the window opened (read again once synced).
     text: String,
+    /// Waiting for a sync started after this many (see `web_state`).
+    web: Option<u64>,
+    /// The text has been read again since the sync.
+    refreshed: bool,
     /// At headings (else at scene breaks).
     headings: bool,
     /// Headings with at most this many `#`s.
@@ -51,6 +83,8 @@ pub(super) struct Combining {
     join: JoinChoice,
     /// The heading level for titles.
     level: usize,
+    /// Waiting for a sync started after this many (see `web_state`).
+    web: Option<u64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -79,6 +113,51 @@ fn level_label(level: usize) -> &'static str {
 }
 
 impl WriterApp {
+    // ----- the web -------------------------------------------------------------------
+
+    /// If any of these items is on the web and syncing is set up: sync now,
+    /// and wait for that (the syncs started so far). Else nothing to wait for.
+    fn sync_before(&mut self, ids: &[String]) -> Option<u64> {
+        let on_web = self.project.as_ref().is_some_and(|p| ids.iter().any(|id| p.on_ipad(id)));
+        if !on_web || !self.sync_ready() {
+            return None;
+        }
+        self.sync_now = true;
+        Some(self.syncs_started)
+    }
+
+    fn web(&self, after: Option<u64>) -> Web {
+        web_state(after, self.sync_ok, self.sync_failed)
+    }
+
+}
+
+/// The line about the web in a window, and whether it can go ahead.
+/// `message`: how the last sync went.
+fn web_note(ui: &mut egui::Ui, web: &Web, message: &str) -> bool {
+    match web {
+        Web::NotNeeded => true,
+        Web::Waiting => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.weak("It\u{2019}s on the web: syncing first, so anything written there comes in\u{2026}");
+            });
+            false
+        }
+        Web::Synced => {
+            ui.weak("Synced with the web: anything written there is in.");
+            true
+        }
+        Web::Failed => {
+            let why = message.trim_start_matches("Not synced: ");
+            let warn = ui.visuals().warn_fg_color;
+            ui.colored_label(warn, format!("Couldn\u{2019}t sync first ({why}). Anything written on the web since the last sync won\u{2019}t come in."));
+            true
+        }
+    }
+}
+
+impl WriterApp {
     // ----- Break Up ------------------------------------------------------------------
 
     pub(super) fn start_break_up(&mut self, id: &str) {
@@ -88,10 +167,23 @@ impl WriterApp {
         // Start from what the text has: its top headings, else scene breaks.
         let level = breakup::first_heading_level(&text);
         let headings = level.is_some() || breakup::break_up(&text, BreakAt::SceneBreaks, false).pieces.is_empty();
-        self.breaking_up = Some(BreakingUp { id: id.to_owned(), title, text, headings, level: level.unwrap_or(1).min(4), keep_headings: false });
+        let web = self.sync_before(&[id.to_owned()]);
+        self.breaking_up =
+            Some(BreakingUp { id: id.to_owned(), title, text, web, refreshed: false, headings, level: level.unwrap_or(1).min(4), keep_headings: false });
     }
 
     pub(super) fn break_up_window(&mut self, ctx: &egui::Context) {
+        let Some(state) = self.breaking_up.as_ref() else { return };
+        let web = self.web(state.web);
+        // Synced: show what the web brought in.
+        if web == Web::Synced && !state.refreshed {
+            let id = state.id.clone();
+            let text = self.document_text(&id);
+            let state = self.breaking_up.as_mut().expect("checked above");
+            state.text = text.unwrap_or_default();
+            state.refreshed = true;
+        }
+        let message = self.sync_message.clone();
         let Some(state) = self.breaking_up.as_mut() else { return };
         let broken = breakup::break_up(&state.text, state.at(), state.keep_headings);
         let mut choice = None;
@@ -136,9 +228,12 @@ impl WriterApp {
                 });
                 ui.weak("A snapshot of the whole text is kept first.");
             }
+            ui.add_space(4.0);
+            let go = web_note(ui, &web, &message);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.add_enabled(!broken.pieces.is_empty(), egui::Button::new("Break Up")).clicked() {
+                let label = if web == Web::Failed { "Break Up Anyway" } else { "Break Up" };
+                if ui.add_enabled(go && !broken.pieces.is_empty(), egui::Button::new(label)).clicked() {
                     choice = Some(true);
                 }
                 if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
@@ -268,7 +363,14 @@ impl WriterApp {
         };
         // A folder of essays wants titles; joining two halves back, not.
         let join = if with_next { JoinChoice::Together } else { JoinChoice::Headings };
-        self.combining = Some(Combining { id: id.to_owned(), title: node.title.clone(), next, join, level: 1 });
+        let title = node.title.clone();
+        // What it would change: this, and what it takes in.
+        let touched: Vec<String> = match &next {
+            Some(next) => vec![id.to_owned(), next.clone()],
+            None => node.subtree().iter().map(|n| n.id.clone()).collect(),
+        };
+        let web = self.sync_before(&touched);
+        self.combining = Some(Combining { id: id.to_owned(), title, next, join, level: 1, web });
     }
 
     /// What Combine would take in: each part, and the items it'd trash.
@@ -293,7 +395,10 @@ impl WriterApp {
 
     pub(super) fn combine_window(&mut self, ctx: &egui::Context) {
         let Some(state) = self.combining.as_ref() else { return };
+        // Read each time: once synced, it shows what the web brought in.
         let (parts, _) = self.combine_parts(state);
+        let web = self.web(state.web);
+        let message = self.sync_message.clone();
         let state = self.combining.as_mut().expect("checked above");
         let mut choice = None;
         egui::Modal::new(egui::Id::unique("combine")).show(ctx, |ui| {
@@ -337,9 +442,12 @@ impl WriterApp {
                 Some(_) => format!("Its text joins the end of \u{201c}{}\u{201d}, and it goes to the Trash, so it can still be got back.", state.title),
                 None => format!("\u{201c}{}\u{201d} becomes one document holding it all. What was in it goes to the Trash, so it can still be got back.", state.title),
             });
+            ui.add_space(4.0);
+            let go = web_note(ui, &web, &message);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Combine").clicked() {
+                let label = if web == Web::Failed { "Combine Anyway" } else { "Combine" };
+                if ui.add_enabled(go, egui::Button::new(label)).clicked() {
                     choice = Some(true);
                 }
                 if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
@@ -421,4 +529,20 @@ fn next_document(nodes: &[Node], id: &str) -> Option<String> {
 fn words(text: &str) -> String {
     let n = super::inspector::count_words(text);
     format!("{n} word{}", if n == 1 { "" } else { "s" })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Web, web_state};
+
+    #[test]
+    fn waits_for_a_sync_begun_after_it_opened() {
+        assert_eq!(web_state(None, 0, 0), Web::NotNeeded);
+        // Opened after 3 syncs had started: the 3rd finishing is too early.
+        assert_eq!(web_state(Some(3), 3, 0), Web::Waiting);
+        assert_eq!(web_state(Some(3), 4, 0), Web::Synced);
+        assert_eq!(web_state(Some(3), 2, 4), Web::Failed);
+        // A later sync went well after one failed.
+        assert_eq!(web_state(Some(3), 5, 4), Web::Synced);
+    }
 }

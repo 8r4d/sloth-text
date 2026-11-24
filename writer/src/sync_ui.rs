@@ -22,6 +22,8 @@ const SYNC_SECONDS: f64 = 60.0;
 
 /// A sync under way: the project it's for, and where its result will come.
 pub(super) struct Running {
+    /// Which sync this is (see `WriterApp::syncs_started`).
+    number: u64,
     root: PathBuf,
     result: mpsc::Receiver<Result<Outcome, SyncError>>,
 }
@@ -45,9 +47,14 @@ impl WriterApp {
         if let Some(running) = &self.sync_running {
             match running.result.try_recv() {
                 Ok(result) => {
-                    let root = running.root.clone();
+                    let (root, number, ok) = (running.root.clone(), running.number, result.is_ok());
                     self.sync_running = None;
                     self.finish_sync(&root, result, now);
+                    if ok {
+                        self.sync_ok = number;
+                    } else {
+                        self.sync_failed = number;
+                    }
                 }
                 Err(mpsc::TryRecvError::Empty) => ctx.request_repaint_after(Duration::from_millis(300)),
                 Err(mpsc::TryRecvError::Disconnected) => self.sync_running = None,
@@ -67,6 +74,8 @@ impl WriterApp {
     /// start it on a background thread so the window never waits on the network.
     fn start_sync(&mut self, now: f64) {
         self.last_sync = Some(now);
+        self.syncs_started += 1;
+        let number = self.syncs_started;
         // The day's writing, for the web to show (and add its own to).
         let (written, total) = self.today_and_total();
         let Some(project) = self.project.as_mut() else { return };
@@ -134,7 +143,7 @@ impl WriterApp {
             let mut helper = Http::new(&url, &token);
             let _ = send.send(sync::run(&mut helper, input));
         });
-        self.sync_running = Some(Running { root: project.root.clone(), result });
+        self.sync_running = Some(Running { number, root: project.root.clone(), result });
     }
 
     /// Put a sync's results into the project: the web editor's edits, snapshots of

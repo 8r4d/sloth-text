@@ -2863,3 +2863,59 @@ fn a_folders_menu_sets_the_status_and_label_of_whats_inside() {
     let saved = Project::open(&dir.0).unwrap();
     assert_eq!(saved.node(&spring).unwrap().meta.status, Some(4));
 }
+
+#[test]
+fn breaking_up_a_document_on_the_web_syncs_first() {
+    use egui_kittest::kittest::NodeT;
+    let dir = TempDir::new("break-up-web");
+    let mut p = project(&dir, CHAPTER);
+    let id = p.documents()[0].id.clone();
+    p.set_meta(&id, crate::project::Meta { on_ipad: true, ..Default::default() });
+    let mut harness = harness(p);
+    // Syncing set up, with a helper that isn't there (a closed port here).
+    harness.state_mut().settings.helper_url = "http://127.0.0.1:9".into();
+    harness.state_mut().helper_token = "token".into();
+    harness.state_mut().apply(BinderAction::BreakUp(id.clone()));
+    harness.run_steps(2);
+    harness.get_by_label("It\u{2019}s on the web: syncing first, so anything written there comes in\u{2026}");
+    assert!(harness.get_by_label("Break Up").accesskit_node().is_disabled(), "not until it's synced");
+
+    // The sync begun after it opened goes well: on it goes.
+    let started = harness.state().syncs_started;
+    assert!(started >= 1, "a sync was started");
+    harness.state_mut().sync_ok = started;
+    harness.run_steps(2);
+    harness.get_by_label("Synced with the web: anything written there is in.");
+    assert!(!harness.get_by_label("Break Up").accesskit_node().is_disabled());
+
+    // Had it failed instead: it says so, and can go ahead anyway.
+    harness.state_mut().sync_ok = 0;
+    harness.state_mut().sync_failed = started;
+    harness.state_mut().sync_message = "Not synced: the helper couldn't be reached".into();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Couldn\u{2019}t sync first (the helper couldn't be reached)");
+    harness.get_by_label("Break Up Anyway").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().project.as_ref().unwrap().node(&id).unwrap().children.len(), 2);
+}
+
+#[test]
+fn copy_in_the_inspector_puts_the_text_formatted_on_the_clipboard() {
+    let dir = TempDir::new("copy-doc");
+    let text = "# Walking\n\nI *walk* to the **harbour**.<!-- check this --> {==Slowly==}{>>too slow?<<}, with [[Alice]].\n\n> A quote.";
+    let mut harness = harness(project(&dir, text));
+    harness.run_steps(2);
+    harness.get_by_label("Copy").click();
+    harness.run_steps(2);
+    let (html, plain) = super::inspector::copied_for_test(&harness.ctx).expect("copied");
+    assert!(html.contains("<em>walk</em>") && html.contains("<strong>harbour</strong>"), "{html}");
+    assert!(html.contains("<blockquote>") && html.contains("Walking"), "{html}");
+    for left_out in ["check this", "too slow", "Alice", "**", "<!--"] {
+        assert!(!html.contains(left_out) && !plain.contains(left_out), "{left_out} in {html} / {plain}");
+    }
+    assert!(plain.contains("I walk to the harbour."), "{plain}");
+    harness.get_by_label_contains("Copied \u{201c}Untitled\u{201d}");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/copy.png")).unwrap();
+    }
+}

@@ -97,6 +97,27 @@ pub fn web_address(typed: &str) -> Option<String> {
     (host.contains('.') && !host.starts_with('.') && !host.ends_with('.')).then_some(url)
 }
 
+/// Put formatted text on the clipboard. (Tests keep it for themselves,
+/// rather than overwriting the real clipboard: see `copied_for_test`.)
+fn to_clipboard(ctx: &egui::Context, html: &str, plain: &str) -> bool {
+    #[cfg(not(test))]
+    {
+        let _ = ctx;
+        sloth_core::editor::copy_html(html, plain)
+    }
+    #[cfg(test)]
+    {
+        ctx.data_mut(|d| d.insert_temp(egui::Id::unique("copied-for-test"), (html.to_owned(), plain.to_owned())));
+        true
+    }
+}
+
+/// What a test copied: its HTML and plain text.
+#[cfg(test)]
+pub(super) fn copied_for_test(ctx: &egui::Context) -> Option<(String, String)> {
+    ctx.data(|d| d.get_temp(egui::Id::unique("copied-for-test")))
+}
+
 /// Open a web address in the default browser.
 fn open_in_browser(url: &str) {
     #[cfg(not(test))]
@@ -170,6 +191,21 @@ impl WriterApp {
         total
     }
 
+    /// Copy a document's text, formatted (bold, italics, headings, quotes,
+    /// paragraphs), for pasting into WordPress or anywhere else: notes,
+    /// comments and references left out.
+    pub(super) fn copy_document(&mut self, ctx: &egui::Context, id: &str, now: f64) {
+        let Some(text) = self.document_text(id) else { return };
+        let formatted = sloth_core::markdown::formatted(&text);
+        let title = self.project.as_ref().and_then(|p| p.node(id)).map(|n| n.title.clone()).unwrap_or_default();
+        if to_clipboard(ctx, &formatted.html, &formatted.plain) {
+            let words = count_words(&text);
+            self.set_status(format!("Copied \u{201c}{title}\u{201d} ({} words), ready to paste", crate::stats::thousands(words as u32)), now);
+        } else {
+            self.error = Some("Couldn\u{2019}t reach the clipboard to copy the text.".to_owned());
+        }
+    }
+
     /// A document's opening words (see `opening`): as open in the editor,
     /// or as saved.
     pub(super) fn opening_of(&mut self, id: &str) -> String {
@@ -241,10 +277,20 @@ impl WriterApp {
         }
         let words = self.words_under(&id);
         ui.add_space(4.0);
+        let mut copy = false;
         ui.horizontal(|ui| {
             let what = if role == Some(Role::Manuscript) { "in the manuscript" } else { "" };
             let count = format!("{} {}", crate::stats::thousands(words as u32), if words == 1 { "word" } else { "words" });
             ui.label(if what.is_empty() { count } else { format!("{count} {what}") });
+            // The text, formatted, ready to paste into WordPress (or anywhere).
+            if is_document
+                && ui
+                    .small_button("Copy")
+                    .on_hover_text("Copy the text with its formatting, to paste into WordPress or anywhere else. Notes and comments are left out; the title isn\u{2019}t included.")
+                    .clicked()
+            {
+                copy = true;
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(target) = &mut meta.target_words {
                     ui.add(egui::DragValue::new(target).speed(50).range(1..=10_000_000));
@@ -255,6 +301,10 @@ impl WriterApp {
                 }
             });
         });
+        if copy {
+            let now = ui.input(|i| i.time);
+            self.copy_document(ui.ctx(), &id, now);
+        }
         if let Some(target) = meta.target_words.filter(|&t| t > 0) {
             let fraction = (words as f32 / target as f32).min(1.0);
             ui.add(egui::ProgressBar::new(fraction).desired_height(6.0));

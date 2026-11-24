@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.34.0
+
+- Copy, beside a document's word count in the inspector: its text, with its bold, italics, headings and quotes, on the clipboard to paste into WordPress (or anywhere). Notes, comments and references are left out, and the title, which WordPress has a field of its own for.
+- Break Up and Combine sync first when what they'd change is on the web, so anything written there since the last sync comes in before the documents change. They wait for a sync begun after they opened; if it can't sync, they say why and can go ahead anyway.
+
 ## 1.33.0
 
 - Set Status for All Inside and Set Label for All Inside, in a folder's right-click menu in the binder: what's directly in the folder gets the status or label you pick. Tick Include subfolders (at the top of either menu) to reach into its subfolders too; that stays as you left it while Writer's open. The choice they all have already is highlighted, and the status bar says how many changed.
