@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.36.0
+
+- Outline rows are tinted with a light wash of their label's colour (a little deeper under the pointer), so labels stand out down the list. Rows without a label are as before.
+
 ## 1.35.0
 
 - Filter a folder's corkboard or outline by keyword: the menu beside Outline lists the keywords used in the folder, with how many have each. Pick one to see everything that has it, from anywhere in the folder (on the Manuscript, across every chapter), in binder order; All keywords goes back. Cards can't be dragged to reorder while filtered.

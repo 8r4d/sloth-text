@@ -423,6 +423,10 @@ fn card(
 
 // ----- outline ---------------------------------------------------------------
 
+/// How much of its label's colour an outline row is tinted with, blended
+/// into the background: enough to tell labels apart, light enough to read on.
+const ROW_TINT: f32 = 0.16;
+
 /// Column widths, after the title (which takes what's left).
 const STATUS_W: f32 = 120.0;
 const LABEL_W: f32 = 130.0;
@@ -464,8 +468,18 @@ fn outline(
 
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(ui.available_width(), row_height), Sense::click_and_drag());
-        if response.hovered() {
-            ui.painter().rect_filled(rect, CornerRadius::same(4), ui.visuals().widgets.hovered.weak_bg_fill);
+        // Tinted with its label's colour, lightened (a little deeper under
+        // the pointer); unlabelled rows just show the pointer.
+        match item.meta.label.and_then(|i| labels.get(i)) {
+            Some(label) => {
+                let amount = ROW_TINT + if response.hovered() { 0.08 } else { 0.0 };
+                let tint = ui.visuals().extreme_bg_color.lerp_to_gamma(label_color(label.color), amount);
+                ui.painter().rect_filled(rect, CornerRadius::same(4), tint);
+            }
+            None if response.hovered() => {
+                ui.painter().rect_filled(rect, CornerRadius::same(4), ui.visuals().widgets.hovered.weak_bg_fill);
+            }
+            None => {}
         }
         let mut row = ui.new_child(UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
         let title_w = (rect.width() - columns).max(160.0);
