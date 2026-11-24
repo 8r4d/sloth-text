@@ -2,6 +2,12 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.41.1
+
+- Fixed: on the web, a new document sent just as the connection dropped (so the reply never came) could arrive twice when sent again, two copies in your Mac's inbox. Each is now sent with the page's own name for it, and the helper keeps one. The same goes for your words saved aside by "Use the Mac's" in a clash.
+
+Upload the helper's new api.php and app.js to your host; its database is brought up to date by itself on the first request.
+
 ## 1.41.0
 
 The web editor, offline.

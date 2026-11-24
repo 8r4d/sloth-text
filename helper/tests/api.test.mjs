@@ -149,6 +149,39 @@ test('the inbox: scenes written on the web, until the Mac collects them', async 
   assert.deepEqual((await m.call('inbox', undefined, `&p=${p}`)).body.map(i => i.title), ['Untitled']);
 });
 
+test('the inbox: sent twice with the same key (its reply lost), it is there once', async () => {
+  const m = await mac();
+  const b = await browser();
+  const p = newProject();
+  await m.call('index_put', { title: 'Book', index: [] }, `&p=${p}`);
+  const key = 'web-1f2e3d4c-aaaa-bbbb';
+  const first = (await b.call('inbox_add', { title: 'On the quay', text: 'A new idea.', key }, `&p=${p}`)).body;
+  const again = (await b.call('inbox_add', { title: 'On the quay', text: 'A new idea.', key }, `&p=${p}`)).body;
+  assert.equal(again.id, first.id, 'the same one');
+  // Without a key (an older page), each send is its own.
+  await b.call('inbox_add', { title: 'Older page', text: 'x' }, `&p=${p}`);
+  await b.call('inbox_add', { title: 'Older page', text: 'x' }, `&p=${p}`);
+  const waiting = (await m.call('inbox', undefined, `&p=${p}`)).body;
+  assert.deepEqual(waiting.map(i => i.title), ['On the quay', 'Older page', 'Older page']);
+  // A key that isn't one.
+  assert.equal((await b.call('inbox_add', { title: 't', text: 'x', key: 'no spaces allowed' }, `&p=${p}`)).status, 400);
+});
+
+test('a database from before the inbox had keys is brought up to date', async () => {
+  await browser();
+  execSync(`${process.env.HELPER_DB} -e "ALTER TABLE writer_inbox DROP INDEX inbox_client_key, DROP COLUMN client_key"`);
+  // The next request adds them back.
+  const m = await mac();
+  const p = newProject();
+  await m.call('index_put', { title: 'Book', index: [] }, `&p=${p}`);
+  const columns = execSync(`${process.env.HELPER_DB} -N -e "SHOW COLUMNS FROM writer_inbox LIKE 'client_key'"`).toString();
+  assert.match(columns, /client_key/);
+  const b = await browser();
+  const key = 'web-after-upgrade-1';
+  const first = (await b.call('inbox_add', { title: 'a', text: 'b', key }, `&p=${p}`)).body;
+  assert.equal((await b.call('inbox_add', { title: 'a', text: 'b', key }, `&p=${p}`)).body.id, first.id);
+});
+
 test("its tables are prefixed, so it can share a database with other sites", async () => {
   await browser(); // makes sure the tables exist
   const tables = execSync(`${process.env.HELPER_DB} -N -e "SHOW TABLES"`).toString().trim().split('\n');

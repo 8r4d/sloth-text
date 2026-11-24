@@ -37,7 +37,8 @@
 //   GET  api.php?action=changes&p=P&since=N            {seq, scenes: [{id, text, version, by, updatedAt}]}
 //   GET  api.php?action=history&p=P&id=S               [{version, savedAt, by, words}] newest first
 //   GET  api.php?action=history_text&p=P&id=S&version=V {text}
-//   POST api.php?action=inbox_add&p=P                  {title, text} → {id}  a new scene written here
+//   POST api.php?action=inbox_add&p=P                  {title, text, key?} → {id}  a new scene written here
+//                                                      (sent again with the same key: the same one, not another)
 //   GET  api.php?action=inbox&p=P                      [{id, title, text, createdAt}] not yet collected
 //   POST api.php?action=inbox_collect&p=P              {ids}  the Mac has taken them into the binder
 
@@ -138,9 +139,18 @@ const SCHEMA = [
       text        MEDIUMTEXT   NOT NULL,
       created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
       collected   BOOLEAN      NOT NULL DEFAULT FALSE,
-      INDEX (project_id, collected)
+      client_key  VARCHAR(64)  NULL,  -- the page's own name for it, so sending it twice makes one
+      INDEX (project_id, collected),
+      UNIQUE KEY inbox_client_key (project_id, client_key)
     ) CHARACTER SET utf8mb4
     SQL,
+];
+
+// Columns added since a table was first made: added to tables made before.
+// (Checked rather than ALTER … IF NOT EXISTS, which MySQL lacks.)
+const UPGRADES = [
+    ['inbox', 'client_key', 'ALTER TABLE {inbox} ADD COLUMN client_key VARCHAR(64) NULL,
+                             ADD UNIQUE KEY inbox_client_key (project_id, client_key)'],
 ];
 
 function send_json($data, int $status = 200): void {
@@ -214,6 +224,11 @@ function db(): PDO {
         );
         foreach (SCHEMA as $sql) {
             $pdo->exec($sql);
+        }
+        foreach (UPGRADES as [$table, $column, $sql]) {
+            if (!$pdo->query("SHOW COLUMNS FROM {{$table}} LIKE " . $pdo->quote($column))->fetch()) {
+                $pdo->exec($sql);
+            }
         }
     }
     return $pdo;
@@ -636,12 +651,36 @@ function history_text(array $project, string $id, int $version): array {
     return ['text' => $text];
 }
 
+// A new scene from the page. With a key (the page's own name for it), sending
+// it again (its reply lost on a bad connection, say) gives back the one
+// already here rather than making another.
 function inbox_add(array $project, array $b): array {
     $title = mb_substr(trim((string) ($b['title'] ?? '')), 0, 200) ?: 'Untitled';
     if (!is_string($b['text'] ?? null)) {
         fail('Send the text', 400);
     }
-    db()->prepare('INSERT INTO {inbox} (project_id, title, text) VALUES (?, ?, ?)')->execute([$project['id'], $title, $b['text']]);
+    $key = isset($b['key']) ? (string) $b['key'] : null;
+    if ($key !== null && !preg_match('/^[A-Za-z0-9-]{8,64}$/', $key)) {
+        fail('key must be 8 to 64 letters, digits or -', 400);
+    }
+    $already = function () use ($project, $key) {
+        $stmt = db()->prepare('SELECT id FROM {inbox} WHERE project_id = ? AND client_key = ?');
+        $stmt->execute([$project['id'], $key]);
+        return $stmt->fetchColumn();
+    };
+    if ($key !== null && ($id = $already()) !== false) {
+        return ['id' => (int) $id];
+    }
+    try {
+        db()->prepare('INSERT INTO {inbox} (project_id, title, text, client_key) VALUES (?, ?, ?, ?)')
+            ->execute([$project['id'], $title, $b['text'], $key]);
+    } catch (PDOException $e) {
+        // Sent twice at once: the other got in first.
+        if ($key !== null && $e->getCode() === '23000' && ($id = $already()) !== false) {
+            return ['id' => (int) $id];
+        }
+        throw $e;
+    }
     return ['id' => (int) db()->lastInsertId()];
 }
 

@@ -5,6 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { URL_BASE, ACCOUNT, SETUP_PASSWORD, mac, newProject } from './lib.mjs';
 import { chromePath, launch } from './chrome.mjs';
 
@@ -258,6 +259,9 @@ test('a new scene goes to the inbox for the Mac', { skip }, async () => {
   await page.waitFor(`location.hash === '#/p/${project}'`, { what: 'back to the project' });
   const inbox = (await theMac.call('inbox', undefined, `&p=${project}`)).body;
   assert.ok(inbox.some(i => i.title === 'On the quay' && i.text === 'A new idea.'));
+  // Sent with the page's own name for it, so a resend would make the same one.
+  const keys = execSync(`${process.env.HELPER_DB} -N -e "SELECT client_key FROM writer_inbox WHERE title = 'On the quay' ORDER BY id DESC LIMIT 1"`).toString().trim();
+  assert.match(keys, /^[0-9a-f-]{36}$/);
   await page.waitFor(`document.body.textContent.includes('waiting for your Mac')`);
   assert.deepEqual(page.errors, [], 'no errors on the page');
 });

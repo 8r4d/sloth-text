@@ -1126,10 +1126,11 @@ async function showScene(project, sceneId) {
       box.hidden = true;
       save();
     };
+    const webVersion = newKey();  // the same if Use the Mac's is tapped again
     document.getElementById('use-macs').onclick = async () => {
       const mine = textarea.value;
       try {
-        await api('inbox_add', { title: `${title} (web version)`, text: mine }, q(project));
+        await api('inbox_add', { title: `${title} (web version)`, text: mine, key: webVersion }, q(project));
       } catch (err) {
         show(err.message);
         return;
@@ -1305,9 +1306,15 @@ function autoGrowOnce(textarea) {
   textarea.style.height = `${textarea.scrollHeight + 4}px`;
 }
 
+/// A name for something sent to the inbox, so sending it again (its reply
+/// lost) makes the same one rather than another.
+const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
 function showNewScene(project) {
   const key = `${project}/new`;
   const draft = drafts()[key] || { title: '', text: '' };
+  // Its name, kept with the draft until it's sent.
+  const inboxKey = draft.key || newKey();
   render(`${nav({ href: `#/p/${encodeURIComponent(project)}`, label: 'Back' })}
     <h1>New Document</h1>
     <p class="quiet">It goes to your Mac, which puts it in the Manuscript at its next sync.</p>
@@ -1317,12 +1324,12 @@ function showNewScene(project) {
     <button id="send" class="primary">Send to My Mac</button>`);
   const textarea = setUpWriting(document.getElementById('text'), draft.text);
   const titleEl = document.getElementById('title');
-  const keep = () => setDraft(key, { title: titleEl.value, text: textarea.value });
+  const keep = () => setDraft(key, { title: titleEl.value, text: textarea.value, key: inboxKey });
   textarea.addEventListener('input', keep);
   titleEl.addEventListener('input', keep);
   document.getElementById('send').onclick = async () => {
     try {
-      await api('inbox_add', { title: titleEl.value, text: textarea.value }, q(project));
+      await api('inbox_add', { title: titleEl.value, text: textarea.value, key: inboxKey }, q(project));
       setDraft(key, null);
       location.hash = `#/p/${encodeURIComponent(project)}`;
     } catch (err) {
