@@ -2,6 +2,17 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.44.0
+
+Windows and Linux, nearly at home. Nothing changes on the Mac.
+
+- Spell checking on Windows and Linux, with English dictionaries (US and UK) built in: a word is right if either has it. Learn Spelling keeps your words; Ignore Spelling lasts until you quit. Words with numbers in them, and web and email addresses, aren't checked.
+- The web helper's token is kept in Windows' Credential Manager (on Linux, in a file only you can read), so web sync works there.
+- Empty Trash moves what's emptied to the Recycle Bin (or the desktop's trash on Linux).
+- The little animations follow Windows' "Animation effects" setting, and GNOME's on Linux.
+- The default prose font is Georgia on Windows, and Noto Serif or DejaVu Serif on Linux.
+- Downloads: each release on GitHub has a Windows zip (Sloth Writer.exe, with its icon and no console window) and a Linux download with an install script.
+
 ## 1.43.0
 
 Getting ready for Windows and Linux: shortcuts, and checks on every system.
