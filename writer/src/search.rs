@@ -8,7 +8,6 @@
 //! all. With the whole project's matches showing, Replace All replaces in
 //! every document, after asking, and snapshots each one it changes first.
 
-use std::fs;
 use std::ops::Range;
 use std::time::Duration;
 
@@ -295,8 +294,8 @@ impl WriterApp {
             let open = self.open.get(&node.id).and_then(|&tab| self.docs.get(tab));
             let text = match open {
                 Some(tab) => tab.doc.text.clone(),
-                None => match project.file_path(&node.id).map(fs::read) {
-                    Some(Ok(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
+                None => match project.file_path(&node.id).map(|p| crate::project::read_text(&p)) {
+                    Some(Ok(text)) => text,
                     // Missing or unreadable: nothing to find in it.
                     _ => continue,
                 },

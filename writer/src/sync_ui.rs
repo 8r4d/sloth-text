@@ -108,7 +108,7 @@ impl WriterApp {
         let mut scenes = BTreeMap::new();
         let text_of = |id: &str| match self.open.get(id).and_then(|&tab| self.docs.get(tab)) {
             Some(tab) => Some(tab.doc.text.clone()),
-            None => project.file_path(id).map(std::fs::read_to_string).and_then(Result::ok),
+            None => project.file_path(id).and_then(|p| crate::project::read_text(&p).ok()),
         };
         // The mobile notepad: first, and always on the web, as `notepad`.
         let notepad = project.notepad().map(|n| (n.id.clone(), n.title.clone()));
@@ -257,7 +257,7 @@ impl WriterApp {
             return;
         }
         let Some(path) = self.project.as_ref().and_then(|p| p.file_path(id)) else { return };
-        match std::fs::read_to_string(&path) {
+        match crate::project::read_text(&path) {
             Ok(now) if now == was => {
                 match sloth_core::document::write_atomically(&path, text.as_bytes()) {
                     Ok(()) => self.note_words(id, text),

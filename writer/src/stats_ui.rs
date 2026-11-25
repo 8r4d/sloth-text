@@ -26,7 +26,7 @@ impl WriterApp {
                 if !node.is_document() {
                     continue;
                 }
-                let text = project.file_path(&node.id).and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+                let text = project.file_path(&node.id).and_then(|p| crate::project::read_text(&p).ok()).unwrap_or_default();
                 self.word_counts.insert(node.id.clone(), count_words(&text) as u32);
             }
         }

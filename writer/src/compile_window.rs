@@ -1,7 +1,6 @@
 //! The Compile window (⇧⌘E): choose the author name, format and chapter
 //! headings, then save the manuscript. The choices are kept in the project.
 
-use std::fs;
 use std::path::Path;
 
 use eframe::egui;
@@ -18,7 +17,7 @@ impl WriterApp {
         Some(compile::gather(project, settings, |node| {
             match self.open.get(&node.id).and_then(|&tab| self.docs.get(tab)) {
                 Some(tab) => tab.doc.text.clone(),
-                None => project.file_path(&node.id).and_then(|p| fs::read_to_string(p).ok()).unwrap_or_default(),
+                None => project.file_path(&node.id).and_then(|p| crate::project::read_text(&p).ok()).unwrap_or_default(),
             }
         }))
     }

@@ -83,7 +83,7 @@ impl WordCache {
         {
             return counted.clone();
         }
-        let text = fs::read(&path).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+        let text = crate::project::read_text(&path).unwrap_or_default();
         let counted = Counted { words: count_words(&text), opening: opening(&text) };
         self.0.insert(path, (stamp.0, stamp.1, counted.clone()));
         counted

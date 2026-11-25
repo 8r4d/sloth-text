@@ -20,7 +20,7 @@ impl WriterApp {
             return Some(tab.doc.text.clone());
         }
         let path = self.project.as_ref()?.file_path(doc_id)?;
-        std::fs::read_to_string(path).ok()
+        crate::project::read_text(&path).ok()
     }
 
     pub(super) fn take_snapshot(&mut self, doc_id: &str, name: &str, now: f64) {

@@ -32,7 +32,7 @@ pub struct Snapshot {
 
 impl Snapshot {
     pub fn text(&self) -> io::Result<String> {
-        fs::read_to_string(&self.path)
+        crate::project::read_text(&self.path)
     }
 
     /// "22 Nov 2026, 14:30".

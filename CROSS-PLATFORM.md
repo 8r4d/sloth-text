@@ -114,10 +114,14 @@ Project files must work on all three systems:
   two files; the Mac and Windows don't. `free_path`, and the names of new
   profile folders, now count a file on disk that differs only in capitals as
   taken, so a project made on Linux opens on the others.
-- **Line endings.** Writer writes `\n` everywhere. Keep that, and accept
-  `\r\n` in what it reads, which the encoding code mostly does already.
-- **Long paths.** The project's own paths are short, but a project kept deep
-  in Windows folders can pass 260 characters. Test with long paths turned on.
+- **Line endings.** *Done.* Writer writes `\n`. The editor already read
+  `\r\n`; now everything else that reads a document directly (compile,
+  sync, search, statistics, profiles, snapshots, word counts) goes through
+  `project::read_text`, which decodes as the editor does.
+- **Long paths.** *Done.* Rust's file functions switch to Windows'
+  long-path form past 260 characters by themselves. A test builds a project
+  over 300 characters deep and creates, renames, moves, snapshots, trashes
+  and backs up in it, on all three systems in CI.
 
 ## Phase 2: install it (about 2–4 days)
 

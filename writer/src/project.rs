@@ -410,6 +410,14 @@ pub fn set_kind_of(root: &Path, kind: Kind) -> io::Result<()> {
     write_atomically(&path, text.as_bytes())
 }
 
+/// A document's text as Writer works with it: decoded as the editor does
+/// (whatever its encoding), with `\n` line endings however the file has
+/// them, so one written on Windows (`\r\n`) reads the same as one written
+/// here. Writer itself always writes `\n`.
+pub fn read_text(path: &Path) -> io::Result<String> {
+    Ok(sloth_core::text_format::decode(&fs::read(path)?, None).text)
+}
+
 /// Where to put an item, relative to another one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Place {
@@ -1402,6 +1410,50 @@ mod tests {
         assert_eq!(folder_name("CON"), "CON-");
         assert_eq!(folder_name("Aux. Notes"), "Aux-. Notes");
         assert_eq!(folder_name("Console"), "Console");
+    }
+
+    #[test]
+    fn a_document_written_on_windows_reads_the_same() {
+        let dir = TempDir::new("crlf");
+        fs::create_dir_all(&dir.0).unwrap();
+        let file = dir.0.join("windows.md");
+        // Notepad's way: a byte-order mark and \r\n.
+        fs::write(&file, "\u{feff}# Arrival\r\n\r\nMara was late.\r\n").unwrap();
+        assert_eq!(read_text(&file).unwrap(), "# Arrival\n\nMara was late.\n");
+        // A profile's sections are found in it as in any other.
+        let sheet = crate::character::Sheet::parse(&read_text(&file).unwrap());
+        assert_eq!(sheet.sections.len(), 0);
+        fs::write(&file, "Eldest\r\n\r\n## Voice\r\n\r\nDry\r\n").unwrap();
+        let sheet = crate::character::Sheet::parse(&read_text(&file).unwrap());
+        assert_eq!(sheet.sections[0].heading, "Voice");
+        assert_eq!(sheet.sections[0].text.trim(), "Dry");
+    }
+
+    #[test]
+    fn a_project_deep_in_folders_still_works() {
+        // Past Windows' old 260-character limit for a whole path (Rust's
+        // file functions use Windows' long-path form there by themselves).
+        let dir = TempDir::new("long-paths");
+        let deep = (0..6).fold(dir.0.clone(), |p, i| p.join(format!("A folder with a fairly long name, number {i}")));
+        let root = deep.join("The Long Winter");
+        assert!(root.join("manuscript/the-long-chapter-title.md").to_string_lossy().len() > 300);
+
+        let mut p = Project::create(&root, "The Long Winter").unwrap();
+        let id = p.add_document(&Place::Into("manuscript".into()), "The long chapter title").unwrap();
+        let file = p.file_path(&id).unwrap();
+        fs::write(&file, "Snow.").unwrap();
+        assert_eq!(read_text(&file).unwrap(), "Snow.");
+        p.rename(&id, "An even longer chapter title, for good measure").unwrap();
+        p.move_node(&id, &Place::Into("notes".into())).unwrap();
+        assert_eq!(read_text(&p.file_path(&id).unwrap()).unwrap(), "Snow.");
+        crate::snapshots::take(&root, &id, "Snow.", "before").unwrap();
+        assert_eq!(crate::snapshots::list(&root, &id).len(), 1);
+        p.trash(&id).unwrap();
+        let backups = dir.0.join("backups");
+        fs::create_dir_all(&backups).unwrap();
+        let zip = crate::backup::back_up(&root, &backups, "Long").unwrap();
+        assert!(zip.is_file());
+        assert_eq!(Project::open(&root).unwrap().title(), "The Long Winter");
     }
 
     #[test]

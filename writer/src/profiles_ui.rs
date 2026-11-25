@@ -280,7 +280,7 @@ impl WriterApp {
                 continue;
             }
             let Some(path) = self.project.as_ref().and_then(|p| p.file_path(&id)) else { continue };
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Ok(text) = crate::project::read_text(&path) else { continue };
             let mut sheet = Sheet::parse(&text);
             if sheet.rename(old, new)
                 && let Err(e) = sloth_core::document::write_atomically(&path, sheet.to_text().as_bytes())

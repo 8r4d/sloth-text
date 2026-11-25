@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.51.1
+
+- Documents written on Windows (with its line endings, or a byte-order mark, as Notepad saves them) read the same everywhere in Writer: in compiling, syncing, searching, statistics, profiles and snapshots, not only in the editor.
+- Checked: a project kept deep in folders, past Windows' old 260-character limit for a path, works.
+
 ## 1.51.0
 
 - Writer has its own icons: clean line icons in place of emoji everywhere (the binder, the toolbar, the start screen, each kind of project, the rewards). They take the theme's colours, so they suit every theme, the Severance ones especially, and look the same on Mac, Windows and Linux. Drawn from Lucide (lucide.dev, ISC licence).

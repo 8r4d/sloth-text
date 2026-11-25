@@ -64,7 +64,7 @@ pub(super) fn facts_of(root: &Path) -> Option<TileFacts> {
         .subtree()
         .into_iter()
         .filter(|n| n.is_document())
-        .filter_map(|n| fs::read_to_string(root.join(n.path.as_ref()?)).ok())
+        .filter_map(|n| crate::project::read_text(&root.join(n.path.as_ref()?)).ok())
         .map(|text| super::inspector::count_words(&text) as u32)
         .sum();
     let log = Stats::load(root);
