@@ -3291,8 +3291,8 @@ fn a_narrow_toolbar_shows_icons_only_and_nothing_overlaps() {
     harness.run_steps(3);
     let compile = button_rect(&harness, "Compile\u{2026}");
     assert!(compile.width() < named, "icon only ({} vs {named})", compile.width());
-    let trash = button_rect(&harness, "Move to Trash");
-    assert!(trash.right() < compile.left(), "trash {trash:?} clear of compile {compile:?}");
+    let folder = button_rect(&harness, "New Folder");
+    assert!(folder.right() < compile.left(), "new folder {folder:?} clear of compile {compile:?}");
 
     // Still the same buttons, by name.
     let before = harness.state().show_inspector;
@@ -3326,4 +3326,17 @@ fn the_card_files_bottom_half_flips_back_one() {
     harness.run_steps(15);
     harness.get_by_label_contains("Alder Street,");
     assert_eq!(harness.query_all_by_label_contains("Back to").count(), 0);
+}
+
+#[test]
+fn move_to_trash_is_in_the_more_menu() {
+    let dir = TempDir::new("trash-in-more");
+    let mut harness = harness(project(&dir, "The ferry had gone."));
+    assert_eq!(harness.query_all_by_label_contains("Move to Trash").count(), 0, "not on the toolbar");
+    let before = manuscript_titles(&harness).len();
+    harness.get_by_label("More\u{2026}").click();
+    harness.run_steps(2);
+    harness.get_by_label(&format!("{} Move to Trash", crate::icons::TRASH)).click();
+    harness.run_steps(3);
+    assert_eq!(manuscript_titles(&harness).len(), before - 1, "the selected document went to the Trash");
 }

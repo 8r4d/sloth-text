@@ -1410,20 +1410,6 @@ impl WriterApp {
                 if tool_named(folder, "New Folder", None, &sloth_core::keys::shown("Add a folder (\u{2325}\u{2318}N)"), compact).clicked() {
                     self.new_item(self.selected.clone(), false);
                 }
-                let space = if compact { 6.0 } else { 12.0 };
-                ui.add_space(space);
-                ui.separator();
-                ui.add_space(space);
-                let can_trash = self
-                    .selected
-                    .as_deref()
-                    .and_then(|id| self.project.as_ref()?.node(id))
-                    .is_some_and(|n| n.role.is_none());
-                let trash = ui.add_enabled(can_trash, egui::Button::new(tool_label(crate::icons::TRASH, "Move to Trash", compact)));
-                if tool_named(trash, "Move to Trash", None, "Move the selected item to the Trash", compact).clicked() {
-                    let id = self.selected.clone().expect("enabled only with a selection");
-                    self.trash(&id);
-                }
                 let left = ui.min_rect().width();
                 let right = ui
                     .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1475,13 +1461,26 @@ impl WriterApp {
                 self.help = Some(about_ui::HelpPage::Shortcuts);
                 ui.close();
             }
+            // Kept apart from the rest, and from Close Project.
+            ui.separator();
+            let can_trash = self
+                .selected
+                .as_deref()
+                .and_then(|id| self.project.as_ref()?.node(id))
+                .is_some_and(|n| n.role.is_none());
+            let trash = egui::Button::new(format!("{} Move to Trash", crate::icons::TRASH));
+            if ui.add_enabled(can_trash, trash).on_hover_text("Move the selected item to the Trash").clicked() {
+                let id = self.selected.clone().expect("enabled only with a selection");
+                self.trash(&id);
+                ui.close();
+            }
             ui.separator();
             if ui.button("Close Project").clicked() {
                 self.close_project();
                 ui.close();
             }
         });
-        tool_named(more.response, "More\u{2026}", None, "Mobile Notes, Back Up, Settings, Help, Close Project", compact);
+        tool_named(more.response, "More\u{2026}", None, "Mobile Notes, Back Up, Settings, Help, Move to Trash, Close Project", compact);
         let inspector = ui.toggle_value(&mut self.show_inspector, tool_label(crate::icons::INSPECTOR, "Inspector", compact));
         tool_named(inspector, "Inspector", Some(self.show_inspector), &sloth_core::keys::shown("\u{2325}\u{2318}I"), compact);
         let split = ui.toggle_value(&mut self.split_open, tool_label(crate::icons::SPLIT, "Split", compact));
