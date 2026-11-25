@@ -37,6 +37,17 @@ ICONS = [
     ("LIBRARY", "library-big", "The Manuscript, Research and Notes folders"),
     ("CARD", "contact", "A profile"),
     ("WEB", "globe", "On the web"),
+    ("SETTINGS", "settings", "App settings"),
+    ("ABOUT", "info", "About Sloth Writer"),
+    # The toolbar.
+    ("BINDER", "panel-left", "Show or hide the binder"),
+    ("INSPECTOR", "panel-right", "Show or hide the inspector"),
+    ("SPLIT", "columns-2", "A second pane beside the editor"),
+    ("CANVAS", "waypoints", "The Canvas"),
+    ("FOCUS", "focus", "Focus mode"),
+    ("COMPILE", "book-up", "Compile"),
+    ("SYNC", "refresh-cw", "Sync with the web helper"),
+    ("MORE", "ellipsis", "More, in a menu"),
     # Kinds of project.
     ("WRITING", "pencil", "Writing"),
     ("NOVEL", "book-open", "Novel"),

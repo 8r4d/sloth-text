@@ -32,6 +32,26 @@ pub const LIBRARY: &str = "\u{e54e}";
 pub const CARD: &str = "\u{e09c}";
 /// On the web (Lucide: globe).
 pub const WEB: &str = "\u{e0e8}";
+/// App settings (Lucide: settings).
+pub const SETTINGS: &str = "\u{e154}";
+/// About Sloth Writer (Lucide: info).
+pub const ABOUT: &str = "\u{e0f9}";
+/// Show or hide the binder (Lucide: panel-left).
+pub const BINDER: &str = "\u{e12a}";
+/// Show or hide the inspector (Lucide: panel-right).
+pub const INSPECTOR: &str = "\u{e431}";
+/// A second pane beside the editor (Lucide: columns-2).
+pub const SPLIT: &str = "\u{e098}";
+/// The Canvas (Lucide: waypoints).
+pub const CANVAS: &str = "\u{e542}";
+/// Focus mode (Lucide: focus).
+pub const FOCUS: &str = "\u{e29e}";
+/// Compile (Lucide: book-up).
+pub const COMPILE: &str = "\u{e3f4}";
+/// Sync with the web helper (Lucide: refresh-cw).
+pub const SYNC: &str = "\u{e145}";
+/// More, in a menu (Lucide: ellipsis).
+pub const MORE: &str = "\u{e0b6}";
 /// Writing (Lucide: pencil).
 pub const WRITING: &str = "\u{e1f9}";
 /// Novel (Lucide: book-open).
@@ -100,6 +120,16 @@ pub const ALL: &[(&str, &str)] = &[
     ("LIBRARY", LIBRARY),
     ("CARD", CARD),
     ("WEB", WEB),
+    ("SETTINGS", SETTINGS),
+    ("ABOUT", ABOUT),
+    ("BINDER", BINDER),
+    ("INSPECTOR", INSPECTOR),
+    ("SPLIT", SPLIT),
+    ("CANVAS", CANVAS),
+    ("FOCUS", FOCUS),
+    ("COMPILE", COMPILE),
+    ("SYNC", SYNC),
+    ("MORE", MORE),
     ("WRITING", WRITING),
     ("NOVEL", NOVEL),
     ("SHORT_FICTION", SHORT_FICTION),

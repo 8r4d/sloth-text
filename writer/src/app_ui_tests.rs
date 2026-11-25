@@ -3269,3 +3269,61 @@ fn a_labels_colour_is_picked_from_the_swatches() {
     assert_eq!(super::inspector::label_color(12), egui::Color32::from_rgb(0xA8, 0x32, 0x5E));
     assert!(harness.state().manifest_dirty);
 }
+
+// ----- the toolbar -------------------------------------------------------------------
+
+/// Where the toolbar button named `name` is drawn.
+fn button_rect(harness: &Harness<'static, WriterApp>, name: &str) -> egui::Rect {
+    harness.get_by_label(name).rect()
+}
+
+#[test]
+fn a_narrow_toolbar_shows_icons_only_and_nothing_overlaps() {
+    let dir = TempDir::new("narrow-toolbar");
+    let mut harness = harness(project(&dir, "The ferry had gone."));
+    harness.set_size(egui::vec2(1400.0, 700.0));
+    harness.run_steps(3);
+    let wide = harness.state().toolbar_full_width;
+    assert!(wide > 0.0 && wide < 1400.0, "names fit at 1400 ({wide})");
+    let named = button_rect(&harness, "Compile\u{2026}").width();
+
+    harness.set_size(egui::vec2(640.0, 700.0));
+    harness.run_steps(3);
+    let compile = button_rect(&harness, "Compile\u{2026}");
+    assert!(compile.width() < named, "icon only ({} vs {named})", compile.width());
+    let trash = button_rect(&harness, "Move to Trash");
+    assert!(trash.right() < compile.left(), "trash {trash:?} clear of compile {compile:?}");
+
+    // Still the same buttons, by name.
+    let before = harness.state().show_inspector;
+    harness.get_by_label("Inspector").click();
+    harness.run_steps(2);
+    assert_ne!(harness.state().show_inspector, before, "the icon toggles the inspector");
+
+    // Wide again: names come back.
+    harness.set_size(egui::vec2(1400.0, 700.0));
+    harness.run_steps(3);
+    assert_eq!(button_rect(&harness, "Compile\u{2026}").width(), named);
+}
+
+#[test]
+fn the_card_files_bottom_half_flips_back_one() {
+    let dir = TempDir::new("card-file-bottom");
+    let first = Project::create(&dir.0.join("Alder"), "Alder Street").unwrap();
+    let mut harness = harness(first);
+    let second = Project::create(&dir.0.join("Bellingham"), "Bellingham").unwrap();
+    harness.state_mut().set_project(second);
+    harness.state_mut().settings.start_view = crate::app::settings_ui::StartView::CardFile;
+    harness.state_mut().close_project();
+    harness.run_steps(3);
+    // Nothing flipped past yet: the bottom half is just the file's back.
+    assert_eq!(harness.query_all_by_label_contains("Back to").count(), 0);
+
+    harness.key_press(egui::Key::ArrowRight);
+    harness.run_steps(15);
+    harness.get_by_label_contains("Bellingham,");
+    harness.get_by_label("Back to Alder Street").click();
+    harness.run_steps(15);
+    harness.get_by_label_contains("Alder Street,");
+    assert_eq!(harness.query_all_by_label_contains("Back to").count(), 0);
+}

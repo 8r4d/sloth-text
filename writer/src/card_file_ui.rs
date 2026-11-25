@@ -3,10 +3,14 @@
 //! showing. Flip with the arrow keys or the scroll wheel, type a letter to
 //! jump to it, and press Return (or click the front card) to open it.
 //! Clicking a card behind brings it to the front.
+//!
+//! Like a real rotary file it has a bottom half: the cards already flipped
+//! past hang below the rings, backs showing, and a flip folds the front card
+//! down over them. Clicking the bottom half flips back one.
 
 use std::path::PathBuf;
 
-use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Stroke, Vec2, pos2, vec2};
+use eframe::egui::{self, Color32, FontId, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 use sloth_core::motion;
 
 use super::WriterApp;
@@ -29,7 +33,13 @@ struct Card {
     available: bool,
 }
 
-const CARD: Vec2 = vec2(400.0, 184.0);
+const CARD: Vec2 = vec2(400.0, 176.0);
+/// The bottom half's cards, seen tilted away: shorter than the front one.
+const LOWER: f32 = 100.0;
+/// How much further down each card behind in the bottom half shows.
+const LAYER: f32 = 7.0;
+/// The gap between the halves, where the rings are.
+const GAP: f32 = 10.0;
 /// How far each card behind stands above the one in front of it.
 const STEP: f32 = 18.0;
 /// Cards shown behind the front one.
@@ -98,9 +108,10 @@ impl WriterApp {
             }
         });
 
-        // The space: the stack, with room above for the cards behind and
-        // their tabs, and the rotary's knobs either side.
-        let height = CARD.y + STEP * BEHIND as f32 + TAB.y + 24.0;
+        // The space: the top half, with room above for the cards behind and
+        // their tabs; the bottom half below the rings, its cards' tabs
+        // hanging under it; the rotary's knobs either side.
+        let height = 4.0 + TAB.y + STEP * BEHIND as f32 + CARD.y + GAP + LOWER + LAYER * 2.0 + TAB.y + 4.0;
         let (area, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), egui::Sense::hover());
         // Anywhere over the card file, the cards on it included (which take
         // the hover themselves).
@@ -126,15 +137,36 @@ impl WriterApp {
         } else {
             front as f32
         };
+        let mut clicked_behind = None;
+        let mut choice = None;
 
         let visuals = ui.visuals().clone();
         let painter = ui.painter_at(area);
-        let front_rect = Rect::from_center_size(pos2(area.center().x, area.bottom() - 12.0 - CARD.y / 2.0), CARD);
+        let hinge = area.top() + 4.0 + TAB.y + STEP * BEHIND as f32 + CARD.y + GAP / 2.0;
+        let front_rect = Rect::from_min_size(pos2(area.center().x - CARD.x / 2.0, hinge - GAP / 2.0 - CARD.y), CARD);
         // A card `offset` places back (0 in front, fractions while flipping):
         // higher and a little narrower.
         let place = |offset: f32| {
             let o = offset.max(0.0);
             Rect::from_center_size(front_rect.center() - vec2(0.0, o * STEP), vec2(CARD.x - o * 14.0, CARD.y))
+        };
+        // The bottom half's card `layer` places back: lower and narrower.
+        let lower = |layer: f32| {
+            let w = CARD.x - layer * 14.0;
+            Rect::from_min_size(pos2(front_rect.center().x - w / 2.0, hinge + GAP / 2.0), vec2(w, LOWER + layer * LAYER))
+        };
+        let line_for = |back: f32| visuals.widgets.noninteractive.bg_stroke.color.gamma_multiply(1.0 - back * 0.15);
+        let fill_for = |back: f32| visuals.extreme_bg_color.lerp_to_gamma(visuals.panel_fill, (back / BEHIND as f32).min(1.0) * 0.6);
+        // A card's back, as the bottom half shows them: blank, its tab
+        // hanging below with the letter.
+        let draw_back = |rect: Rect, card: Option<&Card>, back: f32| {
+            let (fill, line) = (fill_for(back + 0.5), line_for(back));
+            if let Some(card) = card {
+                let tab = Rect::from_min_size(pos2(tab_x(rect, &card.title), rect.bottom() - 1.0), TAB);
+                painter.rect(tab, egui::CornerRadius { nw: 0, ne: 0, sw: 5, se: 5 }, fill, Stroke::new(1.0, line), egui::StrokeKind::Inside);
+                painter.text(tab.center() - vec2(0.0, 1.0), egui::Align2::CENTER_CENTER, letter(&card.title), FontId::proportional(12.0), visuals.weak_text_color());
+            }
+            painter.rect(rect, 6.0, fill, Stroke::new(1.0, line), egui::StrokeKind::Inside);
         };
 
         // The rotary's knobs, their ridges turning as the cards go by.
@@ -144,53 +176,74 @@ impl WriterApp {
             let spacing = 7.0;
             let turn = shown.fract() * spacing;
             for k in 0..11 {
-                let y = front_rect.center().y - 40.0 + k as f32 * spacing + turn;
+                let y = hinge - 38.0 + k as f32 * spacing + turn;
                 // Shorter towards the ends, as on a round knob.
-                let w = 18.0 * (1.0 - ((y - front_rect.center().y + 5.0) / 45.0).powi(2)).max(0.2).sqrt();
+                let w = 18.0 * (1.0 - ((y - hinge) / 42.0).powi(2)).max(0.2).sqrt();
                 painter.line_segment([pos2(x - w / 2.0, y), pos2(x + w / 2.0, y)], Stroke::new(2.0, ridge));
             }
         }
-        // The base the cards stand in.
-        let base = Rect::from_min_max(pos2(front_rect.left() - 10.0, front_rect.bottom() - 18.0), pos2(front_rect.right() + 10.0, front_rect.bottom() + 10.0));
 
-        // Back to front: the cards behind, then the one in front, then the
-        // one leaving (flipping forward and down) over them.
+        // The bottom half: the cards flipped past, the last one nearest. With
+        // none flipped yet, an empty back.
+        let settled = shown.floor().max(0.0) as usize;
+        for layer in (0..settled.clamp(1, 3)).rev() {
+            let card = settled.checked_sub(layer + 1).map(|i| &cards[i]);
+            draw_back(lower(layer as f32), card, layer as f32);
+        }
+        if front > 0 {
+            let previous = &cards[front - 1];
+            let name = format!("Back to {}", previous.title);
+            let back = ui.interact(lower(0.0), response.id.with("bottom half"), egui::Sense::click());
+            back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
+            if back.on_hover_text(&name).clicked() {
+                clicked_behind = Some(front - 1);
+            }
+        }
+
+        // The top half, back to front: the cards behind, then the one in
+        // front, then the one leaving over them, folding down over the rings.
         let first = (shown.floor() as isize - 1).max(0) as usize;
         let last = ((shown.ceil() as usize) + BEHIND).min(count - 1);
         let mut order: Vec<usize> = (first..=last).collect();
         order.sort_by(|a, b| (*b as f32 - shown).partial_cmp(&(*a as f32 - shown)).unwrap_or(std::cmp::Ordering::Equal));
-        let mut clicked_behind = None;
-        let mut choice = None;
         for i in order {
             let card = &cards[i];
             let offset = i as f32 - shown;
             if offset > BEHIND as f32 + 0.5 || offset <= -1.0 {
                 continue;
             }
-            // Leaving: drops forward and fades.
-            let (rect, fade) = if offset < 0.0 { (place(0.0).translate(vec2(0.0, -offset * 60.0)), 1.0 + offset) } else { (place(offset), 1.0) };
-            let back = offset.max(0.0);
-            let fill = visuals.extreme_bg_color.lerp_to_gamma(visuals.panel_fill, (back / BEHIND as f32).min(1.0) * 0.6).gamma_multiply(fade);
-            let line = visuals.widgets.noninteractive.bg_stroke.color.gamma_multiply(fade * (1.0 - back * 0.15));
-            let accent = kind_color(card.kind).gamma_multiply(fade * if card.available { 1.0 } else { 0.4 });
+            if offset < 0.0 {
+                // Leaving: the first half of the fold shuts the card down
+                // onto the rings, the second opens it into the bottom half.
+                let t = -offset;
+                if t < 0.5 {
+                    let r = front_rect;
+                    let rect = Rect::from_min_max(pos2(r.left(), r.bottom() - r.height() * (1.0 - 2.0 * t)), r.right_bottom());
+                    painter.rect(rect, 6.0, fill_for(0.0), Stroke::new(1.0, line_for(0.0)), egui::StrokeKind::Inside);
+                } else {
+                    let r = lower(0.0);
+                    draw_back(Rect::from_min_size(r.min, vec2(r.width(), r.height() * (2.0 * t - 1.0))), None, 0.0);
+                }
+                continue;
+            }
+            let rect = place(offset);
+            let (fill, line) = (fill_for(offset), line_for(offset));
+            let accent = kind_color(card.kind).gamma_multiply(if card.available { 1.0 } else { 0.4 });
 
             // Its tab, with the letter.
             let tab = Rect::from_min_size(pos2(tab_x(rect, &card.title), rect.top() - TAB.y + 1.0), TAB);
             painter.rect(tab, egui::CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 }, fill, Stroke::new(1.0, line), egui::StrokeKind::Inside);
             painter.line_segment([tab.left_top() + vec2(5.0, 2.5), tab.right_top() + vec2(-5.0, 2.5)], Stroke::new(2.0, accent));
-            painter.text(tab.center() + vec2(0.0, 1.5), egui::Align2::CENTER_CENTER, letter(&card.title), FontId::proportional(12.0), visuals.strong_text_color().gamma_multiply(fade));
+            painter.text(tab.center() + vec2(0.0, 1.5), egui::Align2::CENTER_CENTER, letter(&card.title), FontId::proportional(12.0), visuals.strong_text_color());
             // The card.
             painter.rect(rect, 6.0, fill, Stroke::new(1.0, line), egui::StrokeKind::Inside);
-            // The rail it hangs from: two slots, just above the base.
-            for x in [rect.center().x - 50.0, rect.center().x + 50.0] {
-                let slot = Rect::from_center_size(pos2(x, rect.bottom() - 30.0), vec2(5.0, 12.0));
-                painter.rect_stroke(slot, 2.5, Stroke::new(1.0, line), egui::StrokeKind::Inside);
-            }
 
-            if offset.abs() < 0.5 {
+            if offset < 0.5 {
                 let facts = self.tile_facts.entry(card.root.clone()).or_insert_with(|| facts_of(&card.root)).clone();
+                // Coming forward: its face shows as it arrives.
+                let fade = 1.0 - 2.0 * offset;
                 choice = front_card(ui, &painter, rect, response.id.with(("front", i)), card, facts.as_ref(), fade).map(|c| (card.root.clone(), c));
-            } else if offset > 0.0 && i <= front + BEHIND {
+            } else if i <= front + BEHIND {
                 // The strip above the card in front of it can be clicked.
                 let strip = Rect::from_min_max(tab.left_top(), pos2(rect.right(), rect.top() + STEP));
                 let strip = strip.union(Rect::from_min_max(rect.left_top(), pos2(rect.right(), rect.top() + STEP)));
@@ -199,17 +252,17 @@ impl WriterApp {
                 }
             }
         }
-        painter.rect(base, 6.0, visuals.panel_fill, Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color), egui::StrokeKind::Inside);
+
+        // The rings the cards hang from, across the gap.
+        let ring = visuals.hyperlink_color;
+        for x in [front_rect.center().x - 46.0, front_rect.center().x + 46.0] {
+            let r = Rect::from_center_size(pos2(x, hinge), vec2(7.0, 34.0));
+            painter.rect_filled(r, 3.5, ring.gamma_multiply(0.85));
+        }
 
         if let Some(i) = clicked_behind {
             self.card_file.front = i;
         }
-        ui.add_space(6.0);
-        ui.label(
-            RichText::new(format!("{} of {count}  \u{b7}  \u{2190} \u{2192} or scroll to flip, a letter to jump, Return to open", front + 1))
-                .small()
-                .weak(),
-        );
         if open_front && cards[front].available {
             return Some((cards[front].root.clone(), TileChoice::Open));
         }

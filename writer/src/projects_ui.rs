@@ -252,10 +252,8 @@ impl WriterApp {
         }
         ui.add_space(28.0);
         ui.horizontal(|ui| {
-            let width = 250.0;
+            let width = 130.0;
             ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-            ui.label(RichText::new("Recent projects").small().weak());
-            ui.add_space(8.0);
             let view = &mut self.settings.start_view;
             ui.selectable_value(view, StartView::Tiles, RichText::new("Tiles").small());
             ui.selectable_value(view, StartView::CardFile, RichText::new("Card File").small())

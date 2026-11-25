@@ -203,6 +203,9 @@ pub struct WriterApp {
 
     // The split view (see split_ui.rs).
     split_open: bool,
+    /// How wide the toolbar is with its buttons named, as last measured:
+    /// narrower than this, they show only their icons.
+    toolbar_full_width: f32,
     /// What it shows.
     split: Option<String>,
     // Writing statistics (see stats.rs and stats_ui.rs).
@@ -366,6 +369,7 @@ impl WriterApp {
             breaking_up: None,
             combining: None,
             split_open: false,
+            toolbar_full_width: 0.0,
             split: None,
             stats: Default::default(),
             stats_dirty: false,
@@ -1304,9 +1308,9 @@ impl WriterApp {
                 * if self.recent.is_empty() {
                     0.3
                 } else if self.settings.start_view == settings_ui::StartView::CardFile {
-                    0.05
+                    0.08
                 } else {
-                    0.12
+                    0.14
                 };
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.vertical_centered(|ui| {
@@ -1320,6 +1324,8 @@ impl WriterApp {
                     let sloth = self.sloth(ui.ctx(), pose);
                     ui.add(egui::Image::new(&sloth).fit_to_exact_size(egui::Vec2::splat(120.0)));
                 }
+                // Room to breathe between the sloth and the greeting.
+                ui.add_space(18.0);
                 // The Pastel Hotel's greeting, spaced out like its sign.
                 if self.settings.theme == sloth_core::theme::ThemeChoice::PastelHotel {
                     let sign: String = hello.to_uppercase().chars().map(|c| if c == ' ' { "\u{2003}".to_owned() } else { format!("{c}\u{2009}") }).collect();
@@ -1327,7 +1333,6 @@ impl WriterApp {
                 } else {
                     ui.heading(hello);
                 }
-                ui.weak(format!("Sloth Writer \u{b7} Version {}", crate::version::VERSION));
                 self.fact_of_the_day(ui);
                 ui.add_space(16.0);
                 // New, Open and Import: a row of icons, named on hover.
@@ -1336,14 +1341,20 @@ impl WriterApp {
                     (crate::icons::OPEN, "Open Project\u{2026}", sloth_core::keys::shown("Open a project folder (\u{2318}O)")),
                     (crate::icons::IMPORT, "Import from Scrivener\u{2026}", "Make a Writer project from a Scrivener 3 project (which isn't changed)".to_owned()),
                     (crate::icons::FROM_HELPER, "Get Project from the Helper\u{2026}", "Bring over a project another computer syncs whole through the web helper".to_owned()),
+                    // Settings and About, set a little apart from the projects.
+                    (crate::icons::SETTINGS, "Settings\u{2026}", sloth_core::keys::shown("Fonts, theme, the start screen and more (\u{2318},)")),
+                    (crate::icons::ABOUT, "About Sloth Writer", format!("Version {}", crate::version::VERSION)),
                 ];
                 let mut chosen = None;
                 ui.horizontal(|ui| {
-                    let (size, gap) = (52.0, 14.0);
+                    let (size, gap, apart) = (52.0, 14.0, 22.0);
                     ui.spacing_mut().item_spacing.x = gap;
                     let n = actions.len() as f32;
-                    ui.add_space(((ui.available_width() - (n * size + (n - 1.0) * gap)) / 2.0).max(0.0));
+                    ui.add_space(((ui.available_width() - (n * size + (n - 1.0) * gap + apart)) / 2.0).max(0.0));
                     for (i, (icon, name, hint)) in actions.iter().enumerate() {
+                        if i == 4 {
+                            ui.add_space(apart);
+                        }
                         if start_icon(ui, size, icon, name, hint) {
                             chosen = Some(i);
                         }
@@ -1357,21 +1368,11 @@ impl WriterApp {
                         self.import_scrivener_dialog(now);
                     }
                     Some(3) => self.start_get_project(),
+                    Some(4) => self.settings_open = true,
+                    Some(5) => self.help = Some(about_ui::HelpPage::About),
                     _ => {}
                 }
                 self.recent_list(ui);
-                ui.add_space(20.0);
-                ui.horizontal(|ui| {
-                    // Centre the pair of buttons.
-                    let width = 150.0;
-                    ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
-                    if ui.small_button("Settings\u{2026}").clicked() {
-                        self.settings_open = true;
-                    }
-                    if ui.small_button("About Sloth Writer").clicked() {
-                        self.help = Some(about_ui::HelpPage::About);
-                    }
-                });
                 ui.add_space(16.0);
             });
             });
@@ -1381,107 +1382,139 @@ impl WriterApp {
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top(egui::Id::unique("toolbar")).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.toggle_value(&mut self.show_binder, "Binder").on_hover_text(sloth_core::keys::shown("Show or hide the binder (\u{2325}\u{2318}B)"));
+                // Too narrow for the buttons' names: icons only, named on hover.
+                let width = ui.available_width();
+                let compact = width < self.toolbar_full_width;
+                let binder = ui.toggle_value(&mut self.show_binder, tool_label(crate::icons::BINDER, "Binder", compact));
+                tool_named(binder, "Binder", Some(self.show_binder), &sloth_core::keys::shown("Show or hide the binder (\u{2325}\u{2318}B)"), compact);
                 if let Some(project) = &self.project {
-                    let title = egui::Button::new(egui::RichText::new(project.title()).strong()).frame(false);
-                    if ui.add(title).on_hover_text("Rename the project or change its icon").clicked() {
+                    let title = egui::Button::new(egui::RichText::new(project.title()).strong()).frame(false).truncate();
+                    // A long title is cut short rather than pushing the buttons over.
+                    let title = ui.scope(|ui| {
+                        ui.set_max_width(if compact { 140.0 } else { 260.0 });
+                        ui.add(title)
+                    });
+                    if title.inner.on_hover_text(format!("{}\nRename the project or change its icon", project.title())).clicked() {
                         self.start_renaming_project();
                     }
                 }
                 ui.separator();
                 // Icons that match the binder's, so the two "new" buttons
                 // read apart at a glance, and the Trash kept well away.
-                let doc = ui.button(format!("{} New Document", crate::icons::DOCUMENT)).on_hover_text(sloth_core::keys::shown("Add a document (\u{2318}N)"));
-                if doc.clicked() {
+                let doc = ui.button(tool_label(crate::icons::DOCUMENT, "New Document", compact));
+                if tool_named(doc, "New Document", None, &sloth_core::keys::shown("Add a document (\u{2318}N)"), compact).clicked() {
                     self.new_item(self.selected.clone(), true);
                 }
                 ui.add_space(6.0);
-                let folder = ui.button(format!("{} New Folder", crate::icons::FOLDER)).on_hover_text(sloth_core::keys::shown("Add a folder (\u{2325}\u{2318}N)"));
-                if folder.clicked() {
+                let folder = ui.button(tool_label(crate::icons::FOLDER, "New Folder", compact));
+                if tool_named(folder, "New Folder", None, &sloth_core::keys::shown("Add a folder (\u{2325}\u{2318}N)"), compact).clicked() {
                     self.new_item(self.selected.clone(), false);
                 }
-                ui.add_space(12.0);
+                let space = if compact { 6.0 } else { 12.0 };
+                ui.add_space(space);
                 ui.separator();
-                ui.add_space(12.0);
+                ui.add_space(space);
                 let can_trash = self
                     .selected
                     .as_deref()
                     .and_then(|id| self.project.as_ref()?.node(id))
                     .is_some_and(|n| n.role.is_none());
-                let trash = egui::Button::new(format!("{} Move to Trash", crate::icons::TRASH));
-                if ui.add_enabled(can_trash, trash).on_hover_text("Move the selected item to the Trash").clicked() {
+                let trash = ui.add_enabled(can_trash, egui::Button::new(tool_label(crate::icons::TRASH, "Move to Trash", compact)));
+                if tool_named(trash, "Move to Trash", None, "Move the selected item to the Trash", compact).clicked() {
                     let id = self.selected.clone().expect("enabled only with a selection");
                     self.trash(&id);
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Less often wanted: in a menu, so the toolbar fits.
-                    ui.menu_button("More\u{2026}", |ui| {
-                        if ui.button(format!("{} Mobile Notes", crate::icons::NOTEPAD)).on_hover_text("The notepad you jot in on your phone, beside what you're writing").clicked() {
-                            self.open_notepad();
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui.button("Back Up\u{2026}").on_hover_text("Save a dated zip of the whole project somewhere else").clicked() {
-                            let now = ui.input(|i| i.time);
-                            self.back_up_dialog(now);
-                            ui.close();
-                        }
-                        if ui.add(egui::Button::new("App Settings\u{2026}").shortcut_text(sloth_core::keys::shown("\u{2318},"))).clicked() {
-                            self.settings_open = true;
-                            ui.close();
-                        }
-                        let project_settings = egui::Button::new("Project Settings\u{2026}").shortcut_text(sloth_core::keys::shown("\u{2325}\u{2318},"));
-                        if ui.add(project_settings).on_hover_text("Title, icon, where new items go, goals, statuses, labels and profile sections").clicked() {
-                            self.open_project_settings();
-                            ui.close();
-                        }
-                        let mut repeats = self.settings.show_repetition;
-                        if ui.checkbox(&mut repeats, sloth_core::keys::shown("Highlight Repeated Words  \u{2325}\u{2318}R")).changed() {
-                            self.toggle_repetition();
-                            ui.close();
-                        }
-                        if ui.add(egui::Button::new("Help").shortcut_text(sloth_core::keys::shown("\u{2318}?"))).clicked() {
-                            self.help = Some(about_ui::HelpPage::Shortcuts);
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui.button("Close Project").clicked() {
-                            self.close_project();
-                            ui.close();
-                        }
+                let left = ui.min_rect().width();
+                let right = ui
+                    .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        self.toolbar_right(ui, compact);
+                        ui.min_rect().width()
                     })
-                    .response
-                    .on_hover_text("Mobile Notes, Back Up, Settings, Help, Close Project");
-                    ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text(sloth_core::keys::shown("\u{2325}\u{2318}I"));
-                    ui.toggle_value(&mut self.split_open, "Split").on_hover_text(sloth_core::keys::shown("A second pane beside the editor (\u{2318}\\)"));
-                    ui.toggle_value(&mut self.canvas_open, "Canvas")
-                        .on_hover_text(sloth_core::keys::shown("Every document on one surface, strung to what it refers to, with notes of your own (\u{2325}\u{2318}C)"));
-                    if ui.button("Focus").on_hover_text(sloth_core::keys::shown("Full screen, just the text (\u{2325}\u{2318}F; Esc to leave)")).clicked() {
-                        let ctx = ui.ctx().clone();
-                        self.set_focus_mode(&ctx, true);
+                    .inner;
+                // Measured with the names showing; if they didn't fit, this
+                // frame is drawn again with icons only.
+                if !compact {
+                    self.toolbar_full_width = left + right + 2.0 * ui.spacing().item_spacing.x;
+                    if width < self.toolbar_full_width {
+                        ui.ctx().request_discard("toolbar too narrow for names");
                     }
-                    if ui.button("Compile\u{2026}").on_hover_text(sloth_core::keys::shown("\u{21e7}\u{2318}E")).clicked() {
-                        self.compile_open = true;
-                    }
-                    if !self.settings.helper_url.trim().is_empty() && !self.helper_token.is_empty() {
-                        let label = if self.sync_running() { "Syncing\u{2026}" } else { "Sync" };
-                        let mut hint = if self.sync_message.is_empty() { "Sync with the web helper".to_owned() } else { self.sync_message.clone() };
-                        // A project synced whole: when each other computer last synced.
-                        for tally in self.stats.others.values().filter(|t| t.synced_at > 0) {
-                            if let Some(when) = chrono::DateTime::from_timestamp(tally.synced_at, 0) {
-                                let when = when.with_timezone(&chrono::Local);
-                                let day = if when.date_naive() == crate::stats::today() { "today".to_owned() } else { when.format("%-d %B").to_string() };
-                                let name = if tally.name.is_empty() { "Another computer" } else { &tally.name };
-                                hint.push_str(&format!("\n{name}: {day} at {}", when.format("%H:%M")));
-                            }
-                        }
-                        if ui.add_enabled(!self.sync_running(), egui::Button::new(label)).on_hover_text(&hint).clicked() {
-                            self.sync_now = true;
-                        }
-                    }
-                });
+                }
             });
         });
+    }
+
+    /// The toolbar's right-hand end, laid out right to left.
+    fn toolbar_right(&mut self, ui: &mut egui::Ui, compact: bool) {
+        // Less often wanted: in a menu, so the toolbar fits.
+        let more = ui.menu_button(tool_label(crate::icons::MORE, "More", compact), |ui| {
+            if ui.button(format!("{} Mobile Notes", crate::icons::NOTEPAD)).on_hover_text("The notepad you jot in on your phone, beside what you're writing").clicked() {
+                self.open_notepad();
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("Back Up\u{2026}").on_hover_text("Save a dated zip of the whole project somewhere else").clicked() {
+                let now = ui.input(|i| i.time);
+                self.back_up_dialog(now);
+                ui.close();
+            }
+            if ui.add(egui::Button::new("App Settings\u{2026}").shortcut_text(sloth_core::keys::shown("\u{2318},"))).clicked() {
+                self.settings_open = true;
+                ui.close();
+            }
+            let project_settings = egui::Button::new("Project Settings\u{2026}").shortcut_text(sloth_core::keys::shown("\u{2325}\u{2318},"));
+            if ui.add(project_settings).on_hover_text("Title, icon, where new items go, goals, statuses, labels and profile sections").clicked() {
+                self.open_project_settings();
+                ui.close();
+            }
+            let mut repeats = self.settings.show_repetition;
+            if ui.checkbox(&mut repeats, sloth_core::keys::shown("Highlight Repeated Words  \u{2325}\u{2318}R")).changed() {
+                self.toggle_repetition();
+                ui.close();
+            }
+            if ui.add(egui::Button::new("Help").shortcut_text(sloth_core::keys::shown("\u{2318}?"))).clicked() {
+                self.help = Some(about_ui::HelpPage::Shortcuts);
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("Close Project").clicked() {
+                self.close_project();
+                ui.close();
+            }
+        });
+        tool_named(more.response, "More\u{2026}", None, "Mobile Notes, Back Up, Settings, Help, Close Project", compact);
+        let inspector = ui.toggle_value(&mut self.show_inspector, tool_label(crate::icons::INSPECTOR, "Inspector", compact));
+        tool_named(inspector, "Inspector", Some(self.show_inspector), &sloth_core::keys::shown("\u{2325}\u{2318}I"), compact);
+        let split = ui.toggle_value(&mut self.split_open, tool_label(crate::icons::SPLIT, "Split", compact));
+        tool_named(split, "Split", Some(self.split_open), &sloth_core::keys::shown("A second pane beside the editor (\u{2318}\\)"), compact);
+        let canvas = ui.toggle_value(&mut self.canvas_open, tool_label(crate::icons::CANVAS, "Canvas", compact));
+        let hint = sloth_core::keys::shown("Every document on one surface, strung to what it refers to, with notes of your own (\u{2325}\u{2318}C)");
+        tool_named(canvas, "Canvas", Some(self.canvas_open), &hint, compact);
+        let focus = ui.button(tool_label(crate::icons::FOCUS, "Focus", compact));
+        if tool_named(focus, "Focus", None, &sloth_core::keys::shown("Full screen, just the text (\u{2325}\u{2318}F; Esc to leave)"), compact).clicked() {
+            let ctx = ui.ctx().clone();
+            self.set_focus_mode(&ctx, true);
+        }
+        let compile = ui.button(tool_label(crate::icons::COMPILE, "Compile\u{2026}", compact));
+        if tool_named(compile, "Compile\u{2026}", None, &sloth_core::keys::shown("\u{21e7}\u{2318}E"), compact).clicked() {
+            self.compile_open = true;
+        }
+        if !self.settings.helper_url.trim().is_empty() && !self.helper_token.is_empty() {
+            let label = if self.sync_running() { "Syncing\u{2026}" } else { "Sync" };
+            let mut hint = if self.sync_message.is_empty() { "Sync with the web helper".to_owned() } else { self.sync_message.clone() };
+            // A project synced whole: when each other computer last synced.
+            for tally in self.stats.others.values().filter(|t| t.synced_at > 0) {
+                if let Some(when) = chrono::DateTime::from_timestamp(tally.synced_at, 0) {
+                    let when = when.with_timezone(&chrono::Local);
+                    let day = if when.date_naive() == crate::stats::today() { "today".to_owned() } else { when.format("%-d %B").to_string() };
+                    let name = if tally.name.is_empty() { "Another computer" } else { &tally.name };
+                    hint.push_str(&format!("\n{name}: {day} at {}", when.format("%H:%M")));
+                }
+            }
+            let sync = ui.add_enabled(!self.sync_running(), egui::Button::new(tool_label(crate::icons::SYNC, label, compact)));
+            if tool_named(sync, label, None, &hint, compact).clicked() {
+                self.sync_now = true;
+            }
+        }
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -1892,6 +1925,24 @@ impl eframe::App for WriterApp {
 /// One of the start screen's icons: a rounded square with the icon in it,
 /// lit in the theme's accent on hover, with its name as hover text (and
 /// for VoiceOver). Returns whether it was clicked.
+/// A toolbar button's text: its icon and name, or, when the toolbar is
+/// short of room, just the icon.
+fn tool_label(icon: &str, name: &str, compact: bool) -> String {
+    if compact { icon.to_owned() } else { format!("{icon} {name}") }
+}
+
+/// Names a toolbar button by its name alone (for screen readers, whether or
+/// not the icon shows it too), and gives it its hint, with the name first
+/// when only the icon shows. `selected` for the buttons that toggle.
+fn tool_named(response: egui::Response, name: &str, selected: Option<bool>, hint: &str, compact: bool) -> egui::Response {
+    let enabled = response.enabled();
+    response.widget_info(|| match selected {
+        Some(on) => egui::WidgetInfo::selected(egui::Role::Button, enabled, on, name),
+        None => egui::WidgetInfo::labeled(egui::Role::Button, enabled, name),
+    });
+    if compact { response.on_hover_text(format!("{name}\n{hint}")) } else { response.on_hover_text(hint) }
+}
+
 fn start_icon(ui: &mut egui::Ui, size: f32, icon: &str, name: &str, hint: &str) -> bool {
     let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
