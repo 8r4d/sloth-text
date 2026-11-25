@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Sloth Writer
+GenericName=Writing app
+Comment=Write long pieces in a binder of Markdown documents
+Exec=sloth-writer %f
+Icon=sloth-writer
+Terminal=false
+Categories=Office;WordProcessor;
+StartupWMClass=sloth-writer

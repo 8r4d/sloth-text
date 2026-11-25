@@ -1,0 +1,92 @@
+# Builds Sloth Writer for Windows and Linux and attaches the downloads to a
+# GitHub release. Tag a version to make one:
+#
+#   git tag writer-v1.44.0 && git push origin writer-v1.44.0
+#
+# Or run it by hand from the Actions tab: the downloads are then kept with
+# that run (Artifacts) rather than released. See CROSS-PLATFORM.md, phase 2.
+name: Release
+
+on:
+  push:
+    tags: ["writer-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    strategy:
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: Linux
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libfontconfig1-dev
+
+      - name: Build
+        run: cargo build --release --locked -p sloth-writer
+
+      - name: Package
+        id: package
+        run: |
+          version=$(grep -m1 '^version' writer/Cargo.toml | cut -d'"' -f2)
+          mkdir -p dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            name="Sloth-Writer-$version-windows-x64"
+            mkdir "dist/$name"
+            cp target/release/sloth-writer.exe "dist/$name/Sloth Writer.exe"
+            printf '%s\r\n' \
+              "Sloth Writer $version for Windows" "" \
+              "Unzip this folder anywhere (Documents, say) and open Sloth Writer.exe." \
+              "Windows may warn that it doesn't know the app (it isn't signed):" \
+              "choose More info, then Run anyway. It asks only the first time." "" \
+              "Settings and backups are kept in %LOCALAPPDATA%\\Sloth Writer." \
+              > "dist/$name/Read Me.txt"
+            (cd dist && 7z a -tzip "$name.zip" "$name" > /dev/null)
+            echo "file=dist/$name.zip" >> "$GITHUB_OUTPUT"
+          else
+            name="sloth-writer-$version-linux-x64"
+            mkdir "dist/$name"
+            cp target/release/sloth-writer "dist/$name/"
+            cp writer/icons/icon-512.png "dist/$name/sloth-writer.png"
+            cp writer/packaging/linux/sloth-writer.desktop writer/packaging/linux/install.sh "dist/$name/"
+            tar -C dist -czf "dist/$name.tar.gz" "$name"
+            echo "file=dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.file }}
+          name: Sloth Writer ${{ github.ref_name }}
+          body: "Downloads for Windows and Linux. On a Mac, build with scripts/install-writer.sh. What's new: writer/CHANGELOG.md."
+
+      - name: Keep with the run
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ steps.package.outputs.file }}

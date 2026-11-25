@@ -2,6 +2,10 @@
 //! A project is a folder of Markdown documents arranged in a binder; see
 //! `project.rs` for the format and `app.rs` for the window.
 
+// On Windows, a release build is a windowed app: no console window opens
+// beside it. (Debug builds keep one, for what's printed while developing.)
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod backup;
 mod binder;
@@ -40,6 +44,8 @@ fn main() -> eframe::Result {
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Sloth Writer")
+            // Linux matches the window to its menu entry and icon by this.
+            .with_app_id("sloth-writer")
             .with_inner_size([1100.0, 750.0])
             .with_min_inner_size([500.0, 300.0])
             .with_icon(std::sync::Arc::new(

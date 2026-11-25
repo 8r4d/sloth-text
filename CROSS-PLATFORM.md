@@ -121,6 +121,11 @@ Project files must work on all three systems:
 
 ## Phase 2: install it (about 2–4 days)
 
+*First column done:* `.github/workflows/release.yml`. Pushing a tag like
+`writer-v1.44.0` builds a Windows zip (`Sloth Writer.exe`, with its icon and
+no console window) and a Linux `.tar.gz` (with `install.sh` and a `.desktop`
+file from `writer/packaging/linux`), and attaches both to a GitHub release.
+
 | System | First | Later |
 |---|---|---|
 | Windows | A zip with `Sloth Writer.exe` and its icon. It isn't signed, so SmartScreen asks once. | An installer (`cargo-packager` makes NSIS or MSI), Start menu entry, file icon |

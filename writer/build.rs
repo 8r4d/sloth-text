@@ -27,4 +27,16 @@ fn main() {
     println!("cargo:rerun-if-changed=../.git/index");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=CHANGELOG.md");
+
+    // Windows: the .exe's own icon, as Explorer and the taskbar show it.
+    #[cfg(windows)]
+    {
+        let mut res = winresource::WindowsResource::new();
+        res.set_icon("icons/SlothWriter.ico");
+        res.set("ProductName", "Sloth Writer");
+        res.set("FileDescription", "Sloth Writer");
+        if let Err(e) = res.compile() {
+            println!("cargo:warning=No icon for the .exe: {e}");
+        }
+    }
 }
