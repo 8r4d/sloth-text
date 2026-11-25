@@ -96,12 +96,15 @@ jobs:
             (cd dist && 7z a -tzip "$name.zip" "$name" > /dev/null)
             files+=("dist/$name.zip")
             # The installer (NSIS): for you alone, with a Start menu entry.
-            if ! command -v makensis > /dev/null; then
-              choco install nsis -y --no-progress > /dev/null
-              export PATH="/c/Program Files (x86)/NSIS:$PATH"
+            find_nsis() { command -v makensis || ls "/c/Program Files (x86)/NSIS/makensis.exe" "/c/Program Files/NSIS/makensis.exe" 2>/dev/null | head -1; }
+            makensis="$(find_nsis)"
+            if [ -z "$makensis" ]; then
+              choco install nsis -y --no-progress
+              makensis="$(find_nsis)"
             fi
+            echo "NSIS: $makensis"
             setup="Sloth-Writer-$version-windows-setup.exe"
-            makensis -V2 -DVERSION="$version" -DEXE="$(cygpath -w "$PWD/target/release/sloth-writer.exe")" \
+            "$makensis" -V2 -DVERSION="$version" -DEXE="$(cygpath -w "$PWD/target/release/sloth-writer.exe")" \
               -DOUT="$(cygpath -w "$PWD/dist/$setup")" writer/packaging/windows/installer.nsi
             files+=("dist/$setup")
           else
