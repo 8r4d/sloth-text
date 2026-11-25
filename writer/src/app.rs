@@ -172,6 +172,8 @@ pub struct WriterApp {
     /// times the fact's been clicked for another.
     start_facts: Option<Vec<String>>,
     fact_skip: usize,
+    /// The fact being typed out (a terminal's theme), and since when.
+    fact_typed: Option<(String, f64)>,
     /// The start screen's card file: which card is in front.
     card_file: card_file_ui::CardFileState,
     renaming_project: Option<projects_ui::Renaming>,
@@ -352,6 +354,7 @@ impl WriterApp {
             card_file: Default::default(),
             start_facts: None,
             fact_skip: 0,
+            fact_typed: None,
             profile_name: HashMap::new(),
             profile_sheet: HashMap::new(),
             backlinks: None,
@@ -1311,13 +1314,19 @@ impl WriterApp {
                 // The sloth, and hello for the time of day.
                 let hour = chrono::Timelike::hour(&chrono::Local::now());
                 let (hello, pose) = sloth_ui::greeting(hour);
-                if self.settings.theme.has_glow() {
+                if self.settings.theme.has_emblem() {
                     self.sloth_emblem(ui);
                 } else {
                     let sloth = self.sloth(ui.ctx(), pose);
                     ui.add(egui::Image::new(&sloth).fit_to_exact_size(egui::Vec2::splat(120.0)));
                 }
-                ui.heading(hello);
+                // The Pastel Hotel's greeting, spaced out like its sign.
+                if self.settings.theme == sloth_core::theme::ThemeChoice::PastelHotel {
+                    let sign: String = hello.to_uppercase().chars().map(|c| if c == ' ' { "\u{2003}".to_owned() } else { format!("{c}\u{2009}") }).collect();
+                    ui.heading(sign.trim_end());
+                } else {
+                    ui.heading(hello);
+                }
                 ui.weak(format!("Sloth Writer \u{b7} Version {}", crate::version::VERSION));
                 self.fact_of_the_day(ui);
                 ui.add_space(16.0);

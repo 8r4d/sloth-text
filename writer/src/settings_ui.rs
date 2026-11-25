@@ -183,7 +183,14 @@ impl WriterSettings {
 
     /// The prose font in use: the chosen one, or the default reading face.
     pub fn font_in_use(&self) -> Option<String> {
-        self.font.clone().or_else(|| fonts::default_prose_font().map(str::to_owned))
+        // The Newsroom theme writes on a typewriter, unless a font's chosen.
+        let typewriter = || {
+            (self.theme == theme::ThemeChoice::Newsroom)
+                .then(|| ["American Typewriter", "Courier Prime", "Courier New", "Courier"].into_iter().find(|f| fonts::installed(f)))
+                .flatten()
+                .map(str::to_owned)
+        };
+        self.font.clone().or_else(typewriter).or_else(|| fonts::default_prose_font().map(str::to_owned))
     }
 }
 

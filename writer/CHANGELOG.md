@@ -2,6 +2,16 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.2.0
+
+Three new themes, each with a touch of its own.
+
+- **Newsroom:** typewriter ink on cream paper, with an editor's red pencil. Unless you've chosen a font, you write in a typewriter face (American Typewriter on a Mac, Courier elsewhere).
+- **Nostromo:** amber phosphor on black, like a ship's computer. The start screen's fact types itself out a letter at a time (so does Severance's and Fallout's), the sloth is an amber emblem, and it can wear the old screen's glow.
+- **Pastel Hotel:** plum ink on dusty pink, with lilac and mustard. The sloth is the hotel's crest, and the greeting is spaced out like its sign.
+
+All three are in Sloth too.
+
 ## 2.1.0
 
 - Two new themes: Fallout, a wrist computer's terminal in phosphor green on near black, and Fallout Light, a vault's blue on warm cream with a sunny yellow. Both can wear the old screen's glow (App Settings → Appearance), on the web editor too, and both show the start screen's sloth as a one-colour emblem. In Sloth as well.

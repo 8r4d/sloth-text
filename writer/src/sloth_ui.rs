@@ -100,9 +100,32 @@ impl WriterApp {
             crate::facts::all(&projects, crate::stats::today())
         });
         let Some(fact) = crate::facts::for_today(facts, crate::stats::today(), self.fact_skip) else { return };
+        let fact = fact.to_owned();
+        // A terminal's theme types it out, a letter at a time, with a cursor.
+        let now = ui.input(|i| i.time);
+        let shown = if self.settings.theme.types_out() && sloth_core::motion::animate() {
+            let since = match &self.fact_typed {
+                Some((typed, at)) if *typed == fact => *at,
+                _ => {
+                    self.fact_typed = Some((fact.clone(), now));
+                    now
+                }
+            };
+            let letters = ((now - since) * 40.0) as usize;
+            let count = fact.chars().count();
+            if letters < count {
+                ui.ctx().request_repaint();
+                format!("{}_", fact.chars().take(letters).collect::<String>())
+            } else {
+                fact.clone()
+            }
+        } else {
+            fact.clone()
+        };
+        let facts_len = facts.len();
         ui.add_space(6.0);
-        let label = egui::Label::new(RichText::new(fact).italics().weak()).sense(egui::Sense::click());
-        let more = facts.len() > 1;
+        let label = egui::Label::new(RichText::new(shown).italics().weak()).sense(egui::Sense::click());
+        let more = facts_len > 1;
         let response = ui.add(label);
         if more && response.on_hover_text("Another fact").clicked() {
             self.fact_skip += 1;

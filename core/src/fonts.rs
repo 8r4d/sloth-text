@@ -52,6 +52,11 @@ pub fn prose_variant(bold: bool, italic: bool) -> Option<FontFamily> {
 /// the last three are the usual ones on Linux.
 pub const PROSE_DEFAULTS: [&str; 7] = ["Iowan Old Style", "Charter", "Georgia", "Palatino", "Noto Serif", "DejaVu Serif", "Liberation Serif"];
 
+/// Whether a font family is installed (with a regular face).
+pub fn installed(family: &str) -> bool {
+    load_regular(family).is_some()
+}
+
 pub fn default_prose_font() -> Option<&'static str> {
     PROSE_DEFAULTS.into_iter().find(|f| load_regular(f).is_some())
 }

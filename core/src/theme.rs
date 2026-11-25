@@ -7,7 +7,7 @@
 //! Theme menu too, once it's added to that list (sloth/src/commands.rs).
 //! The tests check every palette's text can be read on its background.
 //!
-//! Besides Sloth's own (Light, Dark, Paper, Sepia, Midnight, Severance and Fallout (dark and light), Lamplight and
+//! Besides Sloth's own (Light, Dark, Paper, Sepia, Midnight, Severance and Fallout (dark and light), Newsroom, Nostromo, Pastel Hotel, Lamplight and
 //! the High Contrast pair), the palettes follow well-known open themes:
 //! Solarized, GitHub, One, Gruvbox, Catppuccin, Rosé Pine, Everforest,
 //! Tokyo Night, Nord, Dracula and Monokai.
@@ -35,6 +35,12 @@ pub enum ThemeChoice {
     Fallout,
     /// The vault's own colours: vault blue on warm cream, sunny yellow.
     FalloutLight,
+    /// A 1960s newsroom: typewriter ink on cream paper, a red pencil.
+    Newsroom,
+    /// A ship's computer: amber phosphor on black.
+    Nostromo,
+    /// A pastel hotel: plum ink on dusty pink, lilac and mustard.
+    PastelHotel,
     Paper,
     GithubLight,
     OneLight,
@@ -73,10 +79,13 @@ pub const ALL: &[ThemeChoice] = &[
     ThemeChoice::HighContrastLight,
     ThemeChoice::SeveranceLight,
     ThemeChoice::FalloutLight,
+    ThemeChoice::Newsroom,
+    ThemeChoice::PastelHotel,
     ThemeChoice::Dark,
     ThemeChoice::Midnight,
     ThemeChoice::Severance,
     ThemeChoice::Fallout,
+    ThemeChoice::Nostromo,
     ThemeChoice::SolarizedDark,
     ThemeChoice::Lamplight,
     ThemeChoice::GithubDark,
@@ -106,6 +115,9 @@ impl ThemeChoice {
             ThemeChoice::SeveranceLight => "Severance Light",
             ThemeChoice::Fallout => "Fallout",
             ThemeChoice::FalloutLight => "Fallout Light",
+            ThemeChoice::Newsroom => "Newsroom",
+            ThemeChoice::Nostromo => "Nostromo",
+            ThemeChoice::PastelHotel => "Pastel Hotel",
             ThemeChoice::Paper => "Paper",
             ThemeChoice::GithubLight => "GitHub Light",
             ThemeChoice::OneLight => "One Light",
@@ -138,7 +150,18 @@ impl ThemeChoice {
     /// A theme from an old screen, which can wear its glow (scanlines and
     /// darker edges): the Severance and Fallout ones.
     pub fn has_glow(self) -> bool {
-        self.is_severance() || matches!(self, ThemeChoice::Fallout | ThemeChoice::FalloutLight)
+        self.is_severance() || matches!(self, ThemeChoice::Fallout | ThemeChoice::FalloutLight | ThemeChoice::Nostromo)
+    }
+
+    /// The start screen shows the sloth as a one-colour emblem: the old
+    /// screens' themes, and the Pastel Hotel's crest.
+    pub fn has_emblem(self) -> bool {
+        self.has_glow() || self == ThemeChoice::PastelHotel
+    }
+
+    /// The start screen's fact types itself out, like a terminal's.
+    pub fn types_out(self) -> bool {
+        matches!(self, ThemeChoice::Severance | ThemeChoice::Fallout | ThemeChoice::Nostromo)
     }
 
     /// Stable name used when saving the setting.
@@ -226,6 +249,60 @@ impl ThemeChoice {
                     number: hex(0xf2c25a),
                     function: hex(0x7ff2d0),
                     type_: hex(0xc8ffd4),
+                },
+            },
+            ThemeChoice::Newsroom => Palette {
+                dark: false,
+                editor_bg: hex(0xf4efe3),
+                chrome_bg: hex(0xe8e0cc),
+                text: hex(0x1f1d1a),
+                muted: hex(0x77706a),
+                border: hex(0xd5cbb4),
+                accent: hex(0xb3261e),
+                selection: hex(0xe9d9b0),
+                syntax: SyntaxColors {
+                    comment: hex(0x77706a),
+                    keyword: hex(0xb3261e),
+                    string: hex(0x3f5a2a),
+                    number: hex(0x8a4b16),
+                    function: hex(0x2a3f66),
+                    type_: hex(0x1f1d1a),
+                },
+            },
+            ThemeChoice::Nostromo => Palette {
+                dark: true,
+                editor_bg: hex(0x0c0904),
+                chrome_bg: hex(0x140f07),
+                text: hex(0xf2bd68),
+                muted: hex(0x8f6c35),
+                border: hex(0x33270f),
+                accent: hex(0xffa529),
+                selection: hex(0x4a3512),
+                syntax: SyntaxColors {
+                    comment: hex(0x8f6c35),
+                    keyword: hex(0xffa529),
+                    string: hex(0xe8d27a),
+                    number: hex(0xff7f50),
+                    function: hex(0xffd08a),
+                    type_: hex(0xfce3b8),
+                },
+            },
+            ThemeChoice::PastelHotel => Palette {
+                dark: false,
+                editor_bg: hex(0xfbeef0),
+                chrome_bg: hex(0xf2dce2),
+                text: hex(0x4a2a3c),
+                muted: hex(0x94727f),
+                border: hex(0xe5c4ce),
+                accent: hex(0x86509f),
+                selection: hex(0xf2d98f),
+                syntax: SyntaxColors {
+                    comment: hex(0x94727f),
+                    keyword: hex(0x86509f),
+                    string: hex(0x5e7a3a),
+                    number: hex(0xa65a2a),
+                    function: hex(0x3f5c8c),
+                    type_: hex(0x4a2a3c),
                 },
             },
             ThemeChoice::FalloutLight => Palette {
