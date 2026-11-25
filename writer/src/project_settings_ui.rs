@@ -60,7 +60,7 @@ impl WriterApp {
             .show(ctx, |ui| {
                 let height = (ctx.content_rect().height() * 0.7).max(200.0);
                 egui::ScrollArea::vertical().max_height(height).show(ui, |ui| {
-                    ui.weak("These are saved in this project. App Settings (\u{2318},) are the same for every project.");
+                    ui.weak(sloth_core::keys::shown("These are saved in this project. App Settings (\u{2318},) are the same for every project."));
 
                     group(ui, "Project");
                     egui::Grid::new("project-settings-project").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {

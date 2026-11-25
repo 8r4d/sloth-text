@@ -559,7 +559,7 @@ fn the_right_click_menu_and_shortcuts_format_the_selection() {
 
     harness.get_by_label("Document text").click_secondary();
     harness.run_steps(2);
-    harness.get_by_label("Bold \u{2318}B").click();
+    harness.get_by_label(&sloth_core::keys::shown("Bold \u{2318}B")).click();
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("a **word** here"));
     assert_eq!(sloth_core::editor::selection(&ctx, tab), Some(4..8), "still the word");
@@ -1245,7 +1245,7 @@ fn settings_change_the_editor_and_are_remembered() {
 fn project_settings_are_kept_in_the_project() {
     let dir = TempDir::new("project-settings");
     let mut harness = harness(project(&dir, ""));
-    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::Comma);
+    harness.key_press_modifiers(sloth_core::keys::OPT_CMD, egui::Key::Comma);
     harness.run_steps(6);
     assert!(harness.state().project_settings_open);
     assert!(!harness.state().settings_open, "\u{2325}\u{2318}, isn't taken as App Settings");
@@ -1619,7 +1619,7 @@ fn help_shows_the_shortcuts_the_release_notes_and_the_version() {
     // In the toolbar's More… menu.
     harness.get_by_label("More\u{2026}").click();
     harness.run_steps(2);
-    harness.get_by_label("Help \u{2318}?").click();
+    harness.get_by_label(&sloth_core::keys::shown("Help \u{2318}?")).click();
     harness.run_steps(2);
     harness.get_by_label("Find in Project");
     harness.get_by_label("Release Notes").click();
@@ -1805,7 +1805,7 @@ fn the_binder_can_be_hidden() {
     let dir = TempDir::new("hide-binder");
     let mut harness = harness(project(&dir, ""));
     assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 1);
-    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::B);
+    harness.key_press_modifiers(sloth_core::keys::OPT_CMD, egui::Key::B);
     harness.run_steps(2);
     assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 0);
     harness.get_by_label("Binder").click();
@@ -1840,7 +1840,7 @@ fn remove_blank_lines_from_the_right_click_menu() {
     sloth_core::editor::set_selection(&ctx, tab, 0..20);
     harness.get_by_label("Document text").click_secondary();
     harness.run_steps(2);
-    harness.get_by_label("Remove Blank Lines \u{21e7}\u{2318}L").click();
+    harness.get_by_label(&sloth_core::keys::shown("Remove Blank Lines \u{21e7}\u{2318}L")).click();
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("One.\nTwo.\nThree.\n\nFour."));
 }
@@ -2083,7 +2083,7 @@ fn focus_mode_is_just_the_text_until_escape() {
     let dir = TempDir::new("focus-mode");
     let mut harness = harness(project(&dir, "The ferry had gone."));
     harness.run_steps(2);
-    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::F);
+    harness.key_press_modifiers(sloth_core::keys::FOCUS.modifiers, sloth_core::keys::FOCUS.logical_key);
     harness.run_steps(3);
     assert!(harness.state().focus_mode);
     assert_eq!(harness.query_all_by_label("Inspector").count(), 0, "no toolbar");
@@ -2155,7 +2155,7 @@ fn the_canvas_shows_every_document_strung_to_what_it_refers_to() {
     assert_eq!((edges[0].from.as_str(), edges[0].to.as_str(), edges[0].references), (first.as_str(), alice.as_str(), 1));
 
     // ⌥⌘C puts it away, and the editor's back.
-    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::C);
+    harness.key_press_modifiers(sloth_core::keys::OPT_CMD, egui::Key::C);
     harness.run_steps(2);
     assert!(!harness.state().canvas_open);
     assert_eq!(harness.query_all_by_label("Harbour").count(), 0);
@@ -2496,7 +2496,7 @@ fn repeated_words_are_marked_and_the_most_used_listed() {
     harness.run_steps(2);
     assert!(harness.query_by_label("Repeats shown").is_none());
 
-    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::R);
+    harness.key_press_modifiers(sloth_core::keys::OPT_CMD, egui::Key::R);
     harness.run_steps(2);
     harness.get_by_label("Repeats shown");
     let visuals = harness.ctx.global_style().visuals.clone();
@@ -2565,7 +2565,7 @@ fn a_comment_on_a_passage_is_written_in_the_margin_and_resolved() {
     let tab = harness.state_mut().current().unwrap().id;
     // "left the lamp", then ⌥⌘K.
     sloth_core::editor::set_selection(&harness.ctx, tab, 4..17);
-    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::K);
+    harness.key_press_modifiers(sloth_core::keys::OPT_CMD, egui::Key::K);
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("She {==left the lamp==}{>><<} on."));
 

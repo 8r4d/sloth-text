@@ -249,7 +249,7 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
         }
         if node.role.is_none() {
             ui.separator();
-            if ui.button("Open in Split View").on_hover_text("Or \u{2325}-click it").clicked() {
+            if ui.button("Open in Split View").on_hover_text(sloth_core::keys::shown("Or \u{2325}-click it")).clicked() {
                 actions.push(BinderAction::OpenInSplit(node.id.clone()));
                 ui.close();
             }

@@ -571,7 +571,7 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
             }
             let mut button = egui::Button::new(format.label());
             if let Some(keys) = format.shortcut() {
-                button = button.shortcut_text(keys);
+                button = button.shortcut_text(crate::keys::shown(keys));
             }
             if ui.add(button).clicked() {
                 picked = Some(MenuChoice::Format(format));
@@ -586,21 +586,21 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                     }
                 }
             });
-            let removes = egui::Button::new("Remove Blank Lines").shortcut_text("\u{21e7}\u{2318}L");
+            let removes = egui::Button::new("Remove Blank Lines").shortcut_text(crate::keys::shown("\u{21e7}\u{2318}L"));
             if ui.add(removes).on_hover_text("Take out the empty lines in the selection").clicked() {
                 picked = Some(MenuChoice::RemoveBlankLines);
             }
         }
         if settings.comments && settings.markdown {
             ui.separator();
-            let add = egui::Button::new("Add Comment").shortcut_text("\u{2325}\u{2318}K");
+            let add = egui::Button::new("Add Comment").shortcut_text(crate::keys::shown("\u{2325}\u{2318}K"));
             if ui.add(add).on_hover_text("A comment in the margin, on the selected words").clicked() {
                 picked = Some(MenuChoice::Comment);
             }
         }
         if settings.split_menu {
             ui.separator();
-            let split = egui::Button::new("Split at Cursor").shortcut_text("\u{2318}K");
+            let split = egui::Button::new("Split at Cursor").shortcut_text(crate::keys::shown("\u{2318}K"));
             if ui.add(split).on_hover_text("Move the text after the cursor into a new document").clicked() {
                 picked = Some(MenuChoice::Split);
             }

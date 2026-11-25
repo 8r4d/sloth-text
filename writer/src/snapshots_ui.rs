@@ -70,7 +70,7 @@ impl WriterApp {
                             .desired_width(ui.available_width() - 70.0),
                     );
                     let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if ui.button("Take").on_hover_text("Take a snapshot (\u{2318}5)").clicked() || enter {
+                    if ui.button("Take").on_hover_text(sloth_core::keys::shown("Take a snapshot (\u{2318}5)")).clicked() || enter {
                         let name = std::mem::take(&mut self.snapshot_name);
                         self.take_snapshot(doc_id, &name, now);
                     }

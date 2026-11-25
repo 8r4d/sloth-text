@@ -67,7 +67,7 @@ impl WriterApp {
         ui.horizontal(|ui| {
             ui.label(RichText::new(title.as_deref().unwrap_or("Split view")).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("\u{d7}").on_hover_text("Close the split view (\u{2318}\\)").clicked() {
+                if ui.button("\u{d7}").on_hover_text(sloth_core::keys::shown("Close the split view (\u{2318}\\)")).clicked() {
                     close = true;
                 }
                 ui.menu_button("Show\u{2026}", |ui| {
@@ -96,7 +96,7 @@ impl WriterApp {
     fn split_contents(&mut self, ui: &mut egui::Ui) {
         let Some(id) = self.split.clone() else {
             ui.add_space(12.0);
-            ui.weak("Choose what to show here with Show\u{2026}, or \u{2325}-click something in the binder.");
+            ui.weak(sloth_core::keys::shown("Choose what to show here with Show\u{2026}, or \u{2325}-click something in the binder."));
             return;
         };
         // The same item twice would be two editors of one text, fighting

@@ -75,9 +75,9 @@ impl WriterApp {
         let mode = self.folder_views.get(folder).copied().unwrap_or_default();
         ui.horizontal(|ui| {
             let mut chosen = mode;
-            ui.selectable_value(&mut chosen, FolderView::Slothenings, "Slothenings").on_hover_text("Its documents as one text (\u{2318}1)");
-            ui.selectable_value(&mut chosen, FolderView::Corkboard, "Corkboard").on_hover_text("\u{2318}2");
-            ui.selectable_value(&mut chosen, FolderView::Outline, "Outline").on_hover_text("\u{2318}3");
+            ui.selectable_value(&mut chosen, FolderView::Slothenings, "Slothenings").on_hover_text(sloth_core::keys::shown("Its documents as one text (\u{2318}1)"));
+            ui.selectable_value(&mut chosen, FolderView::Corkboard, "Corkboard").on_hover_text(sloth_core::keys::shown("\u{2318}2"));
+            ui.selectable_value(&mut chosen, FolderView::Outline, "Outline").on_hover_text(sloth_core::keys::shown("\u{2318}3"));
             if chosen != mode {
                 self.folder_views.insert(folder.to_owned(), chosen);
             }
@@ -102,7 +102,7 @@ impl WriterApp {
             if trash {
                 self.empty_state(ui, super::sloth_ui::Pose::Asleep, "The Trash is empty", "What you move to the Trash waits here until you empty it.");
             } else {
-                self.empty_state(ui, super::sloth_ui::Pose::Reading, "This folder is empty", "Add a document to it with \u{2318}N, or drag one here from the binder.");
+                self.empty_state(ui, super::sloth_ui::Pose::Reading, "This folder is empty", &sloth_core::keys::shown("Add a document to it with \u{2318}N, or drag one here from the binder."));
             }
             return;
         }

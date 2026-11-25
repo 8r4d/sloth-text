@@ -326,6 +326,7 @@ impl WriterApp {
             _ => None,
         };
         let error = matches.as_ref().err().cloned();
+        let results_hint = sloth_core::keys::shown("List matches in every document in the project (\u{21e7}\u{2318}F)");
         let info = FindBarInfo {
             match_count: matches.as_ref().map_or(0, Vec::len),
             current_index,
@@ -333,7 +334,7 @@ impl WriterApp {
             history: &[],
             results_open: self.show_results,
             results_label: "Whole Project",
-            results_hint: "List matches in every document in the project (\u{21e7}\u{2318}F)",
+            results_hint: &results_hint,
             allow_replace: true,
         };
         let action = egui::Panel::top(egui::Id::unique("find"))

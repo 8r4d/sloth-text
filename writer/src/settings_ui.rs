@@ -304,8 +304,8 @@ impl WriterApp {
                     ui.checkbox(&mut settings.spell_check, "Check spelling as you type")
                         .on_hover_text("Uses your Mac's spelling language and learned words. Right-click a word for suggestions.");
                     ui.checkbox(&mut settings.focus_paragraph, "In Focus mode, fade all but the paragraph you're writing")
-                        .on_hover_text("The light moves with the cursor. Focus mode is \u{2325}\u{2318}F.");
-                    ui.checkbox(&mut settings.show_repetition, "Highlight repeated words (\u{2325}\u{2318}R)")
+                        .on_hover_text(sloth_core::keys::shown("The light moves with the cursor. Focus mode is \u{2325}\u{2318}F."));
+                    ui.checkbox(&mut settings.show_repetition, sloth_core::keys::shown("Highlight repeated words (\u{2325}\u{2318}R)"))
                         .on_hover_text("A word used again within about 100 words is tinted; words you watch for are underlined.");
                     row(ui, "Watch for", &mut |ui| {
                         ui.add(egui::TextEdit::singleline(&mut settings.watch_words).desired_width(320.0).hint_text("just, suddenly, began to"));
