@@ -1,5 +1,5 @@
 //! Keeping two copies of Writer from editing one project at once (on two
-//! Macs sharing it through iCloud or Dropbox, say, or two windows here),
+//! computers sharing it through iCloud or Dropbox, say, or two windows here),
 //! which could otherwise save over each other.
 //!
 //! While a project is open, `.sloth/lock.ron` in it names who has it open
@@ -27,7 +27,7 @@ const STALE_SECONDS: i64 = 120;
 pub struct Lock {
     /// This running copy of Writer (made fresh each launch).
     pub owner: String,
-    /// The Mac's name, to say where it's open.
+    /// The computer's name, to say where it's open.
     pub host: String,
     /// When it was opened, and last refreshed (seconds since 1970).
     pub since: i64,
@@ -41,7 +41,7 @@ pub enum Holder {
     Nobody,
     /// This copy of Writer.
     Us,
-    /// Another copy, here or on another Mac.
+    /// Another copy, here or on another computer.
     Other(Lock),
 }
 
@@ -59,21 +59,26 @@ pub fn instance() -> &'static str {
     ID.get_or_init(|| format!("{}-{}", std::process::id(), crate::project::random_id(8)))
 }
 
-/// This Mac's name, as in System Settings → General → Sharing.
+/// This computer's name: on a Mac as in System Settings → General →
+/// Sharing, on Windows and Linux its host name.
 pub fn host() -> &'static str {
     static HOST: OnceLock<String> = OnceLock::new();
-    HOST.get_or_init(|| {
+    HOST.get_or_init(|| computer_name().unwrap_or_else(|| "another computer".into()))
+}
+
+fn computer_name() -> Option<String> {
+    let tidy = |s: String| Some(s.trim().to_owned()).filter(|s| !s.is_empty());
+    if cfg!(target_os = "macos") {
         let run = |cmd: &str, args: &[&str]| {
-            std::process::Command::new(cmd)
-                .args(args)
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
-                .filter(|s| !s.is_empty())
+            let out = std::process::Command::new(cmd).args(args).output().ok().filter(|o| o.status.success())?;
+            tidy(String::from_utf8_lossy(&out.stdout).into_owned())
         };
-        run("/usr/sbin/scutil", &["--get", "ComputerName"]).or_else(|| run("hostname", &[])).unwrap_or_else(|| "another Mac".into())
-    })
+        run("/usr/sbin/scutil", &["--get", "ComputerName"]).or_else(|| run("hostname", &[]))
+    } else if cfg!(windows) {
+        std::env::var("COMPUTERNAME").ok().and_then(tidy)
+    } else {
+        ["/proc/sys/kernel/hostname", "/etc/hostname"].into_iter().find_map(|f| fs::read_to_string(f).ok().and_then(tidy))
+    }
 }
 
 fn read(root: &Path) -> Option<Lock> {

@@ -61,8 +61,8 @@ compile error at once and keeps the other systems working afterwards.
 - The UI tests (`egui_kittest`) draw with wgpu. On a Linux build machine that
   needs Mesa's software renderer (lavapipe). Windows machines usually manage.
   If it's fiddly, run the tests that don't need drawing first.
-- The test that checks e-book output runs `/usr/bin/xmllint`. Check the XML
-  with `roxmltree` instead, which is already a dependency.
+- The test that checks e-book output ran `/usr/bin/xmllint`. *Done:* it
+  checks the XML with `roxmltree` now.
 
 ### 1b. Replace what's macOS-only
 
@@ -72,8 +72,8 @@ compile error at once and keeps the other systems working afterwards.
 | `core/src/spell.rs` | Spell checks with NSSpellChecker | `spellbook` with bundled en-US/en-GB dictionaries and a word list you can add to. Same interface, so the editor doesn't change. | L |
 | `core/src/trash.rs` (and emptying Writer's Trash, `backup.rs`) | Moves files to the Mac's Trash | The `trash` crate: the Recycle Bin on Windows, the desktop's trash on Linux | S |
 | `core/src/motion.rs` | Follows Reduce motion | Windows: the "Show animations" setting. Linux: GNOME's `enable-animations` setting. Otherwise, a Writer setting. | S |
-| `settings_ui.rs`, `inspector.rs` | Opens folders and web addresses with `open` | The `opener` crate (Explorer, `xdg-open`). Keep the rule that only web addresses open. | S |
-| `writer/src/lock.rs` | The computer's name (`scutil`, falling back to `hostname`); "another Mac" when there's none | Already works through `hostname` on both. Use `gethostname` instead of running a command, and say "another computer". | S |
+| `settings_ui.rs`, `inspector.rs` | Opens folders and web addresses with `open` | *Done:* the `opener` crate (Explorer, `xdg-open`). The rule that only web addresses open is kept. "Show in Finder" says Show in Explorer on Windows, Open Folder on Linux. | S |
+| `writer/src/lock.rs` | The computer's name (`scutil`, falling back to `hostname`); "another Mac" when there's none | *Done:* `COMPUTERNAME` on Windows, `/proc/sys/kernel/hostname` or `/etc/hostname` on Linux, with no command or new crate; "another computer" when there's none. The Mac is unchanged. | S |
 | `backup.rs`, `crash_log.rs` | Paths under `~/Library/…` | The `directories` crate: `%APPDATA%` on Windows, `~/.local/share` and `~/.local/state` on Linux | S |
 | `core/src/document.rs` | Keeps Finder's extended attributes when saving | Nothing needed (already skipped on other systems) | — |
 | `writer/src/main.rs` | Turns off winit's Mac menu, so ⌘Q saves first | Nothing needed. Check that closing the window still saves. | — |

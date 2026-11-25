@@ -168,7 +168,7 @@ pub(super) fn copied_for_test(ctx: &egui::Context) -> Option<(String, String)> {
 pub(super) fn open_in_browser(url: &str) {
     #[cfg(not(test))]
     {
-        let _ = std::process::Command::new("open").arg(url).spawn();
+        let _ = opener::open_browser(url);
     }
     // Tests note it instead (see `opened_for_test`).
     #[cfg(test)]

@@ -1112,13 +1112,12 @@ mod tests {
         file("META-INF/container.xml");
         file("OEBPS/style.css");
 
-        // Every page is well-formed XML (checked with xmllint where it's installed).
-        if std::path::Path::new("/usr/bin/xmllint").exists() {
-            for name in ["OEBPS/content.opf", "OEBPS/nav.xhtml", "OEBPS/title.xhtml", "OEBPS/chapter-1.xhtml", "OEBPS/chapter-2.xhtml", "META-INF/container.xml"] {
-                let path = dir.0.join(name.replace('/', "_"));
-                std::fs::write(&path, file(name)).unwrap();
-                let ok = std::process::Command::new("/usr/bin/xmllint").args(["--noout"]).arg(&path).status().unwrap();
-                assert!(ok.success(), "{name} isn't well-formed");
+        // Every page is well-formed XML.
+        for name in ["OEBPS/content.opf", "OEBPS/nav.xhtml", "OEBPS/title.xhtml", "OEBPS/chapter-1.xhtml", "OEBPS/chapter-2.xhtml", "META-INF/container.xml"] {
+            let text = file(name);
+            let options = roxmltree::ParsingOptions { allow_dtd: true, ..Default::default() };
+            if let Err(e) = roxmltree::Document::parse_with_options(&text, options) {
+                panic!("{name} isn't well-formed: {e}");
             }
         }
     }

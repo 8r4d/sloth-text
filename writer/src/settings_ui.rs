@@ -346,9 +346,9 @@ impl WriterApp {
                             {
                                 settings.auto_backup_folder = Some(folder.to_string_lossy().into_owned());
                             }
-                            if ui.button("Show in Finder").clicked() {
+                            if ui.button(SHOW_FOLDER).clicked() {
                                 let _ = std::fs::create_dir_all(&root);
-                                let _ = std::process::Command::new("open").arg(&root).spawn();
+                                let _ = opener::open(&root);
                             }
                             if settings.auto_backup_folder.is_some() && ui.button("Use the Default").clicked() {
                                 settings.auto_backup_folder = None;
@@ -405,6 +405,15 @@ impl WriterApp {
         }
     }
 }
+
+/// The button that opens a folder in the system's file manager.
+const SHOW_FOLDER: &str = if cfg!(target_os = "macos") {
+    "Show in Finder"
+} else if cfg!(windows) {
+    "Show in Explorer"
+} else {
+    "Open Folder"
+};
 
 /// A heading for a group of settings.
 pub(super) fn group(ui: &mut egui::Ui, title: &str) {
