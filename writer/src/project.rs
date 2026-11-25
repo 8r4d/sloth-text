@@ -675,7 +675,10 @@ impl Project {
             return Ok(CHARACTERS.to_owned());
         }
         kind.name = clean_title(&kind.name)?;
-        let taken = |id: &str| self.manifest.binder.iter().any(|n| n.id == id) || self.root.join(id).is_file();
+        let taken = |id: &str| {
+            self.manifest.binder.iter().any(|n| n.id.eq_ignore_ascii_case(id))
+                || fs::read_dir(&self.root).into_iter().flatten().flatten().any(|e| e.file_name().to_string_lossy().to_lowercase() == id)
+        };
         let base = slug(&kind.name);
         kind.id = (1..).map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") }).find(|id| !taken(id)).expect("free");
         if kind.item.trim().is_empty() {
@@ -1054,8 +1057,14 @@ impl Project {
             .into_iter()
             .filter_map(|n| n.path.as_deref())
             .filter(|p| Some(*p) != current)
-            // macOS file names usually ignore case.
+            // Names that differ only in capitals are one file on the Mac and
+            // Windows, so they count as taken here too, even on Linux.
             .map(str::to_lowercase)
+            .collect();
+        let on_disk: HashSet<String> = fs::read_dir(self.root.join(dir))
+            .into_iter()
+            .flatten()
+            .filter_map(|e| Some(format!("{dir}/{}", e.ok()?.file_name().to_str()?).to_lowercase()))
             .collect();
         (1..)
             .map(|n| match n {
@@ -1064,7 +1073,7 @@ impl Project {
             })
             .find(|rel| {
                 Some(rel.as_str()) == current
-                    || (!used.contains(&rel.to_lowercase()) && !self.root.join(rel).exists())
+                    || (!used.contains(&rel.to_lowercase()) && !on_disk.contains(&rel.to_lowercase()))
             })
             .expect("some number is free")
     }
@@ -1175,9 +1184,44 @@ pub fn random_id(len: usize) -> String {
 /// A folder name for a project called `title`: as typed, minus what file
 /// systems don't allow ("/", ":") and leading dots, which would hide it.
 pub fn folder_name(title: &str) -> String {
-    let name: String = title.chars().map(|c| if matches!(c, '/' | ':' | '\\') { '-' } else { c }).collect();
-    let name = name.trim().trim_start_matches('.').trim();
-    if name.is_empty() { "Untitled".to_owned() } else { name.to_owned() }
+    let name = portable_name(title);
+    let name = name.trim_start_matches('.').trim();
+    if name.is_empty() { "Untitled".to_owned() } else { portable_name(name) }
+}
+
+/// A file or folder name that works on the Mac, Windows and Linux, so a
+/// project can move between them (a synced folder, say). Characters Windows
+/// doesn't allow (`< > : " / \ | ? *` and control characters) become `-`,
+/// or nothing for quotes; the end is trimmed of spaces and dots, which
+/// Windows drops; and a name Windows keeps for devices (CON, NUL, COM1…,
+/// before any dot) gets a `-` after that part. Can be empty.
+pub fn portable_name(name: &str) -> String {
+    let name: String = name
+        .chars()
+        .filter(|&c| c != '"')
+        .map(|c| if matches!(c, '<' | '>' | ':' | '/' | '\\' | '|' | '?' | '*') || c.is_control() { '-' } else { c })
+        .collect();
+    let name = name.trim().trim_end_matches(['.', ' ']);
+    if reserved_on_windows(name) {
+        // After the part before any dot, which is what Windows looks at.
+        let stem = name.split('.').next().unwrap_or(name).trim_end();
+        format!("{stem}-{}", &name[stem.len()..])
+    } else {
+        name.to_owned()
+    }
+}
+
+/// Windows keeps these names for devices, with any extension: `con.md` and
+/// `nul.txt` can't be made there.
+fn reserved_on_windows(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end().to_lowercase();
+    match stem.as_str() {
+        "con" | "prn" | "aux" | "nul" => true,
+        _ => {
+            let digit = stem.strip_prefix("com").or_else(|| stem.strip_prefix("lpt"));
+            matches!(digit, Some("1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "\u{b9}" | "\u{b2}" | "\u{b3}"))
+        }
+    }
 }
 
 /// A file-name stem from a title: lower case, letters and digits, words
@@ -1198,7 +1242,13 @@ pub fn slug(title: &str) -> String {
     }
     let out: String = out.chars().take(60).collect();
     let out = out.trim_end_matches('-');
-    if out.is_empty() { "untitled".to_owned() } else { out.to_owned() }
+    if out.is_empty() {
+        "untitled".to_owned()
+    } else if reserved_on_windows(out) {
+        format!("{out}-")
+    } else {
+        out.to_owned()
+    }
 }
 
 /// After label `removed` is deleted: drop it, and shift the later ones down.
@@ -1344,6 +1394,40 @@ mod tests {
         assert_eq!(folder_name("Book 1: Snow/Ice"), "Book 1- Snow-Ice");
         assert_eq!(folder_name(" .hidden "), "hidden");
         assert_eq!(folder_name("..."), "Untitled");
+        // Names Windows can't have.
+        assert_eq!(folder_name("What Now?"), "What Now-");
+        assert_eq!(folder_name("The \"Snow\" Book"), "The Snow Book");
+        assert_eq!(folder_name("Wait..."), "Wait");
+        assert_eq!(folder_name("A|B*C<D>"), "A-B-C-D-");
+        assert_eq!(folder_name("CON"), "CON-");
+        assert_eq!(folder_name("Aux. Notes"), "Aux-. Notes");
+        assert_eq!(folder_name("Console"), "Console");
+    }
+
+    #[test]
+    fn windows_device_names_are_avoided() {
+        for name in ["con", "PRN", "aux", "nul", "com1", "LPT9", "com\u{b2}", "nul.txt"] {
+            assert!(reserved_on_windows(name), "{name}");
+        }
+        for name in ["cone", "com", "com0", "com10", "lpt", "null", "\u{e9}\u{e9}", "", "contents"] {
+            assert!(!reserved_on_windows(name), "{name}");
+        }
+        assert_eq!(slug("Con"), "con-");
+        assert_eq!(slug("COM 1"), "com-1");
+        assert_eq!(slug("Com1"), "com1-");
+        assert_eq!(portable_name("Before: the edit."), "Before- the edit");
+    }
+
+    #[test]
+    fn a_file_differing_only_in_capitals_is_taken() {
+        // On Linux, `Walking.md` and `walking.md` are two files, but not on
+        // the Mac or Windows: a new one must not be named so.
+        let dir = TempDir::new("capitals");
+        let mut p = Project::create(&dir.0, "Walks").unwrap();
+        fs::write(dir.0.join("manuscript/Walking.md"), "not in the binder").unwrap();
+        let id = p.add_document(&Place::Into("manuscript".into()), "Walking").unwrap();
+        assert_eq!(p.node(&id).unwrap().path.as_deref(), Some("manuscript/walking-2.md"));
+        assert_eq!(fs::read_to_string(dir.0.join("manuscript/Walking.md")).unwrap(), "not in the binder");
     }
 
     #[test]

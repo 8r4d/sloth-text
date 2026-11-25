@@ -23,8 +23,7 @@ fn skip(name: &str) -> bool {
 
 /// The backup's file name: "The Long Winter 2026-11-22 14.05.zip".
 pub fn file_name(title: &str, when: chrono::NaiveDateTime) -> String {
-    let safe: String = title.chars().map(|c| if matches!(c, '/' | ':' | '\\') { '-' } else { c }).collect();
-    format!("{} {}.zip", safe.trim(), when.format("%Y-%m-%d %H.%M"))
+    format!("{} {}.zip", crate::project::portable_name(title), when.format("%Y-%m-%d %H.%M"))
 }
 
 /// Zip the project at `root` into `folder`, as `name`. Inside, everything is
@@ -179,6 +178,12 @@ fn write_zip(root: &Path, top: &str, to: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backup_names_work_on_windows_too() {
+        let when = chrono::NaiveDate::from_ymd_opt(2026, 11, 22).unwrap().and_hms_opt(14, 5, 0).unwrap();
+        assert_eq!(file_name("What Now? Part 1/2", when), "What Now- Part 1-2 2026-11-22 14.05.zip");
+    }
 
     #[test]
     fn names_say_what_and_when() {

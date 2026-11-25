@@ -361,7 +361,10 @@ impl Importer<'_> {
         let folder = self.project.root.join("Research Files");
         fs::create_dir_all(&folder)?;
         let ext = file.extension().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
-        let safe: String = title.chars().map(|c| if matches!(c, '/' | ':' | '\\') { '-' } else { c }).collect();
+        let safe = match crate::project::portable_name(title) {
+            name if name.is_empty() => "Untitled".to_owned(),
+            name => name,
+        };
         let name = (1..)
             .map(|n| if n == 1 { format!("{safe}.{ext}") } else { format!("{safe} ({n}).{ext}") })
             .find(|n| !folder.join(n).exists())

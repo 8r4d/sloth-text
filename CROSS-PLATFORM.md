@@ -97,13 +97,17 @@ compile error at once and keeps the other systems working afterwards.
 
 Project files must work on all three systems:
 
-- **Windows-forbidden names.** Windows doesn't allow files named CON, PRN,
-  AUX, NUL, COM1–9 or LPT1–9 (with any extension), or names ending in a dot or
-  a space. `project::slug` and `folder_name` must avoid these, for example by
-  turning `con.md` into `con-.md`.
-- **Capital letters.** Linux treats `Walking.md` and `walking.md` as two
-  files; the Mac and Windows don't. Make `free_path` compare names without
-  regard to case, so a project made on Linux opens on the others.
+- **Windows-forbidden names.** *Done.* Windows doesn't allow files named
+  CON, PRN, AUX, NUL, COM1–9 or LPT1–9 (with any extension), names ending in
+  a dot or a space, or the characters `< > : " / \ | ? *`.
+  `project::portable_name` makes any name safe (`con` becomes `con-`,
+  `What Now?` becomes `What Now-`), and it's used for document files
+  (`slug`), the project folder (`folder_name`), backup zips, snapshots and
+  research files from Scrivener.
+- **Capital letters.** *Done.* Linux treats `Walking.md` and `walking.md` as
+  two files; the Mac and Windows don't. `free_path`, and the names of new
+  profile folders, now count a file on disk that differs only in capitals as
+  taken, so a project made on Linux opens on the others.
 - **Line endings.** Writer writes `\n` everywhere. Keep that, and accept
   `\r\n` in what it reads, which the encoding code mostly does already.
 - **Long paths.** The project's own paths are short, but a project kept deep

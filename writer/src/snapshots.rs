@@ -67,8 +67,13 @@ pub fn take_at(root: &Path, doc_id: &str, text: &str, name: &str, taken: NaiveDa
 
 /// A name that's safe in a file name: no slashes or colons, one line.
 fn clean_name(name: &str) -> String {
-    let cleaned: String = name.chars().map(|c| if matches!(c, '/' | ':' | '\\' | '\n' | '\r') { ' ' } else { c }).collect();
-    cleaned.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(80).collect()
+    // Characters Windows doesn't allow in a name become spaces, so the
+    // project's snapshots can go to any computer.
+    let forbidden = |c: char| matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || c.is_control();
+    let cleaned: String = name.chars().map(|c| if forbidden(c) { ' ' } else { c }).collect();
+    let cleaned: String = cleaned.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(80).collect();
+    // Nor a name ending in a dot.
+    cleaned.trim_end_matches(['.', ' ']).to_owned()
 }
 
 /// A document's snapshots, newest first. Files that aren't snapshots are
@@ -146,6 +151,13 @@ pub fn compare(older: &str, newer: &str) -> Vec<Piece> {
 mod tests {
     use super::*;
     use chrono::NaiveDate;
+
+    #[test]
+    fn snapshot_names_work_on_windows_too() {
+        assert_eq!(clean_name("Before: the \"big\" edit?"), "Before the big edit");
+        assert_eq!(clean_name("Draft 2..."), "Draft 2");
+        assert_eq!(clean_name("  a\nb  "), "a b");
+    }
 
     struct TempDir(PathBuf);
     impl TempDir {
