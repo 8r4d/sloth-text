@@ -19,6 +19,8 @@ use crate::binder::{self, BinderAction, Renaming};
 mod about_ui;
 #[path = "profiles_ui.rs"]
 mod profiles_ui;
+#[path = "bins_ui.rs"]
+mod bins_ui;
 #[path = "breakup_ui.rs"]
 mod breakup_ui;
 #[path = "canvas_ui.rs"]
@@ -204,6 +206,8 @@ pub struct WriterApp {
     stats_open: bool,
     /// The day's goal just reached, being celebrated (see goal_ui.rs).
     celebration: Option<goal_ui::Celebration>,
+    /// A bin in Focus mode whose lid is lifting, and since when.
+    bin_lid: Option<(String, f64)>,
     /// A writing sprint under way (see sprint_ui.rs).
     sprint: Option<sprint_ui::Sprint>,
     /// Repeated words, as last worked out (see repetition_ui.rs).
@@ -346,6 +350,7 @@ impl WriterApp {
             word_counts: HashMap::new(),
             stats_open: false,
             celebration: None,
+            bin_lid: None,
             sprint: None,
             repetition: Default::default(),
             comment_focus: None,
@@ -1283,15 +1288,31 @@ impl WriterApp {
                 ui.weak(format!("Sloth Writer \u{b7} Version {}", crate::version::VERSION));
                 self.fact_of_the_day(ui);
                 ui.add_space(16.0);
-                if ui.button("New Project…").clicked() {
-                    self.new_project_dialog();
-                }
-                if ui.button(sloth_core::keys::shown("Open Project…  (⌘O)")).clicked() {
-                    self.open_project_dialog();
-                }
-                if ui.button("Import from Scrivener\u{2026}").on_hover_text("Make a Writer project from a Scrivener 3 project (which isn't changed)").clicked() {
-                    let now = ui.input(|i| i.time);
-                    self.import_scrivener_dialog(now);
+                // New, Open and Import: a row of icons, named on hover.
+                let actions = [
+                    ("\u{2795}", "New Project\u{2026}", "Start a new project".to_owned()),
+                    ("\u{1f4c2}", "Open Project\u{2026}", sloth_core::keys::shown("Open a project folder (\u{2318}O)")),
+                    ("\u{1f4e5}", "Import from Scrivener\u{2026}", "Make a Writer project from a Scrivener 3 project (which isn't changed)".to_owned()),
+                ];
+                let mut chosen = None;
+                ui.horizontal(|ui| {
+                    let (size, gap) = (52.0, 14.0);
+                    ui.spacing_mut().item_spacing.x = gap;
+                    ui.add_space(((ui.available_width() - (3.0 * size + 2.0 * gap)) / 2.0).max(0.0));
+                    for (i, (icon, name, hint)) in actions.iter().enumerate() {
+                        if start_icon(ui, size, icon, name, hint) {
+                            chosen = Some(i);
+                        }
+                    }
+                });
+                match chosen {
+                    Some(0) => self.new_project_dialog(),
+                    Some(1) => self.open_project_dialog(),
+                    Some(2) => {
+                        let now = ui.input(|i| i.time);
+                        self.import_scrivener_dialog(now);
+                    }
+                    _ => {}
                 }
                 self.recent_list(ui);
                 ui.add_space(20.0);
@@ -1671,9 +1692,12 @@ impl WriterApp {
                 });
             });
         });
+        self.focus_bins(ui, fill);
+        self.focus_top_bar(ui, fill);
         let focus = std::mem::take(&mut self.focus_editor) && !ui.input(|i| i.pointer.any_pressed() || i.pointer.any_released());
+        let top = if self.settings.show_bins { 24 } else { 48 };
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 24, right: 24, top: 48, bottom: 0 }))
+            .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 24, right: 24, top, bottom: 0 }))
             .show(ui, |ui| {
                 if let Some(doc) = self.selected.clone() {
                     self.suggestion_keys(ui.ctx(), &doc);
@@ -1802,6 +1826,24 @@ impl eframe::App for WriterApp {
         eframe::set_value(storage, projects_ui::RECENT_KEY, &self.recent);
         eframe::set_value(storage, settings_ui::SETTINGS_KEY, &self.settings);
     }
+}
+
+/// One of the start screen's icons: a rounded square with the icon in it,
+/// lit in the theme's accent on hover, with its name as hover text (and
+/// for VoiceOver). Returns whether it was clicked.
+fn start_icon(ui: &mut egui::Ui, size: f32, icon: &str, name: &str, hint: &str) -> bool {
+    let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
+    let hovered = response.hovered();
+    let visuals = ui.visuals();
+    let accent = visuals.hyperlink_color;
+    let fill = if hovered { accent.gamma_multiply(0.14) } else { visuals.widgets.inactive.weak_bg_fill };
+    let stroke = egui::Stroke::new(if hovered { 1.5 } else { 1.0 }, if hovered { accent } else { visuals.widgets.noninteractive.bg_stroke.color });
+    ui.painter().rect(rect, 12.0, fill, stroke, egui::StrokeKind::Inside);
+    let color = if hovered { accent } else { visuals.text_color() };
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icon, egui::FontId::proportional(size * 0.42), color);
+    let response = response.on_hover_text(format!("{name}\n{hint}"));
+    response.clicked()
 }
 
 /// Where what's emptied from the Trash goes: the Mac's own Trash (in tests,

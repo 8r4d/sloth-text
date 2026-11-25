@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.49.0
+
+- Focus mode shows progress. Across the top, the document's title and how far the manuscript has come ("53% complete", or its words with no target). Along the bottom, a bin for each chapter (each top-level item in the Manuscript), filling towards its share: its own target, its documents' targets, or the manuscript's target shared evenly. The chapter you're in is outlined. When a bin first fills, its lid lifts and settles, once, and a tick stays. Turn it off in App Settings → Writing.
+- The start screen's New, Open and Import buttons are a row of three icons, each named when you point at it.
+
 ## 1.48.0
 
 - The start screen has a fact about your work under the greeting: one calm, true sentence a day from your writing statistics ("You wrote 1,204 words on Tuesday." "Bellingham is 38% of the way to its target."). Click it for another. Turn it off in App Settings → Appearance.

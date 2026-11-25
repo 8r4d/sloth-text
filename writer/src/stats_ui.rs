@@ -59,7 +59,7 @@ impl WriterApp {
     }
 
     /// A document's words now, counting unsaved typing.
-    fn live_words(&self, id: &str) -> u32 {
+    pub(super) fn live_words(&self, id: &str) -> u32 {
         let open = self.open.get(id).and_then(|&tab| self.docs.get(tab)).filter(|t| t.doc.is_dirty());
         match open {
             Some(tab) => count_words(&tab.doc.text) as u32,

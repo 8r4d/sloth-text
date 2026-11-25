@@ -985,6 +985,10 @@ fn the_card_file_flips_a_to_z_and_opens_the_front_card() {
 
     // A to Z: Bellingham's in front, whatever was opened last.
     harness.get_by_label_contains("Bellingham,");
+    // New, Open and Import, as icons named for VoiceOver.
+    for name in ["New Project\u{2026}", "Open Project\u{2026}", "Import from Scrivener\u{2026}"] {
+        harness.get_by_label(name);
+    }
     harness.key_press(egui::Key::ArrowRight);
     harness.run_steps(15);
     harness.get_by_label_contains("Morning Pages,");
@@ -1000,6 +1004,37 @@ fn the_card_file_flips_a_to_z_and_opens_the_front_card() {
     harness.key_press(egui::Key::Enter);
     harness.run_steps(3);
     assert_eq!(harness.state().project.as_ref().unwrap().title(), "The Long Winter");
+}
+
+#[test]
+fn focus_bins_fill_by_chapter_and_each_lid_lifts_once() {
+    let dir = TempDir::new("focus-bins");
+    let mut p = project(&dir, "");
+    p.manifest.goals.total = Some(300);
+    let mut docs = Vec::new();
+    for (title, words) in [("Arrival", 120), ("The Harbour", 40), ("Ice", 0)] {
+        let chapter = p.add_folder(&Place::Into("manuscript".into()), title).unwrap();
+        let doc = p.add_document(&Place::Into(chapter), "Scene").unwrap();
+        fs::write(p.file_path(&doc).unwrap(), "word ".repeat(words)).unwrap();
+        docs.push(doc);
+    }
+    p.save().unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().select(docs[1].clone());
+    harness.run_steps(3);
+    let ctx = harness.ctx.clone();
+    harness.state_mut().set_focus_mode(&ctx, true);
+    harness.run_steps(5);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/focus-bins.png")).unwrap();
+    }
+    // A share is 100 words each (300 shared by three; the untitled document
+    // at the top counts as a fourth bin, so 75): Arrival's is full.
+    let (bins, total, target) = harness.state().bins();
+    assert_eq!((bins.len(), total, target), (4, 160, Some(300)));
+    let done = harness.state().stats.bins_done.clone();
+    assert_eq!(done.len(), 1, "{done:?}");
+    harness.get_by_label_contains("% complete");
 }
 
 #[test]

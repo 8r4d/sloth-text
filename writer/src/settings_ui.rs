@@ -99,6 +99,8 @@ pub struct WriterSettings {
     pub start_view: StartView,
     /// A fact about your work under the start screen's greeting.
     pub show_fact: bool,
+    /// Focus mode's progress bar and a bin per chapter.
+    pub show_bins: bool,
 }
 
 impl Default for WriterSettings {
@@ -130,6 +132,7 @@ impl Default for WriterSettings {
             common_words: String::new(),
             start_view: StartView::Tiles,
             show_fact: true,
+            show_bins: true,
             theme: ThemeChoice::default(),
         }
     }
@@ -319,6 +322,8 @@ impl WriterApp {
                     });
                     ui.checkbox(&mut settings.spell_check, "Check spelling as you type")
                         .on_hover_text("Uses your Mac's spelling language and learned words. Right-click a word for suggestions.");
+                    ui.checkbox(&mut settings.show_bins, "In Focus mode, show progress: the manuscript's, and a bin per chapter")
+                        .on_hover_text("A bin fills towards its chapter's share of the target, and its lid lifts when it's full.");
                     ui.checkbox(&mut settings.focus_paragraph, "In Focus mode, fade all but the paragraph you're writing")
                         .on_hover_text(sloth_core::keys::shown("The light moves with the cursor. Focus mode is \u{2325}\u{2318}F."));
                     ui.checkbox(&mut settings.show_repetition, sloth_core::keys::shown("Highlight repeated words (\u{2325}\u{2318}R)"))

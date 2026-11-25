@@ -31,7 +31,7 @@ hasn't seen the show.
 
 ---
 
-## 1. Progress bar and bins (M–L)
+## 1. Progress bar and bins (M–L) ✅ (1.49.0; the main-window strip is still to do)
 
 The terminal's best idea, and useful as well: see where the book stands at
 a glance.

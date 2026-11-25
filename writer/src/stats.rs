@@ -39,6 +39,10 @@ pub struct Stats {
     /// The last day reaching the goal was celebrated, so it's only once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub celebrated: Option<String>,
+    /// Focus mode's bins (chapters) that have reached their share, by id:
+    /// each lid lifts once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bins_done: Vec<String>,
     /// Writing sprints finished, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sprints: Vec<Sprint>,
