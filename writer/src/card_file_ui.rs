@@ -102,7 +102,9 @@ impl WriterApp {
         // their tabs, and the rotary's knobs either side.
         let height = CARD.y + STEP * BEHIND as f32 + TAB.y + 24.0;
         let (area, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), egui::Sense::hover());
-        if response.hovered() {
+        // Anywhere over the card file, the cards on it included (which take
+        // the hover themselves).
+        if response.contains_pointer() {
             // Taken, so the page itself doesn't scroll too.
             state.scrolled += ui.input_mut(|i| {
                 let d = i.smooth_scroll_delta;

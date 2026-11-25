@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.47.0
+
+- Severance Light: the daytime office to go with Severance, deep teal on cool white. In App Settings → Appearance, with the light themes.
+- Fixed: the card file now flips with the scroll wheel anywhere over it, the front card included (it only did between the cards).
+
 ## 1.46.0
 
 - A new dark theme, Severance: pale cyan on blue-black, after the office terminals in the TV show. In App Settings → Appearance (and in Sloth).

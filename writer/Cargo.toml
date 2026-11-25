@@ -1,6 +1,6 @@
 [package]
 name = "sloth-writer"
-version = "1.46.0"
+version = "1.47.0"
 edition = "2024"
 description = "Sloth Writer: a long-form writing app built on sloth-core"
 

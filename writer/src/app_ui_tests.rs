@@ -977,6 +977,10 @@ fn the_card_file_flips_a_to_z_and_opens_the_front_card() {
         harness.state_mut().apply_settings(&ctx);
         harness.run_steps(3);
         harness.render().unwrap().save(format!("{dir}/card-file-severance.png")).unwrap();
+        harness.state_mut().settings.theme = sloth_core::theme::ThemeChoice::SeveranceLight;
+        harness.state_mut().apply_settings(&ctx);
+        harness.run_steps(3);
+        harness.render().unwrap().save(format!("{dir}/card-file-severance-light.png")).unwrap();
     }
 
     // A to Z: Bellingham's in front, whatever was opened last.
@@ -984,6 +988,12 @@ fn the_card_file_flips_a_to_z_and_opens_the_front_card() {
     harness.key_press(egui::Key::ArrowRight);
     harness.run_steps(15);
     harness.get_by_label_contains("Morning Pages,");
+    // The scroll wheel, over the front card, flips back.
+    let card = harness.get_by_label_contains("Morning Pages,").rect().center();
+    harness.event(egui::Event::PointerMoved(card));
+    harness.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, 120.0), modifiers: egui::Modifiers::NONE, phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Wheel });
+    harness.run_steps(20);
+    harness.get_by_label_contains("Bellingham,");
     // A letter jumps to it; Return opens the card in front.
     harness.event(egui::Event::Text("t".into()));
     harness.run_steps(15);
