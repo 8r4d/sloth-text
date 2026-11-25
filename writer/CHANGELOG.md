@@ -2,6 +2,16 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.6.0
+
+A tidier start screen and toolbar.
+
+- The start screen has more room around the sloth and less small print. Settings and About are now square buttons beside New, Open, Import and Get from the Helper (About's tip shows the version).
+- The card file has a bottom half, like a real rotary file: the cards you've flipped past hang below the rings, and the front card folds down onto them. Click the bottom half to flip back one.
+- Every toolbar button has an icon. When the window is too narrow for the names, the buttons show just their icons (hover for the name), so nothing overlaps. A long project title is cut short.
+- Menus and dialogs stand out from the panels behind them: a shade lighter, with a firmer edge, so the More menu isn't lost over the inspector. In Sloth too.
+- A shorter More menu. Move to Trash is in the binder's right-click menu, and Highlight Repeated Words is in App Settings (or ⌥⌘R).
+
 ## 2.5.0
 
 Finishing touches to syncing between computers.
