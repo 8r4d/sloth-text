@@ -277,10 +277,10 @@ pub fn find_bar(ui: &mut egui::Ui, state: &mut FindState, info: FindBarInfo<'_>)
             query.request_focus(); // keep typing / pressing Enter
         }
 
-        if ui.button("<").on_hover_text("Previous match (⇧⌘G)").clicked() {
+        if ui.button("<").on_hover_text(crate::keys::shown("Previous match (⇧⌘G)")).clicked() {
             action = Some(FindAction::Previous);
         }
-        if ui.button(">").on_hover_text("Next match (⌘G)").clicked() {
+        if ui.button(">").on_hover_text(crate::keys::shown("Next match (⌘G)")).clicked() {
             action = Some(FindAction::Next);
         }
 

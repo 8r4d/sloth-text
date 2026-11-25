@@ -81,6 +81,12 @@ compile error at once and keeps the other systems working afterwards.
 
 ### 1c. Shortcuts and how they're labelled (M)
 
+*Done:* `sloth_core::keys`. Labels are still written the Mac way and
+`keys::shown` turns them into Ctrl, Shift and Alt elsewhere. ⌥⌘ is
+Ctrl+Shift there (`keys::OPT_CMD`), and Focus mode is F11 (`keys::FOCUS`).
+Still to check by hand on a PC: Home/End, word movement and Ctrl+wheel zoom
+(the last bullet), and that Ctrl+Shift+, reaches the app on a US keyboard.
+
 - A helper that writes a shortcut for the system it's on: ⌘K on the Mac,
   Ctrl+K elsewhere, ⌥ as Alt, ⇧ as Shift. Use it for the roughly 70 labels,
   tooltips, Help and the changelog's About text.

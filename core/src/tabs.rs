@@ -335,7 +335,7 @@ pub fn tab_bar(ui: &mut egui::Ui, tabs: &Tabs) -> Option<TabBarAction> {
                             );
                             let close = ui
                                 .add(egui::Button::new(RichText::new("\u{d7}").weak()).frame(false).small())
-                                .on_hover_text("Close Tab (\u{2318}W)");
+                                .on_hover_text(crate::keys::shown("Close Tab (\u{2318}W)"));
                             (label, close)
                         });
                         rects.push(inner.response.rect);

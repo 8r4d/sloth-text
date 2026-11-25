@@ -284,7 +284,7 @@ impl WriterApp {
                     if let Some(description) = description.filter(|d| !d.is_empty()) {
                         ui.label(description);
                     }
-                    ui.label(RichText::new("\u{2318}-click to open").small().weak());
+                    ui.label(RichText::new(sloth_core::keys::shown("\u{2318}-click to open")).small().weak());
                 }
                 None => {
                     ui.label(format!("No profile or document called \u{201c}{name}\u{201d} yet."));

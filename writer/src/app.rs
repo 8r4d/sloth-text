@@ -10,6 +10,7 @@ use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
 use sloth_core::document::{DiskState, Document};
 use sloth_core::editor::{self, EditorSettings, Highlights};
 use sloth_core::find::{FindAction, FindOptions, FindState};
+use sloth_core::keys;
 use sloth_core::tabs::{self, DiskNotice, NoticeChoice, Tab, TabId, Tabs};
 
 use crate::binder::{self, BinderAction, Renaming};
@@ -1111,8 +1112,9 @@ impl WriterApp {
         let pressed = |ctx: &egui::Context, modifiers, key| {
             ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(modifiers, key)))
         };
+        // ⌥⌘ is Ctrl+Shift on Windows and Linux (see sloth_core::keys).
         // The longer shortcut first, so ⌥⌘N isn't taken as ⌘N.
-        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::N) {
+        if self.project.is_some() && pressed(ctx, keys::OPT_CMD, Key::N) {
             self.new_item(self.selected.clone(), false);
         }
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND, Key::N) {
@@ -1138,11 +1140,11 @@ impl WriterApp {
         if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::SHIFT, Key::E) {
             self.compile_open = true;
         }
-        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::I) {
+        if self.project.is_some() && pressed(ctx, keys::OPT_CMD, Key::I) {
             self.show_inspector = !self.show_inspector;
         }
-        // ⌥⌘F, as in Scrivener: Focus mode. Esc leaves it.
-        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::F) {
+        // ⌥⌘F, as in Scrivener (F11 on Windows and Linux): Focus mode. Esc leaves it.
+        if self.project.is_some() && ctx.input_mut(|i| i.consume_shortcut(&keys::FOCUS)) {
             self.set_focus_mode(ctx, !self.focus_mode);
         }
         // (Not while Esc is putting away suggestions or a menu.)
@@ -1157,16 +1159,16 @@ impl WriterApp {
                 self.show_folder_as(ctx, view);
             }
         }
-        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::K) {
+        if self.project.is_some() && pressed(ctx, keys::OPT_CMD, Key::K) {
             self.add_comment(ctx);
         }
-        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::R) {
+        if self.project.is_some() && pressed(ctx, keys::OPT_CMD, Key::R) {
             self.toggle_repetition();
         }
-        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::C) {
+        if self.project.is_some() && pressed(ctx, keys::OPT_CMD, Key::C) {
             self.toggle_canvas();
         }
-        if self.project.is_some() && pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::B) {
+        if self.project.is_some() && pressed(ctx, keys::OPT_CMD, Key::B) {
             self.show_binder = !self.show_binder;
         }
         // ⌘K: split the open document at the cursor.
@@ -1201,7 +1203,7 @@ impl WriterApp {
             self.find_action(ctx, FindAction::Close);
         }
         // ⌥⌘, before ⌘, so it isn't taken as App Settings.
-        if pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::Comma) {
+        if pressed(ctx, keys::OPT_CMD, Key::Comma) {
             self.open_project_settings();
         }
         if pressed(ctx, Modifiers::COMMAND, Key::Comma) {
@@ -1260,7 +1262,7 @@ impl WriterApp {
                 if ui.button("New Project…").clicked() {
                     self.new_project_dialog();
                 }
-                if ui.button("Open Project…  (⌘O)").clicked() {
+                if ui.button(sloth_core::keys::shown("Open Project…  (⌘O)")).clicked() {
                     self.open_project_dialog();
                 }
                 if ui.button("Import from Scrivener\u{2026}").on_hover_text("Make a Writer project from a Scrivener 3 project (which isn't changed)").clicked() {
@@ -1289,7 +1291,7 @@ impl WriterApp {
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top(egui::Id::unique("toolbar")).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.toggle_value(&mut self.show_binder, "Binder").on_hover_text("Show or hide the binder (\u{2325}\u{2318}B)");
+                ui.toggle_value(&mut self.show_binder, "Binder").on_hover_text(sloth_core::keys::shown("Show or hide the binder (\u{2325}\u{2318}B)"));
                 if let Some(project) = &self.project {
                     let title = egui::Button::new(egui::RichText::new(project.title()).strong()).frame(false);
                     if ui.add(title).on_hover_text("Rename the project or change its icon").clicked() {
@@ -1299,12 +1301,12 @@ impl WriterApp {
                 ui.separator();
                 // Icons that match the binder's, so the two "new" buttons
                 // read apart at a glance, and the Trash kept well away.
-                let doc = ui.button("\u{1f4c4} New Document").on_hover_text("Add a document (\u{2318}N)");
+                let doc = ui.button("\u{1f4c4} New Document").on_hover_text(sloth_core::keys::shown("Add a document (\u{2318}N)"));
                 if doc.clicked() {
                     self.new_item(self.selected.clone(), true);
                 }
                 ui.add_space(6.0);
-                let folder = ui.button("\u{1f4c1} New Folder").on_hover_text("Add a folder (\u{2325}\u{2318}N)");
+                let folder = ui.button("\u{1f4c1} New Folder").on_hover_text(sloth_core::keys::shown("Add a folder (\u{2325}\u{2318}N)"));
                 if folder.clicked() {
                     self.new_item(self.selected.clone(), false);
                 }
@@ -1334,21 +1336,21 @@ impl WriterApp {
                             self.back_up_dialog(now);
                             ui.close();
                         }
-                        if ui.add(egui::Button::new("App Settings\u{2026}").shortcut_text("\u{2318},")).clicked() {
+                        if ui.add(egui::Button::new("App Settings\u{2026}").shortcut_text(sloth_core::keys::shown("\u{2318},"))).clicked() {
                             self.settings_open = true;
                             ui.close();
                         }
-                        let project_settings = egui::Button::new("Project Settings\u{2026}").shortcut_text("\u{2325}\u{2318},");
+                        let project_settings = egui::Button::new("Project Settings\u{2026}").shortcut_text(sloth_core::keys::shown("\u{2325}\u{2318},"));
                         if ui.add(project_settings).on_hover_text("Title, icon, where new items go, goals, statuses, labels and profile sections").clicked() {
                             self.open_project_settings();
                             ui.close();
                         }
                         let mut repeats = self.settings.show_repetition;
-                        if ui.checkbox(&mut repeats, "Highlight Repeated Words  \u{2325}\u{2318}R").changed() {
+                        if ui.checkbox(&mut repeats, sloth_core::keys::shown("Highlight Repeated Words  \u{2325}\u{2318}R")).changed() {
                             self.toggle_repetition();
                             ui.close();
                         }
-                        if ui.add(egui::Button::new("Help").shortcut_text("\u{2318}?")).clicked() {
+                        if ui.add(egui::Button::new("Help").shortcut_text(sloth_core::keys::shown("\u{2318}?"))).clicked() {
                             self.help = Some(about_ui::HelpPage::Shortcuts);
                             ui.close();
                         }
@@ -1360,15 +1362,15 @@ impl WriterApp {
                     })
                     .response
                     .on_hover_text("Mobile Notes, Back Up, Settings, Help, Close Project");
-                    ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text("\u{2325}\u{2318}I");
-                    ui.toggle_value(&mut self.split_open, "Split").on_hover_text("A second pane beside the editor (\u{2318}\\)");
+                    ui.toggle_value(&mut self.show_inspector, "Inspector").on_hover_text(sloth_core::keys::shown("\u{2325}\u{2318}I"));
+                    ui.toggle_value(&mut self.split_open, "Split").on_hover_text(sloth_core::keys::shown("A second pane beside the editor (\u{2318}\\)"));
                     ui.toggle_value(&mut self.canvas_open, "Canvas")
-                        .on_hover_text("Every document on one surface, strung to what it refers to, with notes of your own (\u{2325}\u{2318}C)");
-                    if ui.button("Focus").on_hover_text("Full screen, just the text (\u{2325}\u{2318}F; Esc to leave)").clicked() {
+                        .on_hover_text(sloth_core::keys::shown("Every document on one surface, strung to what it refers to, with notes of your own (\u{2325}\u{2318}C)"));
+                    if ui.button("Focus").on_hover_text(sloth_core::keys::shown("Full screen, just the text (\u{2325}\u{2318}F; Esc to leave)")).clicked() {
                         let ctx = ui.ctx().clone();
                         self.set_focus_mode(&ctx, true);
                     }
-                    if ui.button("Compile\u{2026}").on_hover_text("\u{21e7}\u{2318}E").clicked() {
+                    if ui.button("Compile\u{2026}").on_hover_text(sloth_core::keys::shown("\u{21e7}\u{2318}E")).clicked() {
                         self.compile_open = true;
                     }
                     if !self.settings.helper_url.trim().is_empty() && !self.helper_token.is_empty() {
@@ -1423,7 +1425,7 @@ impl WriterApp {
                 if self.settings.show_repetition {
                     ui.separator();
                     let chip = egui::Button::new(egui::RichText::new("Repeats shown").small()).frame(false);
-                    if ui.add(chip).on_hover_text("Echoes are tinted, watched words underlined. Click (or \u{2325}\u{2318}R) to hide them.").clicked() {
+                    if ui.add(chip).on_hover_text(sloth_core::keys::shown("Echoes are tinted, watched words underlined. Click (or \u{2325}\u{2318}R) to hide them.")).clicked() {
                         self.toggle_repetition();
                     }
                 }
@@ -1518,7 +1520,7 @@ impl WriterApp {
                         }
                     }
                     None => {
-                        self.empty_state(ui, sloth_ui::Pose::Reading, "Nothing open", "Choose a document in the binder, or start one with \u{2318}N.");
+                        self.empty_state(ui, sloth_ui::Pose::Reading, "Nothing open", &sloth_core::keys::shown("Choose a document in the binder, or start one with \u{2318}N."));
                     }
                 }
             });

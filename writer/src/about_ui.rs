@@ -142,7 +142,7 @@ fn shortcuts_page(ui: &mut egui::Ui) {
             ui.end_row();
             for (what, keys) in *items {
                 ui.label(*what);
-                ui.monospace(*keys);
+                ui.monospace(sloth_core::keys::shown(keys));
                 ui.end_row();
             }
         }
@@ -150,7 +150,7 @@ fn shortcuts_page(ui: &mut egui::Ui) {
     ui.add_space(10.0);
     ui.strong("Tips");
     for tip in TIPS {
-        ui.label(format!("\u{2022}  {tip}"));
+        ui.label(format!("\u{2022}  {}", sloth_core::keys::shown(tip)));
     }
 }
 

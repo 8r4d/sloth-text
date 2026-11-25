@@ -8,6 +8,7 @@ pub mod editor;
 pub mod file_types;
 pub mod find;
 pub mod fonts;
+pub mod keys;
 pub mod markdown;
 pub mod motion;
 pub mod print_text;

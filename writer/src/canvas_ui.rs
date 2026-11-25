@@ -432,7 +432,7 @@ fn canvas_bar(ui: &mut egui::Ui, state: &mut CanvasState, folders: &[(String, St
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
-                    RichText::new("Drag a card\u{2019}s pin to another card to tie a string \u{b7} pinch or \u{2318}-scroll to zoom")
+                    RichText::new(sloth_core::keys::shown("Drag a card\u{2019}s pin to another card to tie a string \u{b7} pinch or \u{2318}-scroll to zoom"))
                         .small()
                         .weak(),
                 );
