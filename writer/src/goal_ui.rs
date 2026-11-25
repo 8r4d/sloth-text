@@ -189,18 +189,20 @@ impl WriterApp {
     }
 }
 
-/// The finale: leaves drifting down across the whole window, swaying.
+/// The finale: leaves drifting down across the whole window, swaying, in
+/// the theme's accent.
 fn falling_leaves(ctx: &egui::Context, window: egui::Rect, t: f32, opacity: f32) {
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("falling-leaves")));
-    let leaves = ["\u{1f343}", "\u{1f342}", "\u{1f33f}"];
+    let accent = ctx.global_style().visuals.hyperlink_color;
+    let leaves = [crate::icons::LEAF, crate::icons::SPRIG, crate::icons::SEEDLING];
     for k in 0..36u32 {
-        // Spread by a cheap hash of the leaf's number.
-        let h = |salt: u32| ((k.wrapping_mul(2_654_435_761).wrapping_add(salt.wrapping_mul(40_503))) % 1000) as f32 / 1000.0;
-        let speed = 70.0 + 90.0 * h(1);
+        // A well-spread number from 0 to 1 for each leaf and purpose.
+        let h = |salt: u32| ((k as f32 * 12.9898 + salt as f32 * 78.233).sin() * 43_758.547).rem_euclid(1.0);
+        let speed = 60.0 + 80.0 * h(1);
         let y = window.top() - 30.0 + ((t * speed + h(2) * window.height()) % (window.height() + 60.0));
         let x = window.left() + h(3) * window.width() + (t * (0.8 + h(4)) + h(5) * TAU).sin() * 24.0;
         let size = 14.0 + 10.0 * h(6);
-        let color = Color32::WHITE.gamma_multiply(opacity);
+        let color = accent.gamma_multiply(opacity * (0.55 + 0.45 * h(7)));
         painter.text(Pos2::new(x, y), egui::Align2::CENTER_CENTER, leaves[(k % 3) as usize], egui::FontId::proportional(size), color);
     }
 }

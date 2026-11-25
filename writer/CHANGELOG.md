@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.51.0
+
+- Writer has its own icons: clean line icons in place of emoji everywhere (the binder, the toolbar, the start screen, each kind of project, the rewards). They take the theme's colours, so they suit every theme, the Severance ones especially, and look the same on Mac, Windows and Linux. Drawn from Lucide (lucide.dev, ISC licence).
+- The finale's falling leaves are drawn in the theme's colour, and spread more evenly.
+
 ## 1.50.0
 
 - Rewards that grow. On top of the day's cheer: writing 3, 7, 14 and 30 days in a row, and the manuscript reaching a quarter, half and three quarters of its target, each earn a small prize, once. Reaching the target itself is a party, with leaves falling across the window. What you've earned is on a shelf in Statistics. (App Settings → Writing → "Celebrate the day's goal, streaks and milestones".)

@@ -15,6 +15,16 @@ static FAMILIES: OnceLock<Vec<String>> = OnceLock::new();
 /// Every installed font family (for prose), sorted; filled in by the same scan.
 static ALL_FAMILIES: OnceLock<Vec<String>> = OnceLock::new();
 
+/// An app's own icon font (Writer's: see writer/src/icons.rs), added to
+/// every family as a fallback, so its icons go in any text.
+static ICON_FONT: OnceLock<&'static [u8]> = OnceLock::new();
+
+/// Use `font` for icons from now on (before the first [`apply`]). Its
+/// characters must be ones the other fonts don't have (private use).
+pub fn set_icon_font(font: &'static [u8]) {
+    let _ = ICON_FONT.set(font);
+}
+
 const EDITOR_FONT_KEY: &str = "sloth-editor-font";
 const PROSE_FONT_KEY: &str = "sloth-prose-font";
 
@@ -141,6 +151,15 @@ pub fn apply(ctx: &egui::Context, family: Option<&str>, prose: Option<&str>, tab
         fonts.font_data.insert(EDITOR_FONT_KEY.to_owned(), Arc::new(data));
         if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
             mono.insert(0, EDITOR_FONT_KEY.to_owned());
+        }
+    }
+
+    // The app's icons, last in every family: a fallback, so they don't
+    // change any family's line height.
+    if let Some(icons) = ICON_FONT.get() {
+        fonts.font_data.insert("app-icons".to_owned(), Arc::new(FontData::from_static(icons)));
+        for list in fonts.families.values_mut() {
+            list.push("app-icons".to_owned());
         }
     }
 

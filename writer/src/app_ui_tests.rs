@@ -42,7 +42,8 @@ fn harness(project: Project) -> Harness<'static, WriterApp> {
         // Real frame times (the default is a quarter second a step, which
         // is too slow for a double-click to count as one).
         .with_step_dt(1.0 / 60.0)
-        // Icons like 📄 come from fonts tests don't load; draw a box instead.
+        // The odd character no bundled font has (an emoji in a test's text)
+        // is drawn as a box rather than failing the test.
         .allow_missing_glyphs()
         .build_eframe(|cc| WriterApp::new(cc, None));
     harness.state_mut().set_project(project);
@@ -56,11 +57,22 @@ fn current_text(harness: &mut Harness<'static, WriterApp>) -> Option<String> {
 }
 
 #[test]
+fn every_icon_is_in_the_icon_font() {
+    let dir = TempDir::new("icons");
+    let harness = harness(project(&dir, ""));
+    let font = egui::FontId::proportional(14.0);
+    for (name, icon) in crate::icons::ALL {
+        let found = harness.ctx.fonts_mut(|f| f.has_glyphs(&font, icon));
+        assert!(found, "{name} isn't in writer-icons.ttf");
+    }
+}
+
+#[test]
 fn opens_the_first_document_and_autosaves_edits() {
     let dir = TempDir::new("autosave");
     let mut harness = harness(project(&dir, "Once upon"));
 
-    harness.get_by_label("📄 Untitled");
+    harness.get_by_label(&format!("{} Untitled", crate::icons::DOCUMENT));
     assert_eq!(current_text(&mut harness).as_deref(), Some("Once upon"));
 
     harness.state_mut().current().unwrap().doc.text.push_str(" a time");
@@ -78,12 +90,12 @@ fn clicking_a_document_shows_it() {
     fs::write(dir.0.join("manuscript/second.md"), "two").unwrap();
     let mut harness = harness(p);
 
-    harness.get_by_label("📄 Second").click();
+    harness.get_by_label(&format!("{} Second", crate::icons::DOCUMENT)).click();
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("two"));
 
     // Back again: the first document reopens where it was.
-    harness.get_by_label("📄 Untitled").click();
+    harness.get_by_label(&format!("{} Untitled", crate::icons::DOCUMENT)).click();
     harness.run_steps(3);
     assert_eq!(current_text(&mut harness).as_deref(), Some("one"));
 }
@@ -101,7 +113,7 @@ fn a_new_document_is_named_by_typing() {
     harness.key_press(egui::Key::Enter);
     harness.run_steps(3);
 
-    harness.get_by_label("📄 The Harbour");
+    harness.get_by_label(&format!("{} The Harbour", crate::icons::DOCUMENT));
     assert!(dir.0.join("manuscript/the-harbour.md").is_file());
     let app = harness.state();
     let titles: Vec<&str> = app.project.as_ref().unwrap().manifest.binder[0]
@@ -229,11 +241,11 @@ fn dragging_reorders_and_moves_between_folders() {
     let mut harness = harness(p);
 
     // Onto the top edge of the first row: before it.
-    drag(&mut harness, "📄 Second", "📄 Untitled", 0.1);
+    drag(&mut harness, &format!("{} Second", crate::icons::DOCUMENT), &format!("{} Untitled", crate::icons::DOCUMENT), 0.1);
     assert_eq!(manuscript_titles(&harness), ["Second", "Untitled"]);
 
     // Onto the middle of a role folder: inside it, and the file follows.
-    drag(&mut harness, "📄 Untitled", "📚 Notes", 0.5);
+    drag(&mut harness, &format!("{} Untitled", crate::icons::DOCUMENT), &format!("{} Notes", crate::icons::LIBRARY), 0.5);
     assert_eq!(manuscript_titles(&harness), ["Second"]);
     assert!(dir.0.join("notes/untitled.md").is_file());
     assert!(!dir.0.join("manuscript/untitled.md").exists());
@@ -248,7 +260,7 @@ fn an_item_cant_be_dropped_inside_itself() {
     p.add_document(&Place::Into(chapter), "Scene").unwrap();
     let mut harness = harness(p);
 
-    drag(&mut harness, "📄 Chapter", "📄 Scene", 0.5);
+    drag(&mut harness, &format!("{} Chapter", crate::icons::DOCUMENT), &format!("{} Scene", crate::icons::DOCUMENT), 0.5);
     assert_eq!(manuscript_titles(&harness), ["Untitled", "Chapter"]);
     // Refused quietly while dragging, rather than with an error afterwards.
     assert_eq!(harness.state().error, None);
@@ -341,7 +353,7 @@ fn quitting_waits_for_a_version_choice() {
     check_disk(&mut harness);
 
     // Looking at another document when quitting: the conflict is shown.
-    harness.get_by_label("📄 Other").click();
+    harness.get_by_label(&format!("{} Other", crate::icons::DOCUMENT)).click();
     harness.run_steps(2);
     assert!(!harness.state_mut().before_close());
     assert_eq!(harness.state().selected, conflicted);
@@ -360,7 +372,7 @@ fn typing_goes_straight_into_a_newly_opened_document() {
     p.add_document(&Place::Into("manuscript".into()), "Second").unwrap();
     let mut harness = harness(p);
 
-    harness.get_by_label("📄 Second").click();
+    harness.get_by_label(&format!("{} Second", crate::icons::DOCUMENT)).click();
     harness.run_steps(2);
     harness.event(egui::Event::Text("Hello".into()));
     harness.run_steps(2);
@@ -618,7 +630,7 @@ fn renaming_in_the_inspector_renames_the_file() {
     harness.run_steps(3);
 
     assert!(dir.0.join("manuscript/opening.md").is_file());
-    harness.get_by_label("📄 Opening");
+    harness.get_by_label(&format!("{} Opening", crate::icons::DOCUMENT));
 }
 
 #[test]
@@ -632,7 +644,7 @@ fn the_manuscript_counts_every_document_in_it() {
     fs::write(dir.0.join("research/notes.md"), "six seven eight").unwrap();
     let mut harness = harness(p);
 
-    harness.get_by_label("📚 Manuscript").click();
+    harness.get_by_label(&format!("{} Manuscript", crate::icons::LIBRARY)).click();
     harness.run_steps(3);
     harness.get_by_label("5 words in the manuscript");
     assert_eq!(harness.state_mut().words_under("manuscript"), 5);
@@ -662,7 +674,7 @@ fn labels_can_be_added_and_show_in_the_binder() {
     let meta = crate::project::Meta { label: Some(0), ..Default::default() };
     harness.state_mut().project.as_mut().unwrap().set_meta(&id, meta);
     harness.run_steps(2);
-    harness.get_by_label("📄 Untitled \u{25cf}");
+    harness.get_by_label(&format!("{} Untitled \u{25cf}", crate::icons::DOCUMENT));
 }
 
 // ----- corkboard and outline -----------------------------------------------------
@@ -766,7 +778,7 @@ fn a_folder_shows_its_items_as_cards() {
     harness.run_steps(3);
 
     harness.get_by_label("Corkboard");
-    let titles: Vec<_> = ["📄 Arrival", "📄 Letter", "📄 Harbour"].map(|t| harness.get_all_by_label(t).count()).to_vec();
+    let titles: Vec<_> = [&format!("{} Arrival", crate::icons::DOCUMENT), &format!("{} Letter", crate::icons::DOCUMENT), &format!("{} Harbour", crate::icons::DOCUMENT)].map(|t| harness.get_all_by_label(t).count()).to_vec();
     assert_eq!(titles, [2, 2, 2], "each in the binder and on a card");
 
     // A synopsis typed on a card is the item's synopsis.
@@ -779,7 +791,7 @@ fn a_folder_shows_its_items_as_cards() {
     assert!(harness.state().manifest_dirty);
 
     // Double-clicking a card opens it.
-    let pos = in_view(&harness, "📄 Letter").rect().center();
+    let pos = in_view(&harness, &format!("{} Letter", crate::icons::DOCUMENT)).rect().center();
     harness.event(egui::Event::PointerMoved(pos));
     harness.run_steps(1);
     for _ in 0..2 {
@@ -808,8 +820,8 @@ fn dragging_a_card_reorders_the_folder() {
     harness.run_steps(3);
 
     // Harbour onto the left half of Arrival's card: before it.
-    let start = in_view(&harness, "📄 Harbour").rect().center();
-    let target = in_view(&harness, "📄 Arrival").rect();
+    let start = in_view(&harness, &format!("{} Harbour", crate::icons::DOCUMENT)).rect().center();
+    let target = in_view(&harness, &format!("{} Arrival", crate::icons::DOCUMENT)).rect();
     drag_points(&mut harness, start, target.left_center() + egui::vec2(4.0, 20.0));
     assert_eq!(chapter_titles(&harness, &chapter), ["Harbour", "Arrival", "Letter"]);
 }
@@ -835,14 +847,14 @@ fn the_outline_edits_status_and_nests_by_dragging() {
     assert_eq!(project.node(&scenes[0]).unwrap().meta.status, Some(3));
 
     // Letter onto the middle of Arrival's row: inside it.
-    let start = in_view(&harness, "📄 Letter").rect().center();
-    let target = in_view(&harness, "📄 Arrival").rect();
+    let start = in_view(&harness, &format!("{} Letter", crate::icons::DOCUMENT)).rect().center();
+    let target = in_view(&harness, &format!("{} Arrival", crate::icons::DOCUMENT)).rect();
     drag_points(&mut harness, start, target.center() + egui::vec2(0.0, 8.0));
     assert_eq!(chapter_titles(&harness, &chapter), ["Arrival", "Harbour"]);
     let project = harness.state().project.as_ref().unwrap();
     assert_eq!(project.node(&scenes[0]).unwrap().children[0].title, "Letter");
     // Nested rows show in the outline too.
-    assert_eq!(harness.get_all_by_label("📄 Letter").count(), 2);
+    assert_eq!(harness.get_all_by_label(&format!("{} Letter", crate::icons::DOCUMENT)).count(), 2);
 }
 
 // ----- compile -------------------------------------------------------------------
@@ -1075,8 +1087,10 @@ fn the_elevator_rides_up_and_away_when_a_project_opens() {
     harness.run_steps(3);
     harness.state_mut().open_project_anyway(&dir.0);
     // (Nothing here depends on how fast the test's clock runs: slower
-    // machines take fewer frames to finish the ride.)
-    assert!(harness.state().elevator.is_some(), "a ride starts");
+    // machines take fewer frames to finish the ride. And where the system
+    // asks for less motion, as GitHub's Windows and Mac machines do, there's
+    // no ride at all.)
+    assert_eq!(harness.state().elevator.is_some(), sloth_core::motion::animate(), "a ride starts, unless motion's reduced");
     harness.run_steps(2);
     // Underneath, the project's already there and usable.
     assert_eq!(current_text(&mut harness).as_deref(), Some("Rain on the bay."));
@@ -1270,7 +1284,7 @@ fn a_character_is_a_profile_with_characteristics() {
     let mara = p.add_document(&Place::Into("characters".into()), "Mara").unwrap();
     fs::write(p.file_path(&mara).unwrap(), "Eldest daughter.\n").unwrap();
     let mut harness = harness(p);
-    harness.get_by_label("👤 Mara").click();
+    harness.get_by_label(&format!("{} Mara", crate::icons::PERSON)).click();
     harness.run_steps(3);
 
     // The form shows the name and the description from the file.
@@ -1413,7 +1427,7 @@ fn spaces_typed_in_a_profile_are_kept() {
     let mara = p.add_document(&Place::Into("characters".into()), "Mara").unwrap();
     fs::write(p.file_path(&mara).unwrap(), "Eldest\n\n## Voice\n\nDry\n").unwrap();
     let mut harness = harness(p);
-    harness.get_by_label("👤 Mara").click();
+    harness.get_by_label(&format!("{} Mara", crate::icons::PERSON)).click();
     harness.run_steps(3);
 
     // Click at the end of the description and type a word, its space, and
@@ -1502,7 +1516,7 @@ fn scenes_written_on_the_ipad_land_in_the_manuscript() {
     let mut harness = harness(project(&dir, ""));
     finish(&mut harness, vec![Action::NewScene { inbox_id: 7, title: "On the train".into(), text: "An idea.".into() }]);
 
-    harness.get_by_label("📄 On the train");
+    harness.get_by_label(&format!("{} On the train", crate::icons::DOCUMENT));
     let app = harness.state();
     let project = app.project.as_ref().unwrap();
     let node = project.manifest.binder[0].children.iter().find(|n| n.title == "On the train").unwrap();
@@ -1582,13 +1596,13 @@ fn a_locations_folder_works_like_characters() {
     let scene = harness.state().selected.clone().unwrap();
 
     // Right-click a top-level folder: New Profile Folder → Locations.
-    harness.get_by_label("📚 Notes").click_secondary();
+    harness.get_by_label(&format!("{} Notes", crate::icons::LIBRARY)).click_secondary();
     harness.run_steps(2);
     harness.get_by_label("New Profile Folder").hover();
     harness.run_steps(2);
     harness.get_by_label("Locations").click();
     harness.run_steps(3);
-    harness.get_by_label("🗂 Locations");
+    harness.get_by_label(&format!("{} Locations", crate::icons::PROFILES));
     assert!(dir.0.join("locations").is_dir());
 
     // A location, with its form and its own sections.
@@ -1640,7 +1654,7 @@ fn option_click_opens_beside_the_main_editor() {
     let mut harness = harness(p);
     let main = harness.state().selected.clone();
 
-    harness.get_by_label("📄 Research note").click_modifiers(egui::Modifiers::ALT);
+    harness.get_by_label(&format!("{} Research note", crate::icons::DOCUMENT)).click_modifiers(egui::Modifiers::ALT);
     harness.run_steps(3);
     let app = harness.state();
     assert!(app.split_open);
@@ -1932,13 +1946,13 @@ fn the_status_bar_counts_the_selection_too() {
 fn the_binder_can_be_hidden() {
     let dir = TempDir::new("hide-binder");
     let mut harness = harness(project(&dir, ""));
-    assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 1);
+    assert_eq!(harness.query_all_by_label(&format!("{} Manuscript", crate::icons::LIBRARY)).count(), 1);
     harness.key_press_modifiers(sloth_core::keys::OPT_CMD, egui::Key::B);
     harness.run_steps(2);
-    assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 0);
+    assert_eq!(harness.query_all_by_label(&format!("{} Manuscript", crate::icons::LIBRARY)).count(), 0);
     harness.get_by_label("Binder").click();
     harness.run_steps(2);
-    assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 1);
+    assert_eq!(harness.query_all_by_label(&format!("{} Manuscript", crate::icons::LIBRARY)).count(), 1);
 }
 
 #[test]
@@ -2215,7 +2229,7 @@ fn focus_mode_is_just_the_text_until_escape() {
     harness.run_steps(3);
     assert!(harness.state().focus_mode);
     assert_eq!(harness.query_all_by_label("Inspector").count(), 0, "no toolbar");
-    assert_eq!(harness.query_all_by_label("📚 Manuscript").count(), 0, "no binder");
+    assert_eq!(harness.query_all_by_label(&format!("{} Manuscript", crate::icons::LIBRARY)).count(), 0, "no binder");
     harness.get_by_label("Esc to leave Focus");
     harness.get_by_label("4 words");
 
@@ -2414,7 +2428,7 @@ fn mobile_notes_is_made_in_notes_once_and_opens_beside() {
     let mut harness = harness(project(&dir, "The ferry had gone."));
     harness.get_by_label("More…").click();
     harness.run_steps(2);
-    harness.get_by_label("📝 Mobile Notes").click();
+    harness.get_by_label(&format!("{} Mobile Notes", crate::icons::NOTEPAD)).click();
     harness.run_steps(3);
     let app = harness.state();
     let project = app.project.as_ref().unwrap();
@@ -2424,7 +2438,7 @@ fn mobile_notes_is_made_in_notes_once_and_opens_beside() {
     assert_eq!(app.split.as_deref(), Some(pad.id.as_str()), "open beside what's being written");
     assert!(app.split_open);
     let pad = pad.id.clone();
-    harness.get_by_label("📝 Mobile Notes");
+    harness.get_by_label(&format!("{} Mobile Notes", crate::icons::NOTEPAD));
 
     // Asking again opens the same one.
     harness.state_mut().open_notepad();
@@ -2830,7 +2844,7 @@ fn break_up_makes_a_document_of_each_essay() {
     harness.run_steps(2);
     // It starts at the top headings, and says what it'll make.
     harness.get_by_label("2 documents:");
-    harness.get_by_label("📄 On Walking");
+    harness.get_by_label(&format!("{} On Walking", crate::icons::DOCUMENT));
     harness.get_by_label("The 3 words before the first break stay in “Untitled” itself.");
     harness.get_by_label("Break Up").click();
     harness.run_steps(3);
@@ -3009,7 +3023,7 @@ fn a_folders_menu_sets_the_status_and_label_of_whats_inside() {
     harness.run_steps(2);
 
     let open_menu = |harness: &mut Harness<'static, WriterApp>| {
-        harness.get_by_label("📁 Chapter").click_secondary();
+        harness.get_by_label(&format!("{} Chapter", crate::icons::FOLDER)).click_secondary();
         harness.run_steps(2);
     };
     // To start with, only what's directly in it: the subfolder, not what's in that.
@@ -3135,7 +3149,7 @@ fn a_folders_cards_can_be_filtered_by_keyword_and_show_where_theyre_published() 
     harness.run_steps(3);
 
     // The Manuscript's corkboard shows its chapters; the menu, its keywords.
-    in_view(&harness, "📁 Chapter One");
+    in_view(&harness, &format!("{} Chapter One", crate::icons::FOLDER));
     harness.get_by_label("All keywords").click();
     harness.run_steps(2);
     harness.get_by_label("home  (2)");
@@ -3145,13 +3159,13 @@ fn a_folders_cards_can_be_filtered_by_keyword_and_show_where_theyre_published() 
     let ids: Vec<String> = harness.state_mut().keyword_items("manuscript", "travel").into_iter().map(|i| i.title).collect();
     assert_eq!(ids, ["Walking", "Trains"]);
     // Each once in the binder, and once on a card.
-    assert_eq!(harness.query_all_by_label("📄 Walking").count(), 2);
-    assert_eq!(harness.query_all_by_label("📄 Trains").count(), 2);
-    assert_eq!(harness.query_all_by_label("📄 Weather").count(), 1, "only in the binder: not tagged travel");
+    assert_eq!(harness.query_all_by_label(&format!("{} Walking", crate::icons::DOCUMENT)).count(), 2);
+    assert_eq!(harness.query_all_by_label(&format!("{} Trains", crate::icons::DOCUMENT)).count(), 2);
+    assert_eq!(harness.query_all_by_label(&format!("{} Weather", crate::icons::DOCUMENT)).count(), 1, "only in the binder: not tagged travel");
     harness.get_by_label("Keyword: travel");
 
     // Walking is published: its globe opens it.
-    harness.get_by_label("\u{1F310}").click();
+    harness.get_by_label(crate::icons::WEB).click();
     harness.run_steps(2);
     assert!(super::inspector::opened_for_test().contains(&"https://myblog.example.com/walking".to_owned()));
 
@@ -3160,7 +3174,7 @@ fn a_folders_cards_can_be_filtered_by_keyword_and_show_where_theyre_published() 
     harness.run_steps(2);
     harness.get_by_label("All keywords").click();
     harness.run_steps(3);
-    in_view(&harness, "📁 Chapter Two");
+    in_view(&harness, &format!("{} Chapter Two", crate::icons::FOLDER));
     if let Ok(dir) = std::env::var("SHOT_DIR") {
         harness.get_by_label("All keywords").click();
         harness.run_steps(2);
@@ -3181,10 +3195,10 @@ fn an_outline_row_is_dragged_by_its_grip() {
     harness.get_by_label("Outline").click();
     harness.run_steps(3);
     // The grip: in the strip left of the title.
-    let harbour = in_view(&harness, "📄 Harbour").rect();
+    let harbour = in_view(&harness, &format!("{} Harbour", crate::icons::DOCUMENT)).rect();
     let grip = egui::pos2(harbour.left() - 12.0, harbour.center().y + 8.0);
     // To the top edge of Arrival's row: before it.
-    let arrival = in_view(&harness, "📄 Arrival").rect();
+    let arrival = in_view(&harness, &format!("{} Arrival", crate::icons::DOCUMENT)).rect();
     drag_points(&mut harness, grip, egui::pos2(arrival.center().x, arrival.top() - 4.0));
     assert_eq!(chapter_titles(&harness, &chapter), ["Harbour", "Arrival", "Letter"]);
     if let Ok(dir) = std::env::var("SHOT_DIR") {

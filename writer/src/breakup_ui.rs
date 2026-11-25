@@ -214,7 +214,7 @@ impl WriterApp {
                 egui::ScrollArea::vertical().max_height(220.0).auto_shrink([false, true]).show(ui, |ui| {
                     for piece in &broken.pieces {
                         ui.horizontal(|ui| {
-                            ui.label(format!("\u{1f4c4} {}", piece.title));
+                            ui.label(format!("{} {}", crate::icons::DOCUMENT, piece.title));
                             ui.weak(words(&piece.text));
                         });
                     }
@@ -429,7 +429,7 @@ impl WriterApp {
                     for part in &parts {
                         ui.horizontal(|ui| {
                             ui.add_space(14.0 * part.depth as f32);
-                            ui.label(format!("{} {}", if part.document { "\u{1f4c4}" } else { "\u{1f4c1}" }, part.title));
+                            ui.label(format!("{} {}", if part.document { crate::icons::DOCUMENT } else { crate::icons::FOLDER }, part.title));
                             if part.document {
                                 ui.weak(words(&part.text));
                             }

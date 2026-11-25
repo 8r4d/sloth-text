@@ -31,14 +31,14 @@ enum Kind {
 }
 
 pub const LADDER: &[Reward] = &[
-    Reward { key: "streak-3", title: "Three days running", prize: "\u{1f343}", line: "A leaf, for keeping at it.", kind: Kind::Streak, at: 3 },
-    Reward { key: "streak-7", title: "A week of writing", prize: "\u{1f33a}", line: "A hibiscus: seven days in a row.", kind: Kind::Streak, at: 7 },
-    Reward { key: "streak-14", title: "Two weeks running", prize: "\u{1f375}", line: "A cup of tea, and fourteen days.", kind: Kind::Streak, at: 14 },
-    Reward { key: "streak-30", title: "Thirty days", prize: "\u{1f3c5}", line: "A medal. Hang it somewhere slow.", kind: Kind::Streak, at: 30 },
-    Reward { key: "manuscript-25", title: "A quarter of the way", prize: "\u{1f331}", line: "The manuscript is a quarter written.", kind: Kind::Manuscript, at: 25 },
-    Reward { key: "manuscript-50", title: "Halfway", prize: "\u{1f33f}", line: "The manuscript is half written.", kind: Kind::Manuscript, at: 50 },
-    Reward { key: "manuscript-75", title: "Three quarters", prize: "\u{1f333}", line: "Three quarters written. The end is in sight.", kind: Kind::Manuscript, at: 75 },
-    Reward { key: "manuscript-100", title: "The target, reached", prize: "\u{1f389}", line: "Every word of it. Take the rest of the day.", kind: Kind::Manuscript, at: 100 },
+    Reward { key: "streak-3", title: "Three days running", prize: crate::icons::LEAF, line: "A leaf, for keeping at it.", kind: Kind::Streak, at: 3 },
+    Reward { key: "streak-7", title: "A week of writing", prize: crate::icons::FLOWER, line: "A hibiscus: seven days in a row.", kind: Kind::Streak, at: 7 },
+    Reward { key: "streak-14", title: "Two weeks running", prize: crate::icons::TEA, line: "A cup of tea, and fourteen days.", kind: Kind::Streak, at: 14 },
+    Reward { key: "streak-30", title: "Thirty days", prize: crate::icons::MEDAL, line: "A medal. Hang it somewhere slow.", kind: Kind::Streak, at: 30 },
+    Reward { key: "manuscript-25", title: "A quarter of the way", prize: crate::icons::SEEDLING, line: "The manuscript is a quarter written.", kind: Kind::Manuscript, at: 25 },
+    Reward { key: "manuscript-50", title: "Halfway", prize: crate::icons::SPRIG, line: "The manuscript is half written.", kind: Kind::Manuscript, at: 50 },
+    Reward { key: "manuscript-75", title: "Three quarters", prize: crate::icons::TREE, line: "Three quarters written. The end is in sight.", kind: Kind::Manuscript, at: 75 },
+    Reward { key: "manuscript-100", title: "The target, reached", prize: crate::icons::PARTY, line: "Every word of it. Take the rest of the day.", kind: Kind::Manuscript, at: 100 },
 ];
 
 pub fn find(key: &str) -> Option<&'static Reward> {

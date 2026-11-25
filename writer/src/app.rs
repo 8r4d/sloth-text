@@ -268,6 +268,7 @@ impl WriterApp {
     pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>) -> Self {
         // Fonts for the Settings window's list (scanned in the background).
         sloth_core::fonts::start_scan(&cc.egui_ctx);
+        sloth_core::fonts::set_icon_font(include_bytes!("../icons/writer-icons.ttf"));
         let settings: settings_ui::WriterSettings =
             cc.storage.and_then(|s| eframe::get_value(s, settings_ui::SETTINGS_KEY)).unwrap_or_default();
         let mut app = Self {
@@ -1300,9 +1301,9 @@ impl WriterApp {
                 ui.add_space(16.0);
                 // New, Open and Import: a row of icons, named on hover.
                 let actions = [
-                    ("\u{2795}", "New Project\u{2026}", "Start a new project".to_owned()),
-                    ("\u{1f4c2}", "Open Project\u{2026}", sloth_core::keys::shown("Open a project folder (\u{2318}O)")),
-                    ("\u{1f4e5}", "Import from Scrivener\u{2026}", "Make a Writer project from a Scrivener 3 project (which isn't changed)".to_owned()),
+                    (crate::icons::NEW, "New Project\u{2026}", "Start a new project".to_owned()),
+                    (crate::icons::OPEN, "Open Project\u{2026}", sloth_core::keys::shown("Open a project folder (\u{2318}O)")),
+                    (crate::icons::IMPORT, "Import from Scrivener\u{2026}", "Make a Writer project from a Scrivener 3 project (which isn't changed)".to_owned()),
                 ];
                 let mut chosen = None;
                 ui.horizontal(|ui| {
@@ -1356,12 +1357,12 @@ impl WriterApp {
                 ui.separator();
                 // Icons that match the binder's, so the two "new" buttons
                 // read apart at a glance, and the Trash kept well away.
-                let doc = ui.button("\u{1f4c4} New Document").on_hover_text(sloth_core::keys::shown("Add a document (\u{2318}N)"));
+                let doc = ui.button(format!("{} New Document", crate::icons::DOCUMENT)).on_hover_text(sloth_core::keys::shown("Add a document (\u{2318}N)"));
                 if doc.clicked() {
                     self.new_item(self.selected.clone(), true);
                 }
                 ui.add_space(6.0);
-                let folder = ui.button("\u{1f4c1} New Folder").on_hover_text(sloth_core::keys::shown("Add a folder (\u{2325}\u{2318}N)"));
+                let folder = ui.button(format!("{} New Folder", crate::icons::FOLDER)).on_hover_text(sloth_core::keys::shown("Add a folder (\u{2325}\u{2318}N)"));
                 if folder.clicked() {
                     self.new_item(self.selected.clone(), false);
                 }
@@ -1373,7 +1374,7 @@ impl WriterApp {
                     .as_deref()
                     .and_then(|id| self.project.as_ref()?.node(id))
                     .is_some_and(|n| n.role.is_none());
-                let trash = egui::Button::new("\u{1f5d1} Move to Trash");
+                let trash = egui::Button::new(format!("{} Move to Trash", crate::icons::TRASH));
                 if ui.add_enabled(can_trash, trash).on_hover_text("Move the selected item to the Trash").clicked() {
                     let id = self.selected.clone().expect("enabled only with a selection");
                     self.trash(&id);
@@ -1381,7 +1382,7 @@ impl WriterApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Less often wanted: in a menu, so the toolbar fits.
                     ui.menu_button("More\u{2026}", |ui| {
-                        if ui.button("\u{1f4dd} Mobile Notes").on_hover_text("The notepad you jot in on your phone, beside what you're writing").clicked() {
+                        if ui.button(format!("{} Mobile Notes", crate::icons::NOTEPAD)).on_hover_text("The notepad you jot in on your phone, beside what you're writing").clicked() {
                             self.open_notepad();
                             ui.close();
                         }

@@ -15,6 +15,7 @@ mod character;
 mod compile;
 mod crash_log;
 mod facts;
+mod icons;
 mod keychain;
 mod lock;
 mod places;

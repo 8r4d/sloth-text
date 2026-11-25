@@ -231,11 +231,11 @@ fn keyword_counts(folder: &Node) -> Vec<(String, usize)> {
 /// right if it has a web address (where it's published): click that to
 /// open it in the browser.
 fn title_row(ui: &mut egui::Ui, item: &Item, actions: &mut Vec<ViewAction>) {
-    let icon = if item.is_document { "\u{1F4C4}" } else { "\u{1F4C1}" };
+    let icon = if item.is_document { crate::icons::DOCUMENT } else { crate::icons::FOLDER };
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some(url) = &item.url {
-                let mark = egui::Button::new("\u{1F310}").frame(false);
+                let mark = egui::Button::new(crate::icons::WEB).frame(false);
                 if ui.add(mark).on_hover_text(format!("Open {url}")).clicked() {
                     actions.push(ViewAction::OpenUrl(url.clone()));
                 }

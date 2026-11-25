@@ -354,24 +354,24 @@ impl Kind {
 
     pub fn icon(self) -> &'static str {
         match self {
-            Kind::Writing => "\u{270f}",         // pencil
-            Kind::Novel => "\u{1f4d6}",          // open book
-            Kind::ShortFiction => "\u{1f4c3}",   // page with curl
-            Kind::Essay => "\u{2712}",           // nib
-            Kind::Nonfiction => "\u{1f4a1}",     // light bulb
-            Kind::Blog => "\u{1f310}",           // globe
-            Kind::Podcast => "\u{1f3a7}",        // headphones
-            Kind::Screenplay => "\u{1f3ac}",     // clapper board
-            Kind::StagePlay => "\u{1f3ad}",      // masks
-            Kind::Poetry => "\u{1f319}",         // crescent moon
-            Kind::Journal => "\u{1f4d3}",        // notebook
-            Kind::Personal => "\u{2764}",        // heart
-            Kind::Letters => "\u{1f48c}",        // love letter
-            Kind::Children => "\u{1f388}",       // balloon
-            Kind::Fantasy => "\u{1f409}",        // dragon
-            Kind::Mystery => "\u{1f575}",        // detective
-            Kind::ScienceFiction => "\u{1f680}", // rocket
-            Kind::Horror => "\u{1f47b}",         // ghost
+            Kind::Writing => crate::icons::WRITING,
+            Kind::Novel => crate::icons::NOVEL,
+            Kind::ShortFiction => crate::icons::SHORT_FICTION,
+            Kind::Essay => crate::icons::ESSAY,
+            Kind::Nonfiction => crate::icons::NONFICTION,
+            Kind::Blog => crate::icons::WEB,
+            Kind::Podcast => crate::icons::PODCAST,
+            Kind::Screenplay => crate::icons::SCREENPLAY,
+            Kind::StagePlay => crate::icons::STAGE_PLAY,
+            Kind::Poetry => crate::icons::POETRY,
+            Kind::Journal => crate::icons::JOURNAL,
+            Kind::Personal => crate::icons::PERSONAL,
+            Kind::Letters => crate::icons::LETTERS,
+            Kind::Children => crate::icons::CHILDREN,
+            Kind::Fantasy => crate::icons::FANTASY,
+            Kind::Mystery => crate::icons::MYSTERY,
+            Kind::ScienceFiction => crate::icons::SCIENCE_FICTION,
+            Kind::Horror => crate::icons::HORROR,
         }
     }
 

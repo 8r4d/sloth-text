@@ -141,15 +141,15 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
     }
 
     let icon = match node.role {
-        Some(Role::Trash) => "🗑",
-        Some(Role::Characters) => "👥",
-        Some(Role::Profile) => "🗂",
-        Some(_) => "📚",
-        None if tree.notepad == Some(node.id.as_str()) => "📝",
-        None if node.is_document() && top == Some(Role::Characters) => "👤",
-        None if node.is_document() && top == Some(Role::Profile) => "📇",
-        None if node.is_document() => "📄",
-        None => "📁",
+        Some(Role::Trash) => crate::icons::TRASH,
+        Some(Role::Characters) => crate::icons::PEOPLE,
+        Some(Role::Profile) => crate::icons::PROFILES,
+        Some(_) => crate::icons::LIBRARY,
+        None if tree.notepad == Some(node.id.as_str()) => crate::icons::NOTEPAD,
+        None if node.is_document() && top == Some(Role::Characters) => crate::icons::PERSON,
+        None if node.is_document() && top == Some(Role::Profile) => crate::icons::CARD,
+        None if node.is_document() => crate::icons::DOCUMENT,
+        None => crate::icons::FOLDER,
     };
     let label = format!("{icon} {}", node.title);
     // The item's label, as a coloured dot at the end of the row. The grow
