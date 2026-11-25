@@ -37,9 +37,10 @@ pub fn prose_variant(bold: bool, italic: bool) -> Option<FontFamily> {
     Some(FontFamily::Name(name.into()))
 }
 
-/// Reading faces that come with macOS, best first: the default prose font
-/// is the first one installed.
-pub const PROSE_DEFAULTS: [&str; 4] = ["Iowan Old Style", "Charter", "Georgia", "Palatino"];
+/// Reading faces, best first: the default prose font is the first one
+/// installed. The first four come with macOS (Georgia with Windows too);
+/// the last three are the usual ones on Linux.
+pub const PROSE_DEFAULTS: [&str; 7] = ["Iowan Old Style", "Charter", "Georgia", "Palatino", "Noto Serif", "DejaVu Serif", "Liberation Serif"];
 
 pub fn default_prose_font() -> Option<&'static str> {
     PROSE_DEFAULTS.into_iter().find(|f| load_regular(f).is_some())

@@ -395,7 +395,8 @@ impl WriterApp {
             self.apply_settings(ctx);
         }
         if token_changed && !cfg!(test) && !crate::keychain::save_token(&self.helper_token) {
-            self.error = Some("Couldn't save the helper token to the Keychain.".to_owned());
+            let place = if cfg!(target_os = "macos") { " to the Keychain" } else if cfg!(windows) { " to Credential Manager" } else { "" };
+            self.error = Some(format!("Couldn't save the helper token{place}."));
         }
         if token_changed {
             self.sync_now = true;

@@ -25,6 +25,9 @@ opener = "0.9.0"
 # Same major version eframe uses; needed to turn off winit's default menu.
 winit = "0.30"
 
+[target."cfg(windows)".dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
 [dev-dependencies]
 egui_kittest = { version = "0.37.0", features = ["eframe", "wgpu"] }
 

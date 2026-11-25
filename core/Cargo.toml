@@ -24,3 +24,6 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSArray", "NSAttributedString", "NSDictionary", "NSError", "NSFileManager", "NSGeometry", "NSNotification", "NSObjCRuntime", "NSRange", "NSString", "NSURL", "NSValue", "objc2-core-services"] }
 # Same major version eframe uses.
 winit = "0.30"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+trash = "5.4.0"

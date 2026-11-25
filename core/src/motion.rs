@@ -1,6 +1,8 @@
-//! Whether to animate: macOS's Reduce Motion (System Settings →
-//! Accessibility → Display) turns the apps' little animations off. Asked
-//! now and then rather than every frame, so it notices a change.
+//! Whether to animate: the system's setting for less motion turns the apps'
+//! little animations off. On a Mac that's Reduce Motion (System Settings →
+//! Accessibility → Display); on Windows, "Animation effects" (Settings →
+//! Accessibility → Visual effects); on Linux, GNOME's animations setting.
+//! Asked now and then rather than every frame, so it notices a change.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -28,8 +30,34 @@ fn reduce_motion() -> bool {
     objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
 }
 
-// Tests always animate (and never touch AppKit).
-#[cfg(any(not(target_os = "macos"), test))]
+#[cfg(all(windows, not(test)))]
+fn reduce_motion() -> bool {
+    // SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION): whether Windows
+    // animates at all. Declared here rather than adding a crate for it.
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SystemParametersInfoW(action: u32, param: u32, value: *mut std::ffi::c_void, ini: u32) -> i32;
+    }
+    const SPI_GETCLIENTAREAANIMATION: u32 = 0x1042;
+    let mut animate: i32 = 1;
+    // SAFETY: the call writes one BOOL (an i32) to the pointer given.
+    let ok = unsafe { SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, (&raw mut animate).cast(), 0) };
+    ok != 0 && animate == 0
+}
+
+#[cfg(all(not(target_os = "macos"), not(windows), not(test)))]
+fn reduce_motion() -> bool {
+    // GNOME's setting (other desktops: animate).
+    std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "enable-animations"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .is_some_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "false")
+}
+
+// Tests always animate (and never ask the system).
+#[cfg(test)]
 fn reduce_motion() -> bool {
     false
 }

@@ -68,16 +68,16 @@ compile error at once and keeps the other systems working afterwards.
 
 | Where | What it does on the Mac | Windows and Linux | Size |
 |---|---|---|---|
-| `writer/src/keychain.rs` | Keeps the helper token in the Keychain (`/usr/bin/security`) | The `keyring` crate: Credential Manager on Windows, Secret Service (GNOME Keyring, KWallet) on Linux. If there isn't one, a file only the user can read, with a warning. | M |
+| `writer/src/keychain.rs` | Keeps the helper token in the Keychain (`/usr/bin/security`) | *Done:* Credential Manager on Windows (`keyring` 3). On Linux, a file only the user can read, in Writer's data folder (the Secret Service would need D-Bus libraries). | M |
 | `core/src/spell.rs` | Spell checks with NSSpellChecker | `spellbook` with bundled en-US/en-GB dictionaries and a word list you can add to. Same interface, so the editor doesn't change. | L |
 | `core/src/trash.rs` (and emptying Writer's Trash, `backup.rs`) | Moves files to the Mac's Trash | The `trash` crate: the Recycle Bin on Windows, the desktop's trash on Linux | S |
-| `core/src/motion.rs` | Follows Reduce motion | Windows: the "Show animations" setting. Linux: GNOME's `enable-animations` setting. Otherwise, a Writer setting. | S |
+| `core/src/motion.rs` | Follows Reduce motion | *Done:* Windows' animation effects setting (`SystemParametersInfoW`, no crate), GNOME's `enable-animations` on Linux. | S |
 | `settings_ui.rs`, `inspector.rs` | Opens folders and web addresses with `open` | *Done:* the `opener` crate (Explorer, `xdg-open`). The rule that only web addresses open is kept. "Show in Finder" says Show in Explorer on Windows, Open Folder on Linux. | S |
 | `writer/src/lock.rs` | The computer's name (`scutil`, falling back to `hostname`); "another Mac" when there's none | *Done:* `COMPUTERNAME` on Windows, `/proc/sys/kernel/hostname` or `/etc/hostname` on Linux, with no command or new crate; "another computer" when there's none. The Mac is unchanged. | S |
 | `backup.rs`, `crash_log.rs` | Paths under `~/Library/…` | *Done* (`places.rs`, no crate): `%LOCALAPPDATA%\Sloth Writer` on Windows (local, not roaming: backups are big), `~/.local/share` and `~/.local/state` on Linux, following XDG. Backups already put in the temp folder are moved over once. | S |
 | `core/src/document.rs` | Keeps Finder's extended attributes when saving | Nothing needed (already skipped on other systems) | — |
 | `writer/src/main.rs` | Turns off winit's Mac menu, so ⌘Q saves first | Nothing needed. Check that closing the window still saves. | — |
-| Fonts | Mac fonts as the defaults | Check the default prose and interface fonts. Choose defaults for each system (Georgia and Cambria on Windows, DejaVu Serif and Noto Serif on Linux), falling back to egui's own. | S |
+| Fonts | Mac fonts as the defaults | *Done:* Georgia (on Windows) is already a default; Noto Serif, DejaVu Serif and Liberation Serif added for Linux. The interface font is egui's own everywhere. | S |
 
 ### 1c. Shortcuts and how they're labelled (M)
 

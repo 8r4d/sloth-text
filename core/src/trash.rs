@@ -1,5 +1,6 @@
-//! Moving a file to the Mac's Trash, where it can still be recovered
-//! (Finder → Trash → Put Back) until the Trash is emptied.
+//! Moving a file to the system's trash, where it can still be recovered
+//! until that's emptied: the Mac's Trash (Finder → Trash → Put Back), the
+//! Recycle Bin on Windows, the desktop's trash on Linux.
 
 use std::io;
 use std::path::Path;
@@ -14,6 +15,6 @@ pub fn move_to_trash(path: &Path) -> io::Result<()> {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn move_to_trash(_path: &Path) -> io::Result<()> {
-    Err(io::Error::new(io::ErrorKind::Unsupported, "There's no Trash to move it to here."))
+pub fn move_to_trash(path: &Path) -> io::Result<()> {
+    trash::delete(path).map_err(|e| io::Error::other(e.to_string()))
 }
