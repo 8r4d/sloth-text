@@ -65,7 +65,10 @@ pub fn due(streak: u32, percent: Option<u32>, earned: &[Earned]) -> (Option<&'st
         };
         let Some(value) = value else { continue };
         let reached: Vec<&Reward> = LADDER.iter().filter(|r| r.kind == kind && value >= r.at && !has(r.key)).collect();
-        if let Some(top) = reached.last() {
+        // Rungs below one already earned (on another computer, say) are
+        // recorded quietly: no cheering a three-day run after a week's.
+        let highest_earned = LADDER.iter().filter(|r| r.kind == kind && has(r.key)).map(|r| r.at).max().unwrap_or(0);
+        if let Some(top) = reached.last().filter(|r| r.at > highest_earned) {
             show = show.or(Some(*top));
         }
         new.extend(reached.iter().map(|r| r.key));

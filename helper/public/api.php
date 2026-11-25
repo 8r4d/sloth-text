@@ -590,6 +590,38 @@ function put_scene(array $user, array $project, string $id, array $b): array {
     if (!is_string($b['text'] ?? null) || !is_int($b['base'] ?? null)) {
         fail('Send the text and the version it was edited from (base)', 400);
     }
+    $saved = save_scene($user, $project, $id, $b['text'], $b['base']);
+    if (isset($saved['clash'])) {
+        fail('This scene was changed since you started editing it', 409, ['current' => $saved['current']]);
+    }
+    return $saved;
+}
+
+// Save many scenes in one request (a whole project's first sync, say):
+// {scenes: [{id, text, base}, …]}, up to 200. Each is saved as put_scene
+// saves one, on its own; the answer lists each one's result in order:
+// {id, version} saved, or {id, clash: true, current} as put_scene's 409.
+function put_scenes(array $user, array $project, array $b): array {
+    $list = $b['scenes'] ?? null;
+    if (!is_array($list) || count($list) > 200) {
+        fail('Send scenes: a list of up to 200 {id, text, base}', 400);
+    }
+    $results = [];
+    foreach ($list as $item) {
+        $id = (string) ($item['id'] ?? '');
+        if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $id) || !is_string($item['text'] ?? null) || !is_int($item['base'] ?? null)) {
+            fail('Each scene needs an id, its text and the version it was edited from (base): not ' . json_encode(['id' => $item['id'] ?? null, 'base' => $item['base'] ?? null, 'text' => is_string($item['text'] ?? null) ? 'a string' : gettype($item['text'] ?? null)]), 400);
+        }
+        $project = project_row($user['id'], $project['uid']);  // seq moves on with each save
+        $results[] = ['id' => $id] + save_scene($user, $project, $id, $item['text'], $item['base']);
+    }
+    return ['results' => $results];
+}
+
+// Save a scene if it's still at version $base: its new version, or
+// ['clash' => true, 'current' => what's there] if it moved on.
+function save_scene(array $user, array $project, string $id, string $text, int $base): array {
+    $b = ['text' => $text, 'base' => $base];
     $pdo = db();
     $pdo->beginTransaction();
     $stmt = $pdo->prepare('SELECT text, version, saved_by, updated_at FROM {scenes} WHERE project_id = ? AND scene_id = ? FOR UPDATE');
@@ -598,9 +630,7 @@ function put_scene(array $user, array $project, string $id, array $b): array {
     $current = $now ? (int) $now['version'] : 0;
     if ($current !== $b['base']) {
         $pdo->rollBack();
-        fail('This scene was changed since you started editing it', 409, [
-            'current' => $now ? ['text' => $now['text'], 'version' => $current] : null,
-        ]);
+        return ['clash' => true, 'current' => $now ? ['text' => $now['text'], 'version' => $current] : null];
     }
     if ($now && $now['text'] === $b['text']) {
         $pdo->rollBack();  // nothing new
@@ -748,6 +778,8 @@ if ($method === 'POST' && $action === 'change_password') {
     send_json(get_scene(require_project($userId), scene_id()));
 } elseif ($method === 'POST' && $action === 'scene_put') {
     send_json(put_scene($user, require_project($userId), scene_id(), read_json()));
+} elseif ($method === 'POST' && $action === 'scenes_put') {
+    send_json(put_scenes($user, require_project($userId), read_json()));
 } elseif ($method === 'GET' && $action === 'changes') {
     send_json(changes(require_project($userId), (int) ($_GET['since'] ?? 0)));
 } elseif ($method === 'GET' && $action === 'history') {

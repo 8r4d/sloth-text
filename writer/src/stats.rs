@@ -68,12 +68,19 @@ pub struct Stats {
     pub sprints: Vec<Sprint>,
 }
 
-/// One computer's own words by day, as it sends them to the others.
+/// One computer's own words by day, as it sends them to the others, and
+/// what it's celebrated (so the others don't celebrate it again).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Tally {
     pub typed: BTreeMap<String, i64>,
     pub web: BTreeMap<String, i64>,
+    /// The computer's name, and when it last synced (seconds since 1970).
+    pub name: String,
+    pub synced_at: i64,
+    /// Rewards it's earned, and the last day it celebrated the goal.
+    pub rewards: Vec<crate::rewards::Earned>,
+    pub celebrated: Option<String>,
 }
 
 impl Tally {
@@ -109,12 +116,28 @@ impl Stats {
     }
 
     /// This computer's own tally, to send to the others.
-    pub fn tally(&self) -> Tally {
-        Tally { typed: self.mine.clone(), web: self.web.clone() }
+    pub fn tally(&self, name: &str, now: i64) -> Tally {
+        Tally {
+            typed: self.mine.clone(),
+            web: self.web.clone(),
+            name: name.to_owned(),
+            synced_at: now,
+            rewards: self.rewards.clone(),
+            celebrated: self.celebrated.clone(),
+        }
     }
 
-    /// Another computer's tally, as it sent it.
+    /// Another computer's tally, as it sent it. What it's celebrated counts
+    /// as celebrated here too, quietly.
     pub fn set_other(&mut self, device: &str, tally: Tally) {
+        for earned in &tally.rewards {
+            if !self.rewards.iter().any(|e| e.key == earned.key) {
+                self.rewards.push(earned.clone());
+            }
+        }
+        if tally.celebrated > self.celebrated {
+            self.celebrated = tally.celebrated.clone();
+        }
         self.others.insert(device.to_owned(), tally);
         self.recount();
     }
@@ -316,10 +339,20 @@ mod tests {
         let mut stats = Stats::load(&dir);
         assert_eq!(stats.mine.get("2026-11-20"), Some(&400));
         // Another computer's words add to the day.
-        let other = Tally { typed: [("2026-11-20".to_owned(), 100)].into(), web: BTreeMap::new() };
+        let other = Tally { typed: [("2026-11-20".to_owned(), 100)].into(), ..Tally::default() };
         stats.set_other("pc", other);
         assert_eq!(stats.days.get("2026-11-20"), Some(&500));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn what_another_computer_celebrated_isnt_celebrated_again() {
+        let mut stats = Stats::default();
+        let earned = crate::rewards::Earned { key: "streak-7".into(), day: "2026-11-20".into() };
+        stats.set_other("pc", Tally { rewards: vec![earned], celebrated: Some("2026-11-25".into()), ..Tally::default() });
+        let (show, new) = crate::rewards::due(7, None, &stats.rewards);
+        assert!(show.is_none() && !new.contains(&"streak-7"), "a week's already been celebrated, there");
+        assert_eq!(stats.celebrated.as_deref(), Some("2026-11-25"));
     }
 
     #[test]

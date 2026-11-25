@@ -171,9 +171,10 @@ tables), 4b (sync records per computer, `.sloth/sync-<device>.ron`), and
 status naming what came from where. A Rust test syncs one project between
 two computers end to end. *Statistics across computers built in 2.3.0* (each computer's own words as
 the scene `_stats-<device>`, added up; the web's counted once). *The Canvas in 2.4.0* (the scene `_canvas`, merged by `canvas::merge`;
-the view stays each computer's). **Still to do:** batched saves for very big projects; the
-two-Writers test against the real helper (`helper/tests/run.sh`); a
-"last sync per computer" tooltip.
+the view stays each computer's). *Done in 2.5.0:* batched saves (`scenes_put`, up to 100 documents or 2 MB
+a request), the two-Writer test against the real helper (in
+`helper/tests/run.sh`), each computer's last sync in the Sync button's
+tip, and rewards celebrated once across computers. Phase 4 is complete.
 
 Each computer keeps its own copy, and syncs the **whole** project through the
 helper: every document, the binder and its metadata, and the Canvas. The web

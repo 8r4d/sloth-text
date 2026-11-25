@@ -263,6 +263,11 @@ pub trait Remote {
     /// Scenes saved since `since`, and the counter now.
     fn changes(&mut self, project: &str, since: i64) -> Result<(Vec<Change>, i64), SyncError>;
     fn put_scene(&mut self, project: &str, id: &str, text: &str, base: u32) -> Result<Put, SyncError>;
+    /// Save several at once: (id, text, base) each; a result for each, in
+    /// order. One at a time unless the helper takes a batch.
+    fn put_scenes(&mut self, project: &str, scenes: &[(String, String, u32)]) -> Result<Vec<Put>, SyncError> {
+        scenes.iter().map(|(id, text, base)| self.put_scene(project, id, text, *base)).collect()
+    }
     fn inbox(&mut self, project: &str) -> Result<Vec<InboxItem>, SyncError>;
     fn collect(&mut self, project: &str, ids: &[i64]) -> Result<(), SyncError>;
 }
@@ -282,6 +287,8 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
 
     let (changes, seq) = remote.changes(&project, out.state.seq)?;
     let theirs: BTreeMap<&str, &Change> = changes.iter().map(|c| (c.id.as_str(), c)).collect();
+    // Plain sends (changed only here), saved in batches after the rest.
+    let mut pending: Vec<(String, String, u32)> = Vec::new();
 
     for (id, mine) in &scenes {
         let synced = out.state.scenes.get(id).cloned();
@@ -293,12 +300,12 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
                     out.state.scenes.insert(id.clone(), Synced { version: t.version, text: t.text.clone() });
                 }
                 Some(t) => both_changed(remote, &project, &mut out, id, "", mine, t)?,
-                None => send(remote, &project, &mut out, id, mine, 0)?,
+                None => pending.push((id.clone(), mine.clone(), 0)),
             },
             Some(last) => {
                 let mine_changed = *mine != last.text;
                 match theirs.filter(|t| t.version > last.version) {
-                    None if mine_changed => send(remote, &project, &mut out, id, mine, last.version)?,
+                    None if mine_changed => pending.push((id.clone(), mine.clone(), last.version)),
                     None => {}
                     Some(t) if t.text == *mine => {
                         out.state.scenes.insert(id.clone(), Synced { version: t.version, text: t.text.clone() });
@@ -317,6 +324,8 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
             }
         }
     }
+
+    send_all(remote, &project, &mut out, pending)?;
 
     // Notes started on the web, with no notepad here yet. (Not recorded as
     // synced: once the Mac has it, the next sync finds them the same.)
@@ -564,8 +573,48 @@ fn clash(out: &mut Outcome, id: &str, theirs: &str) {
 
 /// Send a scene, edited from version `base`. If the web editor saved it meanwhile,
 /// keep that as a snapshot and send ours on top of it.
+/// Most documents in one save: a whole project's first sync sends them all.
+const BATCH: usize = 100;
+/// …or this many bytes of text, whichever comes first (shared hosting
+/// limits how big a request can be).
+const BATCH_BYTES: usize = 2_000_000;
+
+/// Send documents changed only here, in batches; a clash in a batch is
+/// handled as `send` handles one.
+fn send_all(remote: &mut dyn Remote, project: &str, out: &mut Outcome, pending: Vec<(String, String, u32)>) -> Result<(), SyncError> {
+    let mut batches: Vec<Vec<(String, String, u32)>> = Vec::new();
+    let mut size = 0;
+    for item in pending {
+        let len = item.1.len();
+        match batches.last_mut() {
+            Some(batch) if batch.len() < BATCH && size + len <= BATCH_BYTES => {
+                size += len;
+                batch.push(item);
+            }
+            _ => {
+                size = len;
+                batches.push(vec![item]);
+            }
+        }
+    }
+    for batch in batches {
+        let results = remote.put_scenes(project, &batch)?;
+        for ((id, text, _), result) in batch.iter().zip(results) {
+            after_put(remote, project, out, id, text, result)?;
+        }
+    }
+    Ok(())
+}
+
 fn send(remote: &mut dyn Remote, project: &str, out: &mut Outcome, id: &str, text: &str, base: u32) -> Result<(), SyncError> {
-    let version = match remote.put_scene(project, id, text, base)? {
+    let result = remote.put_scene(project, id, text, base)?;
+    after_put(remote, project, out, id, text, result)
+}
+
+/// Record a save; after a clash, keep theirs as a snapshot and save ours
+/// on top of it.
+fn after_put(remote: &mut dyn Remote, project: &str, out: &mut Outcome, id: &str, text: &str, result: Put) -> Result<(), SyncError> {
+    let version = match result {
         Put::Saved { version } => version,
         Put::Clash { current } => {
             let base = match current {
@@ -707,6 +756,37 @@ impl Remote for Http {
         Ok(Put::Saved { version: body["version"].as_u64().unwrap_or(0) as u32 })
     }
 
+    fn put_scenes(&mut self, project: &str, scenes: &[(String, String, u32)]) -> Result<Vec<Put>, SyncError> {
+        if scenes.len() == 1 {
+            let (id, text, base) = &scenes[0];
+            return Ok(vec![self.put_scene(project, id, text, *base)?]);
+        }
+        let list: Vec<Value> = scenes.iter().map(|(id, text, base)| json!({ "id": id, "text": text, "base": base })).collect();
+        let body = match self.call("scenes_put", &query(project, None), Some(json!({ "scenes": list }))) {
+            Ok((_, body)) => body,
+            // A helper from before batches: one at a time.
+            Err(SyncError::Helper(404, _)) => {
+                return scenes.iter().map(|(id, text, base)| self.put_scene(project, id, text, *base)).collect();
+            }
+            Err(e) => return Err(e),
+        };
+        let results = body["results"].as_array().cloned().unwrap_or_default();
+        if results.len() != scenes.len() {
+            return Err(SyncError::Helper(200, "the helper's answer to a batch didn't match it".into()));
+        }
+        Ok(results
+            .iter()
+            .map(|r| {
+                if r["clash"].as_bool() == Some(true) {
+                    let current = r["current"]["text"].as_str().map(|t| (t.to_owned(), r["current"]["version"].as_u64().unwrap_or(0) as u32));
+                    Put::Clash { current }
+                } else {
+                    Put::Saved { version: r["version"].as_u64().unwrap_or(0) as u32 }
+                }
+            })
+            .collect())
+    }
+
     fn inbox(&mut self, project: &str) -> Result<Vec<InboxItem>, SyncError> {
         let (_, body) = self.call("inbox", &query(project, None), None)?;
         Ok(body
@@ -832,14 +912,21 @@ mod tests {
 
     /// The same, with this computer's statistics sent and the others' taken in.
     fn sync_counting(helper: &mut Fake, p: &mut crate::project::Project, state: &mut SyncState, host: &str, stats: &mut crate::stats::Stats) {
+        sync_to(helper, "p", p, state, host, stats);
+    }
+
+    /// One computer's sync against any helper, real or stand-in.
+    fn sync_to(helper: &mut dyn Remote, project: &str, p: &mut crate::project::Project, state: &mut SyncState, host: &str, stats: &mut crate::stats::Stats) {
         let mut scenes: BTreeMap<String, String> = p
             .documents()
             .iter()
             .map(|n| (n.id.clone(), crate::project::read_text(&p.file_path(&n.id).unwrap()).unwrap_or_default()))
             .collect();
-        scenes.insert(format!("{STATS_PREFIX}{host}"), stats.tally().to_text());
+        // A device id is letters and digits, as the app's are.
+        let device: String = host.chars().filter(char::is_ascii_alphanumeric).collect();
+        scenes.insert(format!("{STATS_PREFIX}{device}"), stats.tally(host, 0).to_text());
         let input = Input {
-            project: "p".into(),
+            project: project.into(),
             title: "Book".into(),
             index: Vec::new(),
             scenes,
@@ -1126,6 +1213,51 @@ mod tests {
         assert_eq!(SyncState::load(&dir, "mac"), state);
         assert_eq!(SyncState::load(&dir.join("missing"), "mac"), SyncState::default());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two computers sharing a whole project through the real helper
+    /// (helper/tests/run.sh runs this, with HELPER_URL and a token).
+    #[test]
+    #[ignore]
+    fn two_writers_share_a_whole_project_through_the_real_helper() {
+        use crate::project::{Place, Project};
+        let url = std::env::var("HELPER_URL").expect("HELPER_URL");
+        let token = std::env::var("HELPER_TOKEN").expect("HELPER_TOKEN");
+        let id = format!("hub{}", crate::project::random_id(6));
+        let base = std::env::temp_dir().join(format!("sloth-writer-real-hub-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let mut helper = Http::new(&url, &token);
+        let (mut mac_stats, mut pc_stats) = (crate::stats::Stats::default(), crate::stats::Stats::default());
+
+        // The Mac's project, big enough to need several batches.
+        let mut mac = Project::create(&base.join("mac"), "Book").unwrap();
+        mac.manifest.whole_sync = true;
+        let mut ids = Vec::new();
+        for n in 0..150 {
+            let doc = mac.add_document(&Place::Into("manuscript".into()), &format!("Scene {n}")).unwrap();
+            std::fs::write(mac.file_path(&doc).unwrap(), format!("Scene {n}'s words.")).unwrap();
+            ids.push(doc);
+        }
+        let mut mac_state = SyncState::default();
+        sync_to(&mut helper, &id, &mut mac, &mut mac_state, "Mac", &mut mac_stats);
+
+        // The PC gets it all.
+        let fetched = fetch(&mut helper, &id).unwrap().expect("synced whole");
+        let mut pc = Project::from_shared(&base.join("pc"), fetched.binder.manifest, &fetched.texts).unwrap();
+        let mut pc_state = fetched.state;
+        assert_eq!(pc.documents().len(), mac.documents().len());
+        assert_eq!(crate::project::read_text(&pc.file_path(&ids[149]).unwrap()).unwrap(), "Scene 149's words.");
+
+        // Each changes something; both end up with both.
+        std::fs::write(mac.file_path(&ids[0]).unwrap(), "Rewritten on the Mac.").unwrap();
+        let new = pc.add_document(&Place::Into("manuscript".into()), "From the PC").unwrap();
+        std::fs::write(pc.file_path(&new).unwrap(), "Written on the PC.").unwrap();
+        sync_to(&mut helper, &id, &mut mac, &mut mac_state, "Mac", &mut mac_stats);
+        sync_to(&mut helper, &id, &mut pc, &mut pc_state, "Writing PC", &mut pc_stats);
+        sync_to(&mut helper, &id, &mut mac, &mut mac_state, "Mac", &mut mac_stats);
+        assert_eq!(crate::project::read_text(&pc.file_path(&ids[0]).unwrap()).unwrap(), "Rewritten on the Mac.");
+        assert_eq!(crate::project::read_text(&mac.file_path(&new).unwrap()).unwrap(), "Written on the PC.");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// Against the real helper (helper/tests/run.sh sets HELPER_URL and a

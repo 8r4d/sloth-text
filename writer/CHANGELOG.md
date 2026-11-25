@@ -2,6 +2,17 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.5.0
+
+Finishing touches to syncing between computers.
+
+- A big project's first sync is much quicker: documents go to the helper up to a hundred at a time, rather than one by one. (A helper not yet updated is still sent them one at a time.)
+- The Sync button's tip says when each of your other computers last synced ("Writing PC: today at 14:05").
+- A reward or the day's cheer celebrated on one computer isn't celebrated again on another, and a small reward isn't shown after a bigger one was earned elsewhere.
+- Tested against a real helper: two copies of Writer sharing a 150-document project.
+
+Upload the helper's new api.php to your host.
+
 ## 2.4.0
 
 - The Canvas across computers. With a project synced whole, the Canvas travels too: cards moved, notes written and strings tied on one computer show on the others. Changes made on two computers at once are merged piece by piece (a card moved on both stays where this computer put it; a note edited on both keeps both texts). How you view it (hidden folders, depth, outlines) stays each computer's own.

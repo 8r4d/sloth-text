@@ -162,7 +162,8 @@ impl WriterApp {
                 }
             }
             // This computer's own tally of words, for the others to add up.
-            scenes.insert(format!("{}{}", sync::STATS_PREFIX, self.settings.device_id), self.stats.tally().to_text());
+            let tally = self.stats.tally(crate::lock::host(), chrono::Utc::now().timestamp());
+            scenes.insert(format!("{}{}", sync::STATS_PREFIX, self.settings.device_id), tally.to_text());
             sync::SharedBinder { from: crate::lock::host().to_owned(), manifest: project.manifest.clone() }
         });
         let input = Input {

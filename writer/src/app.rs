@@ -1465,8 +1465,17 @@ impl WriterApp {
                     }
                     if !self.settings.helper_url.trim().is_empty() && !self.helper_token.is_empty() {
                         let label = if self.sync_running() { "Syncing\u{2026}" } else { "Sync" };
-                        let hint = if self.sync_message.is_empty() { "Sync with the web helper" } else { &self.sync_message };
-                        if ui.add_enabled(!self.sync_running(), egui::Button::new(label)).on_hover_text(hint).clicked() {
+                        let mut hint = if self.sync_message.is_empty() { "Sync with the web helper".to_owned() } else { self.sync_message.clone() };
+                        // A project synced whole: when each other computer last synced.
+                        for tally in self.stats.others.values().filter(|t| t.synced_at > 0) {
+                            if let Some(when) = chrono::DateTime::from_timestamp(tally.synced_at, 0) {
+                                let when = when.with_timezone(&chrono::Local);
+                                let day = if when.date_naive() == crate::stats::today() { "today".to_owned() } else { when.format("%-d %B").to_string() };
+                                let name = if tally.name.is_empty() { "Another computer" } else { &tally.name };
+                                hint.push_str(&format!("\n{name}: {day} at {}", when.format("%H:%M")));
+                            }
+                        }
+                        if ui.add_enabled(!self.sync_running(), egui::Button::new(label)).on_hover_text(&hint).clicked() {
                             self.sync_now = true;
                         }
                     }
