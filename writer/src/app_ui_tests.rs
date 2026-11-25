@@ -972,6 +972,11 @@ fn the_card_file_flips_a_to_z_and_opens_the_front_card() {
     harness.run_steps(3);
     if let Ok(dir) = std::env::var("SHOT_DIR") {
         harness.render().unwrap().save(format!("{dir}/card-file.png")).unwrap();
+        let ctx = harness.ctx.clone();
+        harness.state_mut().settings.theme = sloth_core::theme::ThemeChoice::Severance;
+        harness.state_mut().apply_settings(&ctx);
+        harness.run_steps(3);
+        harness.render().unwrap().save(format!("{dir}/card-file-severance.png")).unwrap();
     }
 
     // A to Z: Bellingham's in front, whatever was opened last.

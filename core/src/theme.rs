@@ -7,7 +7,7 @@
 //! Theme menu too, once it's added to that list (sloth/src/commands.rs).
 //! The tests check every palette's text can be read on its background.
 //!
-//! Besides Sloth's own (Light, Dark, Paper, Sepia, Midnight, Lamplight and
+//! Besides Sloth's own (Light, Dark, Paper, Sepia, Midnight, Severance, Lamplight and
 //! the High Contrast pair), the palettes follow well-known open themes:
 //! Solarized, GitHub, One, Gruvbox, Catppuccin, Rosé Pine, Everforest,
 //! Tokyo Night, Nord, Dracula and Monokai.
@@ -27,6 +27,8 @@ pub enum ThemeChoice {
     SolarizedDark,
     Sepia,
     Midnight,
+    /// After the office terminals in the TV show: pale cyan on blue-black.
+    Severance,
     Paper,
     GithubLight,
     OneLight,
@@ -65,6 +67,7 @@ pub const ALL: &[ThemeChoice] = &[
     ThemeChoice::HighContrastLight,
     ThemeChoice::Dark,
     ThemeChoice::Midnight,
+    ThemeChoice::Severance,
     ThemeChoice::SolarizedDark,
     ThemeChoice::Lamplight,
     ThemeChoice::GithubDark,
@@ -90,6 +93,7 @@ impl ThemeChoice {
             ThemeChoice::SolarizedDark => "Solarized Dark",
             ThemeChoice::Sepia => "Sepia",
             ThemeChoice::Midnight => "Midnight",
+            ThemeChoice::Severance => "Severance",
             ThemeChoice::Paper => "Paper",
             ThemeChoice::GithubLight => "GitHub Light",
             ThemeChoice::OneLight => "One Light",
@@ -180,6 +184,24 @@ impl ThemeChoice {
                     number: hex(0x8b3a8b),
                     function: hex(0x2f5f8a),
                     type_: hex(0x8a6d1f),
+                },
+            },
+            ThemeChoice::Severance => Palette {
+                dark: true,
+                editor_bg: hex(0x061219),
+                chrome_bg: hex(0x0a1a22),
+                text: hex(0xb4ebf2),
+                muted: hex(0x4d7c87),
+                border: hex(0x16343f),
+                accent: hex(0x3fd0e4),
+                selection: hex(0x11414d),
+                syntax: SyntaxColors {
+                    comment: hex(0x4d7c87),
+                    keyword: hex(0x5fdcee),
+                    string: hex(0x8fe6cc),
+                    number: hex(0xe8cc72),
+                    function: hex(0x82c4ff),
+                    type_: hex(0xc4f4fa),
                 },
             },
             ThemeChoice::Midnight => Palette {

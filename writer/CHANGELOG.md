@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.46.0
+
+- A new dark theme, Severance: pale cyan on blue-black, after the office terminals in the TV show. In App Settings → Appearance (and in Sloth).
+
 ## 1.45.0
 
 The card file.
