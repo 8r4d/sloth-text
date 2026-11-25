@@ -8,6 +8,26 @@
 }
 /* Sloth Writer's theme, when the page wears it (see applyColors in app.js). */
 :root[data-themed] ::selection { background: var(--selection); }
+
+/* A Severance theme in Sloth Writer: its office look. A thin accent rule
+   under the bar, headings in the accent, faintly lit on the dark screen. */
+:root[data-office] nav.bar { border-bottom: 1px solid var(--accent); padding-bottom: 6px; margin-bottom: 4px; }
+:root[data-office] h1, :root[data-office] h2 { color: var(--accent); letter-spacing: 0.01em; }
+:root[data-office][data-dark] h1, :root[data-office][data-dark] h2 { text-shadow: 0 0 10px var(--tint), 0 0 2px var(--tint); }
+/* …and the old screen's glow, when that's on there: faint scanlines and
+   darker edges, over the page but never in the way of a tap. */
+:root[data-glow] body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1000;
+  background:
+    repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.32) 100%);
+}
+:root[data-glow]:not([data-dark]) body::after {
+  background:
+    repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, 0.12) 100%);
+}
+@media print { :root[data-glow] body::after { display: none; } }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--text); font-size: 18px; line-height: 1.5; }

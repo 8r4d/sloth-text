@@ -131,6 +131,14 @@ thin ring, like a company crest. Other themes keep the colour sloth.
 
 Test: a screenshot in each Severance theme.
 
+## The web editor (2.0.0)
+
+With a Severance theme in Writer, the web page takes on its office look:
+headings in the accent, a rule under the bar, a soft glow on the dark
+theme's headings, and the old screen's scanlines and vignette when that's
+on in Writer (sent with the theme's colours as `look.office` and
+`look.glow`).
+
 ## Suggested order
 
 1. Facts (3) and the emblem (6): an hour or two each, and they set the tone.

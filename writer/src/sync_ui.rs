@@ -97,6 +97,10 @@ impl WriterApp {
                 "spacing": self.settings.paragraph_spacing,
                 "indent": self.settings.first_line_indent,
                 "theme": self.settings.theme.web_colors(),
+                // A Severance theme: the web page takes on its office look
+                // too, and the old screen's glow if that's on (SEVERANCE-UI.md).
+                "office": self.settings.theme.is_severance(),
+                "glow": self.settings.theme.is_severance() && self.settings.screen_glow,
             },
         });
         if project.manifest.sync_id.is_none() {

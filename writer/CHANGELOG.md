@@ -2,6 +2,19 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.0.0
+
+Sloth Writer 2: on every computer you write on, and the same project on all of them.
+
+Since 1.42, Writer has grown from a Mac app into one for Mac, Windows and Linux, with your web helper as the hub between them. This release finishes that, and the entries below have the details.
+
+- **Mac, Windows and Linux.** Writer builds and is tested on all three with every change. On Windows and Linux it has its own spell checking (English, US and UK), keeps the helper's token in the system's own store, empties its Trash to the Recycle Bin, follows the system's settings for less motion, shows shortcuts the way each system writes them, and names files so a project can move between them. Each release on GitHub can carry a Windows zip and a Linux download.
+- **One project, every computer.** Turn on Project Settings → Web helper → "Sync the whole project", and Get Project from the Helper… on another computer. Each keeps its own copy, in step through your helper; changes made apart are merged item by item, and nothing written on either side is lost. A project in a synced folder (Dropbox, OneDrive, iCloud, Syncthing) works too: conflict copies are found and brought in.
+- **A new look.** Writer's own line icons in place of emoji, the start screen's card file, the Severance and Severance Light themes with their office touches (the emblem, progress bins in Focus mode, rewards that grow, the elevator, the old screen's glow), and a fact about your work each day.
+- **The web editor, in the office look:** with a Severance theme in Writer, the web page takes on its accent headings and rule, and the old screen's glow if that's on.
+
+Upload the helper's new api.php, app.js and style.css to your host.
+
 ## 1.53.1
 
 - Fixed: every project with something in its Trash said its folder had files the binder doesn't list (the trashed documents' own files). Only files really missing from the binder are pointed out now.

@@ -651,6 +651,39 @@ test("colours: the page wears Sloth Writer's theme, or this device's own", { ski
   await page.waitFor(`getComputedStyle(document.body).backgroundColor === 'rgb(246, 241, 231)'`, { what: 'the device colours' });
 });
 
+test("the Severance themes bring their office look, and the old screen's glow", { skip }, async () => {
+  // Severance, as Sloth Writer sends it, with Old screen glow on.
+  const severance = { dark: true, bg: '#061219', text: '#b4ebf2', quiet: '#7fb0b9', line: '#16343f', accent: '#3fd0e4',
+    tint: 'rgba(63, 208, 228, 0.12)', selection: '#11414d', danger: '#e8897d' };
+  const put = look => theMac.call('index_put', {
+    title: 'The Long Winter',
+    index: [{ id: 'arrival', title: 'The arrival', chapter: 'Chapter 1', words: 4 }],
+    stats: { date: localDay(), today: 0, goal: null, total: 0, target: null, deadline: null, look: { spacing: 0, indent: 0, ...look } },
+  }, `&p=${project}`);
+  await put({ theme: severance, office: true, glow: true });
+  await go('#/');
+  await go(`#/p/${project}`);
+  await page.waitFor(`document.documentElement.hasAttribute('data-glow')`, { what: 'the glow' });
+  assert.ok(await page.eval(`document.documentElement.hasAttribute('data-office')`));
+  assert.equal(await page.eval(`getComputedStyle(document.querySelector('h1')).color`), 'rgb(63, 208, 228)', 'headings in the accent');
+  assert.match(await page.eval(`getComputedStyle(document.body, '::after').backgroundImage`), /repeating-linear-gradient/, 'scanlines');
+  assert.equal(await page.eval(`getComputedStyle(document.body, '::after').pointerEvents`), 'none', 'never in the way');
+  await snap('severance-glow');
+
+  // Glow off there: the office look stays, the scanlines go.
+  await put({ theme: severance, office: true, glow: false });
+  await go('#/');
+  await go(`#/p/${project}`);
+  await page.waitFor(`!document.documentElement.hasAttribute('data-glow')`, { what: 'no glow' });
+  assert.ok(await page.eval(`document.documentElement.hasAttribute('data-office')`));
+
+  // Another theme: neither.
+  await put({ theme: null });
+  await go('#/');
+  await go(`#/p/${project}`);
+  await page.waitFor(`!document.documentElement.hasAttribute('data-office')`, { what: 'no office look' });
+});
+
 // ----- Markdown on the web: shortcuts, styling, the goal ring ------------------------------
 
 const valueNow = () => page.eval(`document.getElementById('text').value`);
