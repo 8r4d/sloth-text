@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui::{self, RichText};
 
 use super::WriterApp;
+use super::settings_ui::StartView;
 use crate::project::{Kind, MANIFEST_FILE, Manifest, Role};
 use crate::stats::{self, Stats};
 
@@ -33,7 +34,7 @@ pub(super) fn remember(recent: &mut Vec<PathBuf>, root: &Path) {
 }
 
 /// A project's title and kind, read from its manifest without opening it.
-fn title_of(root: &Path) -> Option<(String, Kind)> {
+pub(super) fn title_of(root: &Path) -> Option<(String, Kind)> {
     let text = fs::read_to_string(root.join(MANIFEST_FILE)).ok()?;
     ron::from_str::<Manifest>(&text).ok().map(|m| (m.title, m.kind))
 }
@@ -43,10 +44,10 @@ fn title_of(root: &Path) -> Option<(String, Kind)> {
 /// (it reads the project's files), and again after the project's closed.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct TileFacts {
-    words: u32,
-    target: Option<u32>,
-    last: Option<chrono::NaiveDate>,
-    streak: u32,
+    pub(super) words: u32,
+    pub(super) target: Option<u32>,
+    pub(super) last: Option<chrono::NaiveDate>,
+    pub(super) streak: u32,
 }
 
 impl TileFacts {
@@ -56,7 +57,7 @@ impl TileFacts {
     }
 }
 
-fn facts_of(root: &Path) -> Option<TileFacts> {
+pub(super) fn facts_of(root: &Path) -> Option<TileFacts> {
     let manifest: Manifest = ron::from_str(&fs::read_to_string(root.join(MANIFEST_FILE)).ok()?).ok()?;
     let manuscript = manifest.binder.iter().find(|n| n.role == Some(Role::Manuscript))?;
     let words = manuscript
@@ -72,7 +73,7 @@ fn facts_of(root: &Path) -> Option<TileFacts> {
 }
 
 /// "today", "yesterday", "3 days ago", "2 weeks ago", "5 months ago".
-fn ago(day: chrono::NaiveDate, today: chrono::NaiveDate) -> String {
+pub(super) fn ago(day: chrono::NaiveDate, today: chrono::NaiveDate) -> String {
     let days = (today - day).num_days().max(0);
     match days {
         0 => "today".to_owned(),
@@ -85,7 +86,7 @@ fn ago(day: chrono::NaiveDate, today: chrono::NaiveDate) -> String {
 }
 
 /// A kind's colour.
-fn kind_color(kind: Kind) -> egui::Color32 {
+pub(super) fn kind_color(kind: Kind) -> egui::Color32 {
     let (r, g, b) = kind.color();
     egui::Color32::from_rgb(r, g, b)
 }
@@ -115,7 +116,7 @@ pub(super) fn kind_picker(ui: &mut egui::Ui, id: &str, current: Kind) -> Option<
 /// A recent project's tile.
 const TILE: egui::Vec2 = egui::vec2(184.0, 104.0);
 
-enum TileChoice {
+pub(super) enum TileChoice {
     Open,
     Forget,
     Kind(Kind),
@@ -148,20 +149,7 @@ fn recent_tile(ui: &mut egui::Ui, root: &Path, facts: Option<&TileFacts>) -> Opt
     if response.clicked() {
         choice = Some(TileChoice::Open);
     }
-    response.context_menu(|ui| {
-        if available {
-            ui.menu_button("Icon", |ui| {
-                if let Some(picked) = kind_picker(ui, "tile-kind", kind) {
-                    choice = Some(TileChoice::Kind(picked));
-                    ui.close();
-                }
-            });
-        }
-        if ui.button("Remove from List").clicked() {
-            choice = Some(TileChoice::Forget);
-            ui.close();
-        }
-    });
+    response.context_menu(|ui| project_menu(ui, available, kind, &mut choice));
 
     if ui.is_rect_visible(rect) {
         let hovered = available && response.hovered();
@@ -220,9 +208,26 @@ fn recent_tile(ui: &mut egui::Ui, root: &Path, facts: Option<&TileFacts>) -> Opt
     choice
 }
 
+/// A recent project's right-click menu: change its icon, or take it off
+/// the list.
+pub(super) fn project_menu(ui: &mut egui::Ui, available: bool, kind: Kind, choice: &mut Option<TileChoice>) {
+    if available {
+        ui.menu_button("Icon", |ui| {
+            if let Some(picked) = kind_picker(ui, "tile-kind", kind) {
+                *choice = Some(TileChoice::Kind(picked));
+                ui.close();
+            }
+        });
+    }
+    if ui.button("Remove from List").clicked() {
+        *choice = Some(TileChoice::Forget);
+        ui.close();
+    }
+}
+
 /// Where a project lives, briefly: the folder it's in, from the home
 /// folder (`~/Documents/Writing`), with the start cut off if it's long.
-fn short_place(root: &Path) -> String {
+pub(super) fn short_place(root: &Path) -> String {
     let parent = root.parent().unwrap_or(root).display().to_string();
     let home = std::env::var("HOME").unwrap_or_default();
     let place = match parent.strip_prefix(&home) {
@@ -246,8 +251,22 @@ impl WriterApp {
             return;
         }
         ui.add_space(28.0);
-        ui.label(RichText::new("Recent projects").small().weak());
+        ui.horizontal(|ui| {
+            let width = 250.0;
+            ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+            ui.label(RichText::new("Recent projects").small().weak());
+            ui.add_space(8.0);
+            let view = &mut self.settings.start_view;
+            ui.selectable_value(view, StartView::Tiles, RichText::new("Tiles").small());
+            ui.selectable_value(view, StartView::CardFile, RichText::new("Card File").small())
+                .on_hover_text("Flip through your projects, A to Z");
+        });
         ui.add_space(6.0);
+        if self.settings.start_view == StartView::CardFile {
+            let choice = self.card_file(ui);
+            self.act_on(choice);
+            return;
+        }
         let mut open = None;
         let mut forget = None;
         let mut new_kind = None;
@@ -270,16 +289,26 @@ impl WriterApp {
             });
             ui.add_space(gap - ui.spacing().item_spacing.y);
         }
-        if let Some((root, kind)) = new_kind
-            && let Err(e) = crate::project::set_kind_of(&root, kind)
-        {
-            self.error = Some(format!("Couldn't change the project's icon: {e}"));
-        }
-        if let Some(root) = forget {
-            self.recent.retain(|p| *p != root);
-        }
-        if let Some(root) = open {
-            self.open_project(&root);
+        let choice = match (open, forget, new_kind) {
+            (Some(root), _, _) => Some((root, TileChoice::Open)),
+            (_, Some(root), _) => Some((root, TileChoice::Forget)),
+            (_, _, Some((root, kind))) => Some((root, TileChoice::Kind(kind))),
+            _ => None,
+        };
+        self.act_on(choice);
+    }
+
+    /// Do what was chosen on a recent project's tile or card.
+    fn act_on(&mut self, choice: Option<(PathBuf, TileChoice)>) {
+        match choice {
+            Some((root, TileChoice::Kind(kind))) => {
+                if let Err(e) = crate::project::set_kind_of(&root, kind) {
+                    self.error = Some(format!("Couldn't change the project's icon: {e}"));
+                }
+            }
+            Some((root, TileChoice::Forget)) => self.recent.retain(|p| *p != root),
+            Some((root, TileChoice::Open)) => self.open_project(&root),
+            None => {}
         }
     }
 

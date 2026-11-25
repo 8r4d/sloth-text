@@ -2,6 +2,12 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.45.0
+
+The card file.
+
+- Recent projects on the start screen can be a card file instead of tiles (Card File, beside Recent projects; remembered). Your projects stand on a rotary file, A to Z, one in front with the next few behind it, each with a tab showing its letter. Flip with the arrow keys or the scroll wheel, type a letter to jump to it, and press Return or click the front card to open it; click a card behind to bring it forward. The front card shows its kind, words, when it was last written in, and its target. Right-click it to change its icon or take it off the list.
+
 ## 1.44.0
 
 Windows and Linux, nearly at home. Nothing changes on the Mac.

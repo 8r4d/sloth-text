@@ -23,6 +23,8 @@ mod profiles_ui;
 mod breakup_ui;
 #[path = "canvas_ui.rs"]
 mod canvas_ui;
+#[path = "card_file_ui.rs"]
+mod card_file_ui;
 #[path = "comments_ui.rs"]
 mod comments_ui;
 #[path = "compile_window.rs"]
@@ -158,6 +160,8 @@ pub struct WriterApp {
     recent: Vec<PathBuf>,
     /// What each recent project's tile shows, once worked out.
     tile_facts: HashMap<PathBuf, Option<projects_ui::TileFacts>>,
+    /// The start screen's card file: which card is in front.
+    card_file: card_file_ui::CardFileState,
     renaming_project: Option<projects_ui::Renaming>,
 
     // Characters (see character_ui.rs).
@@ -318,6 +322,7 @@ impl WriterApp {
             recent: cc.storage.and_then(|s| eframe::get_value(s, projects_ui::RECENT_KEY)).unwrap_or_default(),
             renaming_project: None,
             tile_facts: HashMap::new(),
+            card_file: Default::default(),
             profile_name: HashMap::new(),
             profile_sheet: HashMap::new(),
             backlinks: None,
@@ -1247,7 +1252,14 @@ impl WriterApp {
     fn start_screen(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().show(ui, |ui| {
             // Tiles for recent projects need the room: less space above.
-            let top = ui.available_height() * if self.recent.is_empty() { 0.3 } else { 0.12 };
+            let top = ui.available_height()
+                * if self.recent.is_empty() {
+                    0.3
+                } else if self.settings.start_view == settings_ui::StartView::CardFile {
+                    0.05
+                } else {
+                    0.12
+                };
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(top);

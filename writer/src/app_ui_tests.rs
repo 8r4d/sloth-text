@@ -956,6 +956,38 @@ fn recent_projects_are_listed_and_reopen() {
 }
 
 #[test]
+fn the_card_file_flips_a_to_z_and_opens_the_front_card() {
+    let dir = TempDir::new("card-file");
+    let winter = Project::create(&dir.0.join("Winter"), "The Long Winter").unwrap();
+    let mut harness = harness(winter);
+    for title in ["Bellingham", "Morning Pages"] {
+        let mut p = Project::create(&dir.0.join(title), title).unwrap();
+        p.manifest.goals.total = Some(50_000);
+        p.save().unwrap();
+        fs::write(dir.0.join(title).join("manuscript/untitled.md"), "Rain again on the bay. ".repeat(400)).unwrap();
+        harness.state_mut().set_project(p);
+    }
+    harness.state_mut().settings.start_view = crate::app::settings_ui::StartView::CardFile;
+    harness.state_mut().close_project();
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/card-file.png")).unwrap();
+    }
+
+    // A to Z: Bellingham's in front, whatever was opened last.
+    harness.get_by_label_contains("Bellingham,");
+    harness.key_press(egui::Key::ArrowRight);
+    harness.run_steps(15);
+    harness.get_by_label_contains("Morning Pages,");
+    // A letter jumps to it; Return opens the card in front.
+    harness.event(egui::Event::Text("t".into()));
+    harness.run_steps(15);
+    harness.key_press(egui::Key::Enter);
+    harness.run_steps(3);
+    assert_eq!(harness.state().project.as_ref().unwrap().title(), "The Long Winter");
+}
+
+#[test]
 fn renaming_the_project_renames_its_folder_too() {
     let dir = TempDir::new("rename-project");
     let old_root = dir.0.join("Working Title");

@@ -33,6 +33,16 @@ impl Typewriter {
     }
 }
 
+/// How the start screen shows recent projects.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StartView {
+    /// A tile each, most recent first.
+    #[default]
+    Tiles,
+    /// A card file to flip through, A to Z (see card_file_ui.rs).
+    CardFile,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WriterSettings {
@@ -85,6 +95,8 @@ pub struct WriterSettings {
     /// Your own common words, commas between: left out of the most used,
     /// and never echoes (as the built-in common words aren't).
     pub common_words: String,
+    /// Recent projects on the start screen: tiles or the card file.
+    pub start_view: StartView,
 }
 
 impl Default for WriterSettings {
@@ -114,6 +126,7 @@ impl Default for WriterSettings {
             show_repetition: false,
             watch_words: crate::repetition::default_watch_list().join(", "),
             common_words: String::new(),
+            start_view: StartView::Tiles,
             theme: ThemeChoice::default(),
         }
     }
