@@ -321,7 +321,6 @@ pub type Fetched = (SharedBinder, BTreeMap<String, String>, SyncState);
 /// A whole project from the helper, for a computer that doesn't have it
 /// yet: its binder, every document's text (by id), and the sync record to
 /// carry on from. `None` if the project isn't synced whole.
-#[allow(dead_code)] // For "Get Project from the Helper…", next.
 pub fn fetch(remote: &mut dyn Remote, project: &str) -> Result<Option<Fetched>, SyncError> {
     let (changes, seq) = remote.changes(project, 0)?;
     let Some((binder, synced)) = changes.iter().find(|c| c.id == BINDER).and_then(|c| Some((SharedBinder::from_text(&c.text)?, c))) else {
@@ -555,6 +554,31 @@ impl Http {
             401 | 403 => Err(SyncError::Unauthorized),
             _ => Err(SyncError::Helper(status, json["error"].as_str().unwrap_or("unknown error").to_owned())),
         }
+    }
+}
+
+/// A project on the helper, as its list shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoteProject {
+    pub id: String,
+    pub title: String,
+    pub documents: u64,
+}
+
+impl Http {
+    /// The projects on the helper, most recently changed first.
+    pub fn projects(&self) -> Result<Vec<RemoteProject>, SyncError> {
+        let (_, body) = self.call("projects", "", None)?;
+        Ok(body
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter_map(|p| {
+                        Some(RemoteProject { id: p["id"].as_str()?.to_owned(), title: p["title"].as_str()?.to_owned(), documents: p["scenes"].as_u64().unwrap_or(0) })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 }
 

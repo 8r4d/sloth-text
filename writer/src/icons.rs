@@ -14,6 +14,8 @@ pub const OPEN: &str = "\u{e247}";
 pub const NEW: &str = "\u{e13d}";
 /// Import (Lucide: import).
 pub const IMPORT: &str = "\u{e22f}";
+/// Get a project from the web helper (Lucide: cloud-download).
+pub const FROM_HELPER: &str = "\u{e089}";
 /// The Trash (Lucide: trash-2).
 pub const TRASH: &str = "\u{e18e}";
 /// The mobile notepad (Lucide: notebook-pen).
@@ -89,6 +91,7 @@ pub const ALL: &[(&str, &str)] = &[
     ("OPEN", OPEN),
     ("NEW", NEW),
     ("IMPORT", IMPORT),
+    ("FROM_HELPER", FROM_HELPER),
     ("TRASH", TRASH),
     ("NOTEPAD", NOTEPAD),
     ("PEOPLE", PEOPLE),

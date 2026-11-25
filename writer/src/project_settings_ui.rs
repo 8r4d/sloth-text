@@ -89,15 +89,6 @@ impl WriterApp {
                     ui.checkbox(&mut new_at_top, "New documents and folders go at the top of their folder")
                         .on_hover_text("Newest first, for a journal or blog. Off, a new item goes after the selected document, or at the bottom of the selected folder, in order.");
 
-                    group(ui, "Web helper");
-                    ui.add_enabled_ui(helper_ready, |ui| {
-                        ui.checkbox(&mut whole_sync, "Sync the whole project, so other computers can share it")
-                            .on_hover_text("Every document and the binder go to the web helper, and each computer that opens the project from it keeps its own copy in step. Changes made on two computers are merged; where both changed the same thing, this computer's is kept and the other's is noted or kept as a snapshot.");
-                    });
-                    if !helper_ready {
-                        ui.weak("Set up the web helper in App Settings first.");
-                    }
-
                     group(ui, "Goals");
                     super::stats_ui::goals_form(ui, goals, fields);
 
@@ -140,6 +131,15 @@ impl WriterApp {
                                 ui.end_row();
                             }
                         });
+                    }
+
+                    group(ui, "Web helper");
+                    ui.add_enabled_ui(helper_ready, |ui| {
+                        ui.checkbox(&mut whole_sync, "Sync the whole project, so other computers can share it")
+                            .on_hover_text("Every document and the binder go to the web helper, and each computer that opens the project from it keeps its own copy in step. Changes made on two computers are merged; where both changed the same thing, this computer's is kept and the other's is noted or kept as a snapshot.");
+                    });
+                    if !helper_ready {
+                        ui.weak("Set up the web helper in App Settings first.");
                     }
                 });
             });

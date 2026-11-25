@@ -33,6 +33,8 @@ mod comments_ui;
 mod compile_window;
 #[path = "elevator_ui.rs"]
 mod elevator_ui;
+#[path = "get_project_ui.rs"]
+mod get_project_ui;
 #[path = "goal_ui.rs"]
 mod goal_ui;
 #[path = "inspector.rs"]
@@ -215,6 +217,8 @@ pub struct WriterApp {
     strays: Vec<crate::strays::Stray>,
     project_copies: Vec<String>,
     strays_dismissed: bool,
+    /// Get Project from the Helper…, while its window's up.
+    get_project: Option<get_project_ui::GetProject>,
     /// Opening or closing a project: the panel sliding away.
     elevator: Option<elevator_ui::Ride>,
     /// A bin in Focus mode whose lid is lifting, and since when.
@@ -367,6 +371,7 @@ impl WriterApp {
             celebration: None,
             bin_lid: None,
             elevator: None,
+            get_project: None,
             strays: Vec::new(),
             project_copies: Vec::new(),
             strays_dismissed: false,
@@ -1321,12 +1326,14 @@ impl WriterApp {
                     (crate::icons::NEW, "New Project\u{2026}", "Start a new project".to_owned()),
                     (crate::icons::OPEN, "Open Project\u{2026}", sloth_core::keys::shown("Open a project folder (\u{2318}O)")),
                     (crate::icons::IMPORT, "Import from Scrivener\u{2026}", "Make a Writer project from a Scrivener 3 project (which isn't changed)".to_owned()),
+                    (crate::icons::FROM_HELPER, "Get Project from the Helper\u{2026}", "Bring over a project another computer syncs whole through the web helper".to_owned()),
                 ];
                 let mut chosen = None;
                 ui.horizontal(|ui| {
                     let (size, gap) = (52.0, 14.0);
                     ui.spacing_mut().item_spacing.x = gap;
-                    ui.add_space(((ui.available_width() - (3.0 * size + 2.0 * gap)) / 2.0).max(0.0));
+                    let n = actions.len() as f32;
+                    ui.add_space(((ui.available_width() - (n * size + (n - 1.0) * gap)) / 2.0).max(0.0));
                     for (i, (icon, name, hint)) in actions.iter().enumerate() {
                         if start_icon(ui, size, icon, name, hint) {
                             chosen = Some(i);
@@ -1340,6 +1347,7 @@ impl WriterApp {
                         let now = ui.input(|i| i.time);
                         self.import_scrivener_dialog(now);
                     }
+                    Some(3) => self.start_get_project(),
                     _ => {}
                 }
                 self.recent_list(ui);
@@ -1798,6 +1806,7 @@ impl eframe::App for WriterApp {
             self.start_screen(ui);
             self.settings_window(&ctx);
             self.help_window(&ctx);
+            self.get_project_window(&ctx);
             self.screen_glow_ui(&ctx);
             self.elevator_ui(&ctx);
             return;

@@ -28,6 +28,7 @@ ICONS = [
     ("OPEN", "folder-open", "Open a project"),
     ("NEW", "plus", "Start something new"),
     ("IMPORT", "import", "Import"),
+    ("FROM_HELPER", "cloud-download", "Get a project from the web helper"),
     ("TRASH", "trash-2", "The Trash"),
     ("NOTEPAD", "notebook-pen", "The mobile notepad"),
     ("PEOPLE", "users", "The Characters folder"),

@@ -164,6 +164,16 @@ OneDrive.
 
 ## Phase 4: the helper as the hub (Option B, about 3–5 weeks part-time)
 
+*Built in 1.53.0:* 4c (merge.rs, with tests), 4a (every document, and the
+binder as the scene `_binder`, through the existing scene API: no new
+tables), 4b (sync records per computer, `.sloth/sync-<device>.ron`), and
+4d's Project Settings switch, Get Project from the Helper…, and the Sync
+status naming what came from where. A Rust test syncs one project between
+two computers end to end. **Still to do:** the Canvas (`canvas.ron`) and
+statistics across computers; batched saves for very big projects; the
+two-Writers test against the real helper (`helper/tests/run.sh`); a
+"last sync per computer" tooltip.
+
 Each computer keeps its own copy, and syncs the **whole** project through the
 helper: every document, the binder and its metadata, and the Canvas. The web
 editor keeps working as now.

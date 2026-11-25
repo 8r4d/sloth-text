@@ -811,7 +811,6 @@ impl Project {
     /// A project fetched from the helper, as another computer has it (see
     /// sync::fetch): written to `root` (missing or empty), every document
     /// named as this computer names files.
-    #[allow(dead_code)] // For "Get Project from the Helper…", next.
     pub fn from_shared(root: &Path, manifest: Manifest, texts: &BTreeMap<String, String>) -> io::Result<Self> {
         if root.exists() && fs::read_dir(root)?.next().is_some() {
             return Err(invalid("That folder isn't empty."));

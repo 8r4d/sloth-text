@@ -2,6 +2,16 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.53.0
+
+Your web helper as the hub between computers.
+
+- Project Settings → Web helper → "Sync the whole project": every document and the binder go to your web helper, not only the ones marked for the web, and each computer that has the project keeps its own copy in step through it. No Dropbox or iCloud needed.
+- On another computer, Get Project from the Helper… (the start screen's fourth icon) lists your helper's projects and brings one over, everything in it, into a folder you choose.
+- When both computers changed the project while apart, the two are merged: each side's new documents are kept, renames and moves and inspector changes come through, a document trashed on one computer goes to the Trash on the other (unless it was changed there meanwhile), and where both changed the same thing, this computer's is kept and the other's is noted in the item's Notes or kept as a snapshot. The status bar says what came from which computer.
+
+Upload the helper's new api.php to your host.
+
 ## 1.52.0
 
 Writing on two computers through a synced folder (Dropbox, OneDrive, iCloud, Syncthing).
