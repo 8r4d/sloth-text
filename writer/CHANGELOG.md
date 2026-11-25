@@ -2,6 +2,13 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.42.1
+
+Getting ready for Windows and Linux: names that work everywhere.
+
+- New file and folder names avoid what Windows doesn't allow, so a project can go to a Windows computer (through a synced folder, say). The characters < > : / \ | ? * become a hyphen and quotes are left out, a name doesn't end in a dot or space, and names Windows keeps for itself (Con, Aux, Nul, Com1…) get a hyphen. This is for document files, the project folder when it's renamed, backups, snapshots, and research files from Scrivener. Existing files keep their names.
+- A new document's file is never named like one already there except for capitals (walking.md beside Walking.md), which Windows and the Mac count as the same file.
+
 ## 1.42.0
 
 Project Settings.
