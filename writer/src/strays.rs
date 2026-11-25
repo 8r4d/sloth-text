@@ -29,7 +29,8 @@ pub struct Stray {
 
 /// Every stray document file in the project's folders.
 pub fn find(project: &Project) -> Vec<Stray> {
-    let listed: Vec<(&str, &str)> = project.documents().iter().filter_map(|n| Some((n.path.as_deref()?, n.id.as_str()))).collect();
+    // Every document, the Trash's too: those files are listed, just trashed.
+    let listed: Vec<(&str, &str)> = project.all_documents().iter().filter_map(|n| Some((n.path.as_deref()?, n.id.as_str()))).collect();
     let mut out = Vec::new();
     for top in &project.manifest.binder {
         let dir = &top.id;
@@ -125,6 +126,9 @@ mod tests {
         let mut p = Project::create(&dir, "Book").unwrap();
         let walking = p.add_document(&Place::Into("manuscript".into()), "Walking").unwrap();
         let home = p.add_document(&Place::Into("manuscript".into()), "Walking Home").unwrap();
+        // A trashed document's file is in the trash folder, and listed.
+        let cut = p.add_document(&Place::Into("manuscript".into()), "Cut scene").unwrap();
+        p.trash(&cut).unwrap();
         for name in [
             "walking (Writing PC's conflicted copy 2026-11-25).md",
             "walking-DESKTOP-1A2B3C.md",

@@ -628,6 +628,11 @@ impl Project {
 
     /// Every document outside the Trash, in binder order: what a project
     /// search looks through.
+    /// Every document, the Trash's included (`documents` leaves those out).
+    pub fn all_documents(&self) -> Vec<&Node> {
+        self.all_nodes().into_iter().filter(|n| n.is_document()).collect()
+    }
+
     pub fn documents(&self) -> Vec<&Node> {
         self.manifest
             .binder

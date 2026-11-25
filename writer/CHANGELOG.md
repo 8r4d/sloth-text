@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.53.1
+
+- Fixed: every project with something in its Trash said its folder had files the binder doesn't list (the trashed documents' own files). Only files really missing from the binder are pointed out now.
+
 ## 1.53.0
 
 Your web helper as the hub between computers.
