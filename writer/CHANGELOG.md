@@ -10,6 +10,7 @@ Finishing touches to syncing between computers.
 - The Sync button's tip says when each of your other computers last synced ("Writing PC: today at 14:05").
 - A reward or the day's cheer celebrated on one computer isn't celebrated again on another, and a small reward isn't shown after a bigger one was earned elsewhere.
 - Tested against a real helper: two copies of Writer sharing a 150-document project.
+- Downloads for every system with each release on GitHub: a Mac app that runs on Apple silicon and Intel, a Windows installer (Start menu, and uninstall in Settings → Apps) as well as the zip, and a Linux AppImage as well as the .tar.gz.
 
 Upload the helper's new api.php to your host.
 

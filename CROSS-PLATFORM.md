@@ -123,7 +123,14 @@ Project files must work on all three systems:
   over 300 characters deep and creates, renames, moves, snapshots, trashes
   and backs up in it, on all three systems in CI.
 
-## Phase 2: install it (about 2–4 days)
+## Phase 2: install it (about 2–4 days) ✅ (2.5.0)
+
+*Both columns done:* each release (`.github/workflows/release.yml`) has a
+universal Mac app (Apple silicon and Intel, ad-hoc signed), a Windows
+installer (NSIS: per user, Start menu, uninstall in Settings → Apps; from
+`writer/packaging/windows`) and zip, and a Linux AppImage and `.tar.gz`.
+Not done: signing by an Apple developer or a Windows certificate (both
+cost money), so each system warns the first time.
 
 *First column done:* `.github/workflows/release.yml`. Pushing a tag like
 `writer-v1.44.0` builds a Windows zip (`Sloth Writer.exe`, with its icon and
