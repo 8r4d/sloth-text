@@ -1311,7 +1311,7 @@ impl WriterApp {
                 // The sloth, and hello for the time of day.
                 let hour = chrono::Timelike::hour(&chrono::Local::now());
                 let (hello, pose) = sloth_ui::greeting(hour);
-                if self.settings.theme.is_severance() {
+                if self.settings.theme.has_glow() {
                     self.sloth_emblem(ui);
                 } else {
                     let sloth = self.sloth(ui.ctx(), pose);

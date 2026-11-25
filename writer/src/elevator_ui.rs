@@ -60,7 +60,7 @@ impl WriterApp {
     /// Appearance → "Old screen glow" on: faint scanlines across the window
     /// and a soft darkening towards its edges. See SEVERANCE-UI.md, part 5.
     pub(super) fn screen_glow_ui(&self, ctx: &egui::Context) {
-        if !self.settings.screen_glow || !self.settings.theme.is_severance() {
+        if !self.settings.screen_glow || !self.settings.theme.has_glow() {
             return;
         }
         let window = ctx.content_rect();

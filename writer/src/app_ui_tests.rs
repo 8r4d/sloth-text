@@ -997,6 +997,14 @@ fn the_card_file_flips_a_to_z_and_opens_the_front_card() {
         harness.state_mut().apply_settings(&ctx);
         harness.run_steps(3);
         harness.render().unwrap().save(format!("{dir}/card-file-severance-light.png")).unwrap();
+        for (theme, name) in [(sloth_core::theme::ThemeChoice::Fallout, "fallout"), (sloth_core::theme::ThemeChoice::FalloutLight, "fallout-light")] {
+            harness.state_mut().settings.theme = theme;
+            harness.state_mut().settings.screen_glow = theme == sloth_core::theme::ThemeChoice::Fallout;
+            harness.state_mut().apply_settings(&ctx);
+            harness.run_steps(3);
+            harness.render().unwrap().save(format!("{dir}/card-file-{name}.png")).unwrap();
+        }
+        harness.state_mut().settings.screen_glow = false;
     }
 
     // A to Z: Bellingham's in front, whatever was opened last.

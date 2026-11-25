@@ -342,11 +342,11 @@ function applyColors() {
     else root.style.removeProperty(name);
   }
   root.toggleAttribute('data-themed', Boolean(theme));
-  // With a Severance theme in Sloth Writer, its office look, and the old
-  // screen's glow if that's on there (see style.css).
+  // With a Severance theme in Sloth Writer, its office look; and with an old
+  // screen's theme (Severance, Fallout), its glow if that's on there (see style.css).
   const look = load(LOOK, {});
   root.toggleAttribute('data-office', Boolean(theme && look.office));
-  root.toggleAttribute('data-glow', Boolean(theme && look.office && look.glow));
+  root.toggleAttribute('data-glow', Boolean(theme && look.glow));
   root.toggleAttribute('data-dark', Boolean(theme?.dark));
   // Form controls and scroll bars to match, and the phone's status bar.
   root.style.colorScheme = theme ? (theme.dark ? 'dark' : 'light') : '';

@@ -49,7 +49,7 @@ impl WriterApp {
             .clone()
     }
 
-    /// The Severance themes' start screen crest: the reading sloth in one
+    /// The Severance and Fallout themes' start screen crest: the reading sloth in one
     /// colour (its light and dark kept, in shades of the theme's accent),
     /// inside a thin ring.
     pub(super) fn sloth_emblem(&mut self, ui: &mut egui::Ui) {

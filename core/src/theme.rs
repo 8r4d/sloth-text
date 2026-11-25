@@ -7,7 +7,7 @@
 //! Theme menu too, once it's added to that list (sloth/src/commands.rs).
 //! The tests check every palette's text can be read on its background.
 //!
-//! Besides Sloth's own (Light, Dark, Paper, Sepia, Midnight, Severance (dark and light), Lamplight and
+//! Besides Sloth's own (Light, Dark, Paper, Sepia, Midnight, Severance and Fallout (dark and light), Lamplight and
 //! the High Contrast pair), the palettes follow well-known open themes:
 //! Solarized, GitHub, One, Gruvbox, Catppuccin, Rosé Pine, Everforest,
 //! Tokyo Night, Nord, Dracula and Monokai.
@@ -31,6 +31,10 @@ pub enum ThemeChoice {
     Severance,
     /// Its daytime office: deep teal on cool white.
     SeveranceLight,
+    /// A wrist computer's terminal: phosphor green on near black.
+    Fallout,
+    /// The vault's own colours: vault blue on warm cream, sunny yellow.
+    FalloutLight,
     Paper,
     GithubLight,
     OneLight,
@@ -68,9 +72,11 @@ pub const ALL: &[ThemeChoice] = &[
     ThemeChoice::EverforestLight,
     ThemeChoice::HighContrastLight,
     ThemeChoice::SeveranceLight,
+    ThemeChoice::FalloutLight,
     ThemeChoice::Dark,
     ThemeChoice::Midnight,
     ThemeChoice::Severance,
+    ThemeChoice::Fallout,
     ThemeChoice::SolarizedDark,
     ThemeChoice::Lamplight,
     ThemeChoice::GithubDark,
@@ -98,6 +104,8 @@ impl ThemeChoice {
             ThemeChoice::Midnight => "Midnight",
             ThemeChoice::Severance => "Severance",
             ThemeChoice::SeveranceLight => "Severance Light",
+            ThemeChoice::Fallout => "Fallout",
+            ThemeChoice::FalloutLight => "Fallout Light",
             ThemeChoice::Paper => "Paper",
             ThemeChoice::GithubLight => "GitHub Light",
             ThemeChoice::OneLight => "One Light",
@@ -125,6 +133,12 @@ impl ThemeChoice {
     /// that are only looks (the start screen's emblem, say).
     pub fn is_severance(self) -> bool {
         matches!(self, ThemeChoice::Severance | ThemeChoice::SeveranceLight)
+    }
+
+    /// A theme from an old screen, which can wear its glow (scanlines and
+    /// darker edges): the Severance and Fallout ones.
+    pub fn has_glow(self) -> bool {
+        self.is_severance() || matches!(self, ThemeChoice::Fallout | ThemeChoice::FalloutLight)
     }
 
     /// Stable name used when saving the setting.
@@ -194,6 +208,42 @@ impl ThemeChoice {
                     number: hex(0x8b3a8b),
                     function: hex(0x2f5f8a),
                     type_: hex(0x8a6d1f),
+                },
+            },
+            ThemeChoice::Fallout => Palette {
+                dark: true,
+                editor_bg: hex(0x08110a),
+                chrome_bg: hex(0x0c170e),
+                text: hex(0x9cf0ae),
+                muted: hex(0x4f8a5c),
+                border: hex(0x1a3320),
+                accent: hex(0x3dfc78),
+                selection: hex(0x1b4727),
+                syntax: SyntaxColors {
+                    comment: hex(0x4f8a5c),
+                    keyword: hex(0x3dfc78),
+                    string: hex(0xd8f27a),
+                    number: hex(0xf2c25a),
+                    function: hex(0x7ff2d0),
+                    type_: hex(0xc8ffd4),
+                },
+            },
+            ThemeChoice::FalloutLight => Palette {
+                dark: false,
+                editor_bg: hex(0xf5f0df),
+                chrome_bg: hex(0xe9e1c6),
+                text: hex(0x14304d),
+                muted: hex(0x6a7b8c),
+                border: hex(0xd3c8a3),
+                accent: hex(0x1f5fa6),
+                selection: hex(0xf6dd73),
+                syntax: SyntaxColors {
+                    comment: hex(0x6a7b8c),
+                    keyword: hex(0x1f5fa6),
+                    string: hex(0x5a7a1e),
+                    number: hex(0xa8541a),
+                    function: hex(0x2b4f8f),
+                    type_: hex(0x14304d),
                 },
             },
             ThemeChoice::SeveranceLight => Palette {

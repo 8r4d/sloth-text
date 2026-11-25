@@ -362,9 +362,9 @@ impl WriterApp {
                     row(ui, "Theme", &mut |ui| {
                         theme::picker(ui, "theme", &mut settings.theme, 180.0);
                     });
-                    if settings.theme.is_severance() {
+                    if settings.theme.has_glow() {
                         ui.checkbox(&mut settings.screen_glow, "Old screen glow")
-                            .on_hover_text("Faint scanlines and darker edges, like an old monitor. With the Severance themes only.");
+                            .on_hover_text("Faint scanlines and darker edges, like an old monitor. With the Severance and Fallout themes.");
                     }
                     ui.checkbox(&mut settings.elevator, "Slide between the start screen and a project")
                         .on_hover_text("A panel with the project's name slides up and away as it opens. Not with reduced motion.");

@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.1.0
+
+- Two new themes: Fallout, a wrist computer's terminal in phosphor green on near black, and Fallout Light, a vault's blue on warm cream with a sunny yellow. Both can wear the old screen's glow (App Settings → Appearance), on the web editor too, and both show the start screen's sloth as a one-colour emblem. In Sloth as well.
+
 ## 2.0.0
 
 Sloth Writer 2: on every computer you write on, and the same project on all of them.
