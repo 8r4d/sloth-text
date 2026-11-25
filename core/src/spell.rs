@@ -302,7 +302,43 @@ mod hunspell {
                 }
             }
         }
+        // Hunspell's order puts fragments ("Th", "T eh") ahead of the
+        // likely word, so rank them: whole words, then fewest edits (two
+        // letters swapped counts as one), then the same letters, then the
+        // same length. A stable sort keeps Hunspell's order among equals.
+        let typed = word.to_lowercase();
+        let mut sorted_typed: Vec<char> = typed.chars().collect();
+        sorted_typed.sort_unstable();
+        out.sort_by_cached_key(|g| {
+            let lower = g.to_lowercase();
+            let mut letters: Vec<char> = lower.chars().collect();
+            letters.sort_unstable();
+            (g.contains(' '), edits(&typed, &lower), letters != sorted_typed, typed.chars().count().abs_diff(lower.chars().count()))
+        });
         out
+    }
+
+    /// Edits from one word to another: letters added, dropped or changed,
+    /// or two side by side swapped (optimal string alignment distance).
+    fn edits(a: &str, b: &str) -> usize {
+        let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+        let mut d = vec![vec![0; b.len() + 1]; a.len() + 1];
+        for (i, row) in d.iter_mut().enumerate() {
+            row[0] = i;
+        }
+        for (j, cell) in d[0].iter_mut().enumerate() {
+            *cell = j;
+        }
+        for i in 1..=a.len() {
+            for j in 1..=b.len() {
+                let cost = usize::from(a[i - 1] != b[j - 1]);
+                d[i][j] = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
+                if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                    d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
+                }
+            }
+        }
+        d[a.len()][b.len()]
     }
 
     pub fn learn(word: &str) {
@@ -349,7 +385,8 @@ mod hunspell {
 
         #[test]
         fn suggestions_and_learned_words() {
-            assert!(guesses("Teh").iter().any(|g| g == "The"), "{:?}", guesses("Teh"));
+            assert_eq!(guesses("Teh").first().map(String::as_str), Some("The"), "{:?}", guesses("Teh"));
+            assert_eq!(guesses("recieve").first().map(String::as_str), Some("receive"), "{:?}", guesses("recieve"));
             ignore("Qwerp");
             assert!(flagged("Qwerp said").is_empty());
             // Learned words are kept in the personal list, and read back.
