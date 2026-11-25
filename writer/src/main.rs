@@ -26,6 +26,7 @@ mod repetition;
 mod rtf;
 mod scrivener;
 mod snapshots;
+mod strays;
 mod stats;
 mod sync;
 mod version;

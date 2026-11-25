@@ -802,6 +802,22 @@ impl Project {
         Ok(id)
     }
 
+    /// Add a document for a file already in the project's folders (`rel`,
+    /// as `manuscript/walking 2.md`), such as a synced folder's conflict
+    /// copy (see strays.rs). The file's left as it is. Returns its id.
+    pub fn add_existing(&mut self, place: &Place, title: &str, rel: &str) -> io::Result<String> {
+        self.check_place(None, place)?;
+        let title = clean_title(title)?;
+        if !self.root.join(rel).is_file() {
+            return Err(invalid("That file isn't in the project any more."));
+        }
+        let node = Node { id: self.new_id(), title, role: None, path: Some(rel.to_owned()), children: Vec::new(), meta: Meta::default() };
+        let id = node.id.clone();
+        insert(&mut self.manifest.binder, place, node).expect("checked above");
+        self.save()?;
+        Ok(id)
+    }
+
     /// Change an item's title. A document's file is renamed to match, so
     /// the files stay recognisable outside the app.
     pub fn rename(&mut self, id: &str, title: &str) -> io::Result<Option<PathChange>> {

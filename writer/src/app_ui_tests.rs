@@ -1099,6 +1099,27 @@ fn the_elevator_rides_up_and_away_when_a_project_opens() {
 }
 
 #[test]
+fn a_synced_folders_conflict_copy_is_noticed_and_brought_in() {
+    let dir = TempDir::new("strays");
+    let p = project(&dir, "Mara was late.");
+    // Dropbox's copy, made while the PC had it open too.
+    fs::write(dir.0.join("manuscript/untitled (Writing PC's conflicted copy 2026-11-25).md"), "Mara was early.").unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().check_strays();
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/strays.png")).unwrap();
+    }
+    harness.get_by_label_contains("a copy of \u{201c}Untitled\u{201d} from Writing PC");
+    harness.get_by_label("Bring Them In").click();
+    harness.run_steps(3);
+    let titles: Vec<String> = harness.state().project.as_ref().unwrap().manifest.binder[0].children.iter().map(|n| n.title.clone()).collect();
+    assert_eq!(titles, ["Untitled", "Untitled (copy from Writing PC)"]);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Mara was early."), "the copy's opened, to compare");
+    assert!(harness.query_by_label("Bring Them In").is_none(), "and the bar's gone");
+}
+
+#[test]
 fn renaming_the_project_renames_its_folder_too() {
     let dir = TempDir::new("rename-project");
     let old_root = dir.0.join("Working Title");

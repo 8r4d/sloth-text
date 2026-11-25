@@ -139,23 +139,28 @@ file from `writer/packaging/linux`), and attaches both to a GitHub release.
 The automated builds from 1a can attach these to each release on GitHub, so
 the Windows and Linux computers need only the download, not Rust.
 
-## Phase 3: share through a synced folder (Option A, about 1–2 days)
+## Phase 3: share through a synced folder (Option A, about 1–2 days) ✅ (1.52.0)
 
 With phases 1 and 2 done, put the project folder in Syncthing, Dropbox or
 OneDrive.
 
-- **One computer at a time:** the project lock (`.sloth/lock.ron`) already stops
-  two computers having the project open. Check that it holds when the sync
-  service delivers the lock file late. Show "Open on Writing PC since 2:05"
-  clearly, and offer to take over.
-- **Per computer:** settings, and the web helper token. Each computer gets its
-  own token from the helper's Account page.
-- **Web sync:** the web sync state (`.sloth/sync.ron`) travels with the
-  project, so whichever computer is open does the web syncing.
-- **Conflict copies:** when two computers change the same file while offline,
-  sync services make a copy such as `walking (Writing PC's conflicted copy).md`.
-  Writer should notice files the binder doesn't list and offer to bring them
-  in, instead of ignoring them.
+- **One computer at a time:** *Done.* The project lock (`.sloth/lock.ron`)
+  stops two computers having the project open: opening asks ("open on
+  Writing PC, since 2:05", with Open Anyway), and one that's taken shows a
+  bar (Close It Here, or Take It Back). A lock from another computer now
+  counts as live for 30 minutes rather than 2, so clocks that differ, or a
+  synced folder that's slow to bring the lock, can't make it look abandoned.
+- **Per computer:** *Already so.* Settings, and the web helper token (each
+  computer gets its own from the helper's Account page).
+- **Web sync:** *Already so.* The web sync state (`.sloth/sync.ron`) travels
+  with the project, so whichever computer is open does the web syncing.
+- **Conflict copies:** *Done* (`strays.rs`). Files in the project's folders
+  the binder doesn't list are noticed, matched to the document they copy by
+  name (Dropbox's "conflicted copy", OneDrive's computer name, iCloud's
+  " 2", Syncthing's ".sync-conflict-"), and shown in a bar with Bring Them In
+  (each just after its original, titled "Walking (copy from Writing PC)").
+  A copy of the project file itself gets a warning: merging binders is
+  phase 4.
 
 ## Phase 4: the helper as the hub (Option B, about 3–5 weeks part-time)
 

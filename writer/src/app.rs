@@ -61,6 +61,8 @@ mod stats_ui;
 mod sprint_ui;
 #[path = "split_ui.rs"]
 mod split_ui;
+#[path = "strays_ui.rs"]
+mod strays_ui;
 #[path = "sync_ui.rs"]
 mod sync_ui;
 #[path = "views.rs"]
@@ -208,6 +210,11 @@ pub struct WriterApp {
     stats_open: bool,
     /// The day's goal just reached, being celebrated (see goal_ui.rs).
     celebration: Option<goal_ui::Celebration>,
+    /// Files the binder doesn't list, and copies of the project file (see
+    /// strays.rs); the bar about them put away until the next opening.
+    strays: Vec<crate::strays::Stray>,
+    project_copies: Vec<String>,
+    strays_dismissed: bool,
     /// Opening or closing a project: the panel sliding away.
     elevator: Option<elevator_ui::Ride>,
     /// A bin in Focus mode whose lid is lifting, and since when.
@@ -357,6 +364,9 @@ impl WriterApp {
             celebration: None,
             bin_lid: None,
             elevator: None,
+            strays: Vec::new(),
+            project_copies: Vec::new(),
+            strays_dismissed: false,
             sprint: None,
             repetition: Default::default(),
             comment_focus: None,
@@ -537,6 +547,9 @@ impl WriterApp {
         // The project just closed is newly written in.
         self.tile_facts.clear();
         self.start_facts = None;
+        self.strays.clear();
+        self.project_copies.clear();
+        self.strays_dismissed = false;
         self.ride_to("Sloth Writer");
     }
 
@@ -657,6 +670,7 @@ impl WriterApp {
     /// was deleted or moved is written back from the open copy: the binder
     /// still lists it, and the words are safer on disk than only in memory.
     fn check_outside_changes(&mut self, now: f64) {
+        self.check_strays();
         let reloaded = self.docs.check_disk();
         let mut restored = Vec::new();
         for tab in self.docs.iter_mut() {
@@ -934,7 +948,7 @@ impl WriterApp {
                 if ui.button("Close It Here").on_hover_text("What you wrote here since is kept as snapshots").clicked() {
                     close = true;
                 }
-                if ui.button("Take It Back").on_hover_text("Save here again (close it on the other Mac first)").clicked() {
+                if ui.button("Take It Back").on_hover_text("Save here again (close it on the other computer first)").clicked() {
                     take_back = true;
                 }
             });
@@ -1773,6 +1787,7 @@ impl eframe::App for WriterApp {
         self.update_title(&ctx);
         self.error_bar(ui);
         self.lock_lost_bar(ui);
+        self.strays_bar(ui);
         self.open_anyway_dialog(&ctx);
         self.lock_tick(now);
 

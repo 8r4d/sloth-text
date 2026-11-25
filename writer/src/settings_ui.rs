@@ -444,7 +444,7 @@ impl WriterApp {
 }
 
 /// The button that opens a folder in the system's file manager.
-const SHOW_FOLDER: &str = if cfg!(target_os = "macos") {
+pub(super) const SHOW_FOLDER: &str = if cfg!(target_os = "macos") {
     "Show in Finder"
 } else if cfg!(windows) {
     "Show in Explorer"

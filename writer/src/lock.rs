@@ -23,6 +23,18 @@ pub const BEAT_SECONDS: f64 = 30.0;
 /// A lock not refreshed for this long belongs to a copy that's gone.
 const STALE_SECONDS: i64 = 120;
 
+/// The same, for a lock from another computer: much longer, since its clock
+/// and this one's may differ by minutes (and a synced folder can bring the
+/// lock late). Within this, opening there asks first.
+const STALE_ELSEWHERE_SECONDS: i64 = 30 * 60;
+
+/// Whether a lock someone else holds is still live: refreshed recently, by
+/// this computer's clock, or (from another computer) by either clock.
+fn live(lock: &Lock) -> bool {
+    let age = now() - lock.beat;
+    if lock.host == host() { age < STALE_SECONDS } else { age.abs() < STALE_ELSEWHERE_SECONDS }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lock {
     /// This running copy of Writer (made fresh each launch).
@@ -98,7 +110,7 @@ fn write(root: &Path, lock: &Lock) -> io::Result<()> {
 pub fn holder(root: &Path) -> Holder {
     match read(root) {
         Some(lock) if lock.owner == instance() => Holder::Us,
-        Some(lock) if now() - lock.beat < STALE_SECONDS => Holder::Other(lock),
+        Some(lock) if live(&lock) => Holder::Other(lock),
         _ => Holder::Nobody,
     }
 }
@@ -117,7 +129,7 @@ pub fn beat(root: &Path) -> io::Result<Option<Lock>> {
             write(root, &Lock { beat: now(), ..lock })?;
             Ok(None)
         }
-        Some(lock) if now() - lock.beat < STALE_SECONDS => Ok(Some(lock)),
+        Some(lock) if live(&lock) => Ok(Some(lock)),
         _ => take(root).map(|()| None),
     }
 }
@@ -172,10 +184,31 @@ mod tests {
     }
 
     #[test]
+    fn another_computers_lock_holds_through_clocks_that_differ() {
+        let root = dir("skew");
+        // Refreshed "ten minutes ago" by this clock: the other computer's
+        // clock is behind, or the synced folder was slow. Still theirs.
+        let then = now() - 600;
+        let theirs = Lock { owner: "pc".into(), host: format!("{} (elsewhere)", host()), since: then, beat: then };
+        write(&root, &theirs).unwrap();
+        assert_eq!(holder(&root), Holder::Other(theirs.clone()));
+        // A clock ahead of this one, too.
+        let ahead = Lock { beat: now() + 600, ..theirs };
+        write(&root, &ahead).unwrap();
+        assert_eq!(holder(&root), Holder::Other(ahead));
+        // Hours old: gone.
+        let old = now() - STALE_ELSEWHERE_SECONDS - 5;
+        write(&root, &Lock { owner: "pc".into(), host: "Writing PC".into(), since: old, beat: old }).unwrap();
+        assert_eq!(holder(&root), Holder::Nobody);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn a_lock_left_behind_goes_stale() {
         let root = dir("stale");
         let old = now() - STALE_SECONDS - 5;
-        write(&root, &Lock { owner: "gone".into(), host: "Laptop".into(), since: old, beat: old }).unwrap();
+        // Left by a copy on this computer: two minutes is enough to tell.
+        write(&root, &Lock { owner: "gone".into(), host: host().into(), since: old, beat: old }).unwrap();
         assert_eq!(holder(&root), Holder::Nobody);
         assert_eq!(beat(&root).unwrap(), None, "taken over");
         assert_eq!(holder(&root), Holder::Us);

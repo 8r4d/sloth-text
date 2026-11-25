@@ -2,6 +2,13 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.52.0
+
+Writing on two computers through a synced folder (Dropbox, OneDrive, iCloud, Syncthing).
+
+- When two computers change the same document while out of touch, the sync service keeps both, the second under a changed name, and Writer used to ignore it. Now a bar says what it found ("a copy of “Walking” from Writing PC"), and Bring Them In puts each copy just after its original in the binder, to compare and keep what you want. A copy of the project file itself is pointed out too, since binder changes made on the other computer won't be showing.
+- A project open on another computer is recognised even when the two computers' clocks differ by minutes, or the synced folder is slow to bring the news, so it still asks before opening it here.
+
 ## 1.51.1
 
 - Documents written on Windows (with its line endings, or a byte-order mark, as Notepad saves them) read the same everywhere in Writer: in compiling, syncing, searching, statistics, profiles and snapshots, not only in the editor.
