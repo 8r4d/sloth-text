@@ -2,6 +2,14 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.43.0
+
+Getting ready for Windows and Linux: shortcuts, and checks on every system.
+
+- On Windows and Linux, shortcuts are shown as those systems write them (Ctrl+K, Ctrl+Shift+F) in tooltips, menus and Help, rather than with the Mac's symbols. Nothing changes on the Mac.
+- The Mac's ⌥⌘ shortcuts are Ctrl+Shift on Windows and Linux, not Ctrl+Alt, which many Windows keyboards use to type characters such as @ and €. Focus mode is F11 there, since Ctrl+Shift+F is Find in Project.
+- Every change is now built and tested on macOS, Windows and Linux.
+
 ## 1.42.3
 
 - On Windows, automatic backups are kept in your own app data folder (%LOCALAPPDATA%\Sloth Writer\Backups), not the temporary folder, which Windows may clear. Any made there already are moved over the first time. On Linux they're in ~/.local/share/sloth-writer. Nothing changes on the Mac.
