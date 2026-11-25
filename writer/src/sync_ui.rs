@@ -35,7 +35,7 @@ impl WriterApp {
         self.lock_lost.is_none()
             && !self.settings.helper_url.trim().is_empty()
             && !self.helper_token.trim().is_empty()
-            && self.project.as_ref().is_some_and(|p| !p.ipad_documents().is_empty())
+            && self.project.as_ref().is_some_and(|p| p.manifest.whole_sync || !p.ipad_documents().is_empty())
     }
 
     pub(super) fn sync_running(&self) -> bool {
@@ -147,7 +147,28 @@ impl WriterApp {
             // Its notes, as a scene of their own (see sync::notes_id).
             scenes.insert(sync::notes_id(&node.id), node.meta.notes.clone());
         }
-        let input = Input { project: id, title: project.title().to_owned(), index, scenes, state: SyncState::load(&project.root), stats };
+        // A whole project: every document, and the binder (see sync.rs).
+        let binder = project.manifest.whole_sync.then(|| {
+            for node in project.documents() {
+                if !scenes.contains_key(&node.id)
+                    && notepad.as_ref().is_none_or(|(id, _)| *id != node.id)
+                    && let Some(text) = text_of(&node.id)
+                {
+                    scenes.insert(node.id.clone(), text);
+                }
+            }
+            sync::SharedBinder { from: crate::lock::host().to_owned(), manifest: project.manifest.clone() }
+        });
+        let input = Input {
+            project: id,
+            title: project.title().to_owned(),
+            index,
+            scenes,
+            state: SyncState::load(&project.root, &self.settings.device_id),
+            stats,
+            binder,
+            today: crate::stats::key(crate::stats::today()),
+        };
         let (url, token) = (self.settings.helper_url.clone(), self.helper_token.clone());
         let (send, result) = mpsc::channel();
         std::thread::spawn(move || {
@@ -176,6 +197,7 @@ impl WriterApp {
         };
         let mut clashed = Vec::new();
         let mut new_scenes = 0;
+        let mut binder_news: Vec<(String, usize, usize, usize)> = Vec::new();
         // The notepad is `notepad` on the helper, whichever document it is here.
         let notepad = self.project.as_ref().and_then(|p| p.notepad()).map(|n| n.id.clone());
         let local = |id: String| match &notepad {
@@ -203,6 +225,23 @@ impl WriterApp {
                         }
                     }
                 }
+                Action::Binder { manifest, new, gone, clashes, from } => {
+                    // Gone there: closed here first (a snapshot's kept).
+                    for id in &gone {
+                        if let Some(tab) = self.open.remove(id) {
+                            self.docs.close(tab);
+                        }
+                    }
+                    let Some(project) = self.project.as_mut() else { continue };
+                    match project.take_merged(*manifest, &new, &gone) {
+                        Ok(changes) => self.follow(&changes),
+                        Err(e) => self.error = Some(format!("Couldn't take in the binder from {from}: {e}")),
+                    }
+                    if self.selected.as_ref().is_some_and(|s| gone.contains(s)) {
+                        self.selected = None;
+                    }
+                    binder_news.push((from, new.len(), gone.len(), clashes));
+                }
                 Action::NewScene { inbox_id, title, text } => {
                     if self.add_ipad_scene(&title, &text) {
                         outcome.state.imported.insert(inbox_id);
@@ -211,11 +250,27 @@ impl WriterApp {
                 }
             }
         }
-        if let Err(e) = outcome.state.save(root) {
+        if let Err(e) = outcome.state.save(root, &self.settings.device_id) {
             self.error = Some(format!("Couldn't save the sync record: {e}"));
         }
         let clock = chrono::Local::now().format("%H:%M");
         self.sync_message = format!("Synced with the web helper at {clock}");
+        // What came from another computer, said first.
+        if let Some((from, new, gone, clashes)) = binder_news.pop() {
+            let mut parts = Vec::new();
+            if new > 0 {
+                parts.push(format!("{new} new {}", if new == 1 { "document" } else { "documents" }));
+            }
+            if gone > 0 {
+                parts.push(format!("{gone} removed (each kept as a snapshot)"));
+            }
+            if clashes > 0 {
+                parts.push(format!("{clashes} changed on both, noted in {}", if clashes == 1 { "its Notes" } else { "their Notes" }));
+            }
+            let what = if parts.is_empty() { "the binder".to_owned() } else { parts.join(", ") };
+            self.set_status(format!("From {from}: {what}"), now);
+            return;
+        }
         if let Some(first) = clashed.first() {
             let others = if clashed.len() > 1 { format!(" (and {} more)", clashed.len() - 1) } else { String::new() };
             self.set_status(

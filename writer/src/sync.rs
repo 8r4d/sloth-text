@@ -30,6 +30,20 @@
 //! With the index goes the day's writing (words today, the day's goal, the
 //! manuscript's length and target), for the web to show.
 //!
+//! **The whole project** (CROSS-PLATFORM.md, phase 4): with the project set
+//! to sync whole, every document goes to the helper, not only the marked
+//! ones (the web editor still lists just those), and so does the binder:
+//! as the scene `_binder` (an id no document can have), the project file
+//! with the name of the computer that sent it. When the helper's binder has
+//! moved on since this computer last agreed with it, the two are merged
+//! (merge.rs) and the result sent back; documents new from the other
+//! computer come with their text, and ones gone there (and unchanged here)
+//! go here too (`Action::Binder`). That makes the helper a hub: each
+//! computer keeps its own copy and syncs everything through it.
+//!
+//! Each computer keeps its own sync record (`.sloth/sync-<device>.ron`), so
+//! a project in a synced folder can't have two computers sharing one.
+//!
 //! The rules (`run`) work against `Remote`, so tests can use a stand-in;
 //! `Http` is the real helper.
 
@@ -41,8 +55,34 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-/// Where a project's sync state lives, inside the project folder.
-const STATE_FILE: &str = ".sloth/sync.ron";
+/// Where a project's sync state lived before each computer had its own.
+const OLD_STATE_FILE: &str = ".sloth/sync.ron";
+
+/// Where this computer's sync state lives, inside the project folder.
+fn state_file(device: &str) -> String {
+    format!(".sloth/sync-{device}.ron")
+}
+
+/// The binder's id on the helper (ids of documents are letters and digits).
+pub const BINDER: &str = "_binder";
+
+/// The binder as sent to the helper: the project file, and who sent it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SharedBinder {
+    /// The computer's name (lock::host), for notes about clashes.
+    pub from: String,
+    pub manifest: crate::project::Manifest,
+}
+
+impl SharedBinder {
+    pub fn to_text(&self) -> String {
+        ron::ser::to_string_pretty(self, ron::ser::PrettyConfig::default()).unwrap_or_default()
+    }
+
+    pub fn from_text(text: &str) -> Option<Self> {
+        ron::from_str(text).ok()
+    }
+}
 
 /// What this Mac last synced, per project.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -55,6 +95,10 @@ pub struct SyncState {
     /// Inbox items already taken into the binder, to be marked collected on
     /// the helper at the next sync (and never taken twice meanwhile).
     pub imported: BTreeSet<i64>,
+    /// The binder as this computer and the helper last agreed (whole
+    /// projects only): the base for merging.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binder: Option<Synced>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -64,15 +108,24 @@ pub struct Synced {
 }
 
 impl SyncState {
-    pub fn load(root: &Path) -> Self {
-        std::fs::read_to_string(root.join(STATE_FILE))
-            .ok()
-            .and_then(|text| ron::from_str(&text).ok())
-            .unwrap_or_default()
+    /// This computer's record. The first computer to sync after records
+    /// became per computer takes over the old shared one.
+    pub fn load(root: &Path, device: &str) -> Self {
+        let read = |file: &str| std::fs::read_to_string(root.join(file)).ok().and_then(|text| ron::from_str(&text).ok());
+        if let Some(state) = read(&state_file(device)) {
+            return state;
+        }
+        match read(OLD_STATE_FILE) {
+            Some(state) => {
+                let _ = std::fs::remove_file(root.join(OLD_STATE_FILE));
+                state
+            }
+            None => SyncState::default(),
+        }
     }
 
-    pub fn save(&self, root: &Path) -> io::Result<()> {
-        let path = root.join(STATE_FILE);
+    pub fn save(&self, root: &Path, device: &str) -> io::Result<()> {
+        let path = root.join(state_file(device));
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
@@ -93,6 +146,11 @@ pub struct Input {
     pub state: SyncState,
     /// The day's writing, for the web: {date, today, goal, total, target, deadline}.
     pub stats: Value,
+    /// A whole project: the binder as it is here (and `scenes` has every
+    /// document, not only the marked ones).
+    pub binder: Option<SharedBinder>,
+    /// The day, for notes about clashes ("2026-11-25").
+    pub today: String,
 }
 
 /// The mobile notepad's id on the helper. Ids here are six letters and
@@ -121,6 +179,10 @@ pub enum Action {
     NewScene { inbox_id: i64, title: String, text: String },
     /// The notepad was started on the web, and the Mac has none yet.
     NewNotepad { text: String },
+    /// A whole project's binder, merged with another computer's: take it,
+    /// write the documents new from there (`new`, by id), and remove the
+    /// ones gone there (`gone`; keep a snapshot of each first).
+    Binder { manifest: Box<crate::project::Manifest>, new: BTreeMap<String, String>, gone: Vec<String>, clashes: usize, from: String },
 }
 
 #[derive(Debug, Default)]
@@ -186,7 +248,7 @@ pub trait Remote {
 
 /// Sync once. See the module's description for the rules.
 pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> {
-    let Input { project, title, index, scenes, state, stats } = input;
+    let Input { project, title, index, scenes, state, stats, binder, today } = input;
     let mut out = Outcome { state, ..Outcome::default() };
 
     remote.put_index(&project, &title, &index, &stats)?;
@@ -245,8 +307,121 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
             out.actions.push(Action::NewScene { inbox_id: item.id, title: item.title, text: item.text });
         }
     }
+    if let Some(ours) = binder {
+        sync_binder(remote, &project, &mut out, &scenes, &theirs, ours, &today)?;
+    }
     out.state.seq = seq;
     Ok(out)
+}
+
+/// What `fetch` brings: the binder, each document's text by id, and the
+/// sync record to carry on from.
+pub type Fetched = (SharedBinder, BTreeMap<String, String>, SyncState);
+
+/// A whole project from the helper, for a computer that doesn't have it
+/// yet: its binder, every document's text (by id), and the sync record to
+/// carry on from. `None` if the project isn't synced whole.
+#[allow(dead_code)] // For "Get Project from the Helper…", next.
+pub fn fetch(remote: &mut dyn Remote, project: &str) -> Result<Option<Fetched>, SyncError> {
+    let (changes, seq) = remote.changes(project, 0)?;
+    let Some((binder, synced)) = changes.iter().find(|c| c.id == BINDER).and_then(|c| Some((SharedBinder::from_text(&c.text)?, c))) else {
+        return Ok(None);
+    };
+    let docs = documents(&binder.manifest);
+    let mut texts: BTreeMap<String, String> = changes.iter().filter(|c| docs.contains(&c.id)).map(|c| (c.id.clone(), c.text.clone())).collect();
+    // The notepad is `notepad` there, whichever document it is.
+    if let (Some(id), Some(c)) = (&binder.manifest.notepad, changes.iter().find(|c| c.id == NOTEPAD)) {
+        texts.insert(id.clone(), c.text.clone());
+    }
+    let state = SyncState {
+        seq,
+        scenes: changes.iter().filter(|c| c.id != BINDER).map(|c| (c.id.clone(), Synced { version: c.version, text: c.text.clone() })).collect(),
+        imported: BTreeSet::new(),
+        binder: Some(Synced { version: synced.version, text: synced.text.clone() }),
+    };
+    Ok(Some((binder, texts, state)))
+}
+
+/// A whole project's binder: send it if only this side changed; merge if
+/// the helper's moved on; then send the result. See the module's notes.
+#[allow(clippy::too_many_arguments)]
+fn sync_binder(
+    remote: &mut dyn Remote,
+    project: &str,
+    out: &mut Outcome,
+    scenes: &BTreeMap<String, String>,
+    theirs: &BTreeMap<&str, &Change>,
+    ours: SharedBinder,
+    today: &str,
+) -> Result<(), SyncError> {
+    let last = out.state.binder.clone();
+    let base = last.as_ref().and_then(|s| SharedBinder::from_text(&s.text));
+    let newer = theirs.get(BINDER).filter(|t| last.as_ref().is_none_or(|l| t.version > l.version)).copied();
+    let (send, base_version) = match newer.and_then(|t| Some((t, SharedBinder::from_text(&t.text)?))) {
+        Some((change, there)) => {
+            // Documents changed since the last sync, on each side.
+            let edited_here: BTreeSet<String> = scenes
+                .iter()
+                .filter(|(id, text)| out.state.scenes.get(*id).is_none_or(|s| s.text != **text))
+                .map(|(id, _)| id.clone())
+                .collect();
+            let edited_there: BTreeSet<String> = theirs.keys().filter(|id| !id.starts_with('_')).map(|id| (*id).to_owned()).collect();
+            // Never agreed before: everything on both sides is new to the other.
+            let empty = crate::project::Manifest { binder: Vec::new(), ..ours.manifest.clone() };
+            let base_manifest = base.as_ref().map_or(&empty, |b| &b.manifest);
+            let merged = crate::merge::merge(base_manifest, &ours.manifest, &there.manifest, &edited_here, &edited_there, &there.from, today);
+            let mine: BTreeSet<String> = documents(&ours.manifest);
+            let all: BTreeSet<String> = documents(&merged.manifest);
+            // New from there, with their text (and recorded as synced).
+            let mut new = BTreeMap::new();
+            for id in all.difference(&mine) {
+                let text = theirs.get(id.as_str()).map_or(String::new(), |c| c.text.clone());
+                if let Some(c) = theirs.get(id.as_str()) {
+                    out.state.scenes.insert(id.clone(), Synced { version: c.version, text: c.text.clone() });
+                }
+                new.insert(id.clone(), text);
+            }
+            let gone: Vec<String> = mine.difference(&all).cloned().collect();
+            for id in &gone {
+                out.state.scenes.remove(id);
+            }
+            out.received += new.len();
+            out.clashes += merged.clashes.len();
+            let manifest = merged.manifest.clone();
+            out.actions.push(Action::Binder { manifest: Box::new(merged.manifest), new, gone, clashes: merged.clashes.len(), from: there.from });
+            (SharedBinder { from: ours.from.clone(), manifest }, change.version)
+        }
+        None => {
+            // Nothing new there: send ours if it changed since.
+            if base.as_ref().is_some_and(|b| b.manifest == ours.manifest) {
+                return Ok(());
+            }
+            let version = last.as_ref().map_or_else(|| theirs.get(BINDER).map_or(0, |t| t.version), |l| l.version);
+            (ours, version)
+        }
+    };
+    let text = send.to_text();
+    match remote.put_scene(project, BINDER, &text, base_version)? {
+        Put::Saved { version } => out.state.binder = Some(Synced { version, text }),
+        // Changed again meanwhile: the next sync merges that too.
+        Put::Clash { .. } => {}
+    }
+    Ok(())
+}
+
+/// The documents in a binder, by id.
+fn documents(manifest: &crate::project::Manifest) -> BTreeSet<String> {
+    fn walk(nodes: &[crate::project::Node], out: &mut BTreeSet<String>) {
+        for n in nodes {
+            if n.path.is_some() {
+                out.insert(n.id.clone());
+            }
+            walk(&n.children, out);
+        }
+    }
+    let mut out = BTreeSet::new();
+    walk(&manifest.binder, &mut out);
+    out
 }
 
 /// Both sides changed a scene since `base`. The notepad keeps both sides'
@@ -528,7 +703,117 @@ mod tests {
             scenes: scenes.iter().map(|(id, t)| (id.to_string(), t.to_string())).collect(),
             state,
             stats: Value::Null,
+            binder: None,
+            today: "2026-11-25".into(),
         }
+    }
+
+    // ----- a whole project between two computers --------------------------
+
+    /// One computer's sync, as the app does it: every document, the binder,
+    /// and the results put into the project.
+    fn sync_computer(helper: &mut Fake, p: &mut crate::project::Project, state: &mut SyncState, host: &str) {
+        let scenes: BTreeMap<String, String> = p
+            .documents()
+            .iter()
+            .map(|n| (n.id.clone(), crate::project::read_text(&p.file_path(&n.id).unwrap()).unwrap_or_default()))
+            .collect();
+        let input = Input {
+            project: "p".into(),
+            title: "Book".into(),
+            index: Vec::new(),
+            scenes,
+            state: state.clone(),
+            stats: Value::Null,
+            binder: Some(SharedBinder { from: host.into(), manifest: p.manifest.clone() }),
+            today: "2026-11-25".into(),
+        };
+        let out = run(helper, input).unwrap();
+        for action in out.actions {
+            match action {
+                Action::Replace { id, text, .. } => std::fs::write(p.file_path(&id).unwrap(), text).unwrap(),
+                Action::Binder { manifest, new, gone, .. } => {
+                    p.take_merged(*manifest, &new, &gone).unwrap();
+                }
+                Action::Snapshot { id, text, name } => {
+                    crate::snapshots::take(&p.root, &id, &text, &name).unwrap();
+                }
+                _ => {}
+            }
+        }
+        *state = out.state;
+    }
+
+    fn text(p: &crate::project::Project, title: &str) -> String {
+        let node = p.documents().into_iter().find(|n| n.title == title).unwrap_or_else(|| panic!("no {title}"));
+        crate::project::read_text(&p.file_path(&node.id).unwrap()).unwrap()
+    }
+
+    fn titles(p: &crate::project::Project) -> Vec<String> {
+        let mut t: Vec<String> = p.documents().iter().map(|n| n.title.clone()).collect();
+        t.sort();
+        t
+    }
+
+    #[test]
+    fn two_computers_share_a_whole_project_through_the_helper() {
+        use crate::project::{Place, Project};
+        let base = std::env::temp_dir().join(format!("sloth-writer-hub-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let mut helper = Fake::default();
+
+        // The Mac starts it, and syncs it whole.
+        let mut mac = Project::create(&base.join("mac"), "Book").unwrap();
+        mac.manifest.whole_sync = true;
+        let one = mac.add_document(&Place::Into("manuscript".into()), "One").unwrap();
+        let two = mac.add_document(&Place::Into("manuscript".into()), "Two").unwrap();
+        std::fs::write(mac.file_path(&one).unwrap(), "The first.").unwrap();
+        std::fs::write(mac.file_path(&two).unwrap(), "The second.").unwrap();
+        let mut mac_state = SyncState::default();
+        sync_computer(&mut helper, &mut mac, &mut mac_state, "Mac");
+
+        // The PC gets it from the helper.
+        let (binder, texts, mut pc_state) = fetch(&mut helper, "p").unwrap().expect("synced whole");
+        let mut pc = Project::from_shared(&base.join("pc"), binder.manifest, &texts).unwrap();
+        assert_eq!(titles(&pc), titles(&mac));
+        assert_eq!(text(&pc, "Two"), "The second.");
+
+        // Each changes something different.
+        mac.rename(&one, "First").unwrap();
+        std::fs::write(mac.file_path(&two).unwrap(), "The second, revised.").unwrap();
+        let three = pc.add_document(&Place::Into("manuscript".into()), "Three").unwrap();
+        std::fs::write(pc.file_path(&three).unwrap(), "Written on the PC.").unwrap();
+        pc.node_mut_for_test(&one).meta.synopsis = "Mara lands.".into();
+        pc.save().unwrap();
+
+        // Sync round: both end up with everything.
+        sync_computer(&mut helper, &mut mac, &mut mac_state, "Mac");
+        sync_computer(&mut helper, &mut pc, &mut pc_state, "Writing PC");
+        sync_computer(&mut helper, &mut mac, &mut mac_state, "Mac");
+        for p in [&mac, &pc] {
+            assert_eq!(titles(p), ["First", "Three", "Two", "Untitled"]);
+            assert_eq!(text(p, "Two"), "The second, revised.");
+            assert_eq!(text(p, "Three"), "Written on the PC.");
+            assert_eq!(p.node(&one).unwrap().meta.synopsis, "Mara lands.");
+        }
+
+        // Trashed on the PC: in the Trash on the Mac too, its file with it.
+        pc.trash(&two).unwrap();
+        sync_computer(&mut helper, &mut pc, &mut pc_state, "Writing PC");
+        sync_computer(&mut helper, &mut mac, &mut mac_state, "Mac");
+        assert_eq!(mac.role_of(&two), Some(crate::project::Role::Trash));
+        assert!(mac.file_path(&two).unwrap().starts_with(mac.root.join("trash")), "{:?}", mac.file_path(&two));
+        assert_eq!(crate::project::read_text(&mac.file_path(&two).unwrap()).unwrap(), "The second, revised.");
+
+        // Both change the same document: this side's kept, the other's in a snapshot.
+        std::fs::write(mac.file_path(&three).unwrap(), "The Mac's version.").unwrap();
+        std::fs::write(pc.file_path(&three).unwrap(), "The PC's version.").unwrap();
+        sync_computer(&mut helper, &mut mac, &mut mac_state, "Mac");
+        sync_computer(&mut helper, &mut pc, &mut pc_state, "Writing PC");
+        assert_eq!(text(&pc, "Three"), "The PC's version.");
+        let kept: Vec<String> = crate::snapshots::list(&pc.root, &three).iter().map(|s| s.text().unwrap()).collect();
+        assert!(kept.contains(&"The Mac's version.".to_owned()), "{kept:?}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
@@ -668,9 +953,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let mut state = SyncState { seq: 4, ..Default::default() };
         state.scenes.insert("a".into(), Synced { version: 2, text: "words".into() });
-        state.save(&dir).unwrap();
-        assert_eq!(SyncState::load(&dir), state);
-        assert_eq!(SyncState::load(&dir.join("missing")), SyncState::default());
+        state.save(&dir, "mac").unwrap();
+        assert_eq!(SyncState::load(&dir, "mac"), state);
+        assert_eq!(SyncState::load(&dir.join("missing"), "mac"), SyncState::default());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

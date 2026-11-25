@@ -40,6 +40,8 @@ impl WriterApp {
         let title = project.manifest.title.clone();
         let kind = project.manifest.kind;
         let mut new_at_top = project.manifest.new_at_top;
+        let mut whole_sync = project.manifest.whole_sync;
+        let helper_ready = !self.settings.helper_url.trim().is_empty() && !self.helper_token.trim().is_empty();
         let statuses = project.manifest.statuses.clone();
         let labels = project.manifest.labels.clone();
         let profiles = project.manifest.profiles.clone();
@@ -86,6 +88,15 @@ impl WriterApp {
                     group(ui, "Binder");
                     ui.checkbox(&mut new_at_top, "New documents and folders go at the top of their folder")
                         .on_hover_text("Newest first, for a journal or blog. Off, a new item goes after the selected document, or at the bottom of the selected folder, in order.");
+
+                    group(ui, "Web helper");
+                    ui.add_enabled_ui(helper_ready, |ui| {
+                        ui.checkbox(&mut whole_sync, "Sync the whole project, so other computers can share it")
+                            .on_hover_text("Every document and the binder go to the web helper, and each computer that opens the project from it keeps its own copy in step. Changes made on two computers are merged; where both changed the same thing, this computer's is kept and the other's is noted or kept as a snapshot.");
+                    });
+                    if !helper_ready {
+                        ui.weak("Set up the web helper in App Settings first.");
+                    }
 
                     group(ui, "Goals");
                     super::stats_ui::goals_form(ui, goals, fields);
@@ -135,6 +146,11 @@ impl WriterApp {
 
         if *goals != goals_before {
             self.manifest_dirty = true;
+        }
+        if whole_sync != project.manifest.whole_sync {
+            project.manifest.whole_sync = whole_sync;
+            self.manifest_dirty = true;
+            self.sync_now = true;
         }
         if new_at_top != project.manifest.new_at_top
             && let Err(e) = project.set_new_at_top(new_at_top)

@@ -1543,7 +1543,7 @@ fn scenes_written_on_the_ipad_land_in_the_manuscript() {
     let node = project.manifest.binder[0].children.iter().find(|n| n.title == "On the train").unwrap();
     assert!(node.meta.on_ipad, "it stays on the web");
     assert_eq!(fs::read_to_string(project.file_path(&node.id).unwrap()).unwrap(), "An idea.");
-    assert!(SyncState::load(&dir.0).imported.contains(&7), "recorded, to be collected next time");
+    assert!(SyncState::load(&dir.0, &harness.state().settings.device_id).imported.contains(&7), "recorded, to be collected next time");
 }
 
 #[test]
@@ -1602,7 +1602,7 @@ fn app_syncs_with_the_real_helper() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     assert!(harness.state().sync_message.starts_with("Synced"), "{}", harness.state().sync_message);
-    let state = SyncState::load(&dir.0);
+    let state = SyncState::load(&dir.0, &harness.state().settings.device_id);
     assert_eq!(state.scenes[&id].text, "Written on the Mac.");
     assert_eq!(state.scenes[&crate::sync::notes_id(&id)].text, "Check the dates.", "its notes go too");
     assert!(harness.state().project.as_ref().unwrap().manifest.sync_id.is_some());

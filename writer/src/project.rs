@@ -287,6 +287,11 @@ pub struct Manifest {
     /// first, rather than in order after what's selected.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub new_at_top: bool,
+    /// Sync every document and the binder through the web helper, so
+    /// other computers can share the project (see sync.rs), not only the
+    /// documents marked for the web.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub whole_sync: bool,
 }
 
 /// What sort of writing a project is, shown by its icon and colour on the
@@ -482,6 +487,7 @@ impl Project {
                 kind: Kind::default(),
                 notepad: None,
                 new_at_top: false,
+                whole_sync: false,
             },
         };
         project.repair();
@@ -800,6 +806,107 @@ impl Project {
         insert(&mut self.manifest.binder, place, node).expect("checked above");
         self.save()?;
         Ok(id)
+    }
+
+    /// A project fetched from the helper, as another computer has it (see
+    /// sync::fetch): written to `root` (missing or empty), every document
+    /// named as this computer names files.
+    #[allow(dead_code)] // For "Get Project from the Helper…", next.
+    pub fn from_shared(root: &Path, manifest: Manifest, texts: &BTreeMap<String, String>) -> io::Result<Self> {
+        if root.exists() && fs::read_dir(root)?.next().is_some() {
+            return Err(invalid("That folder isn't empty."));
+        }
+        fs::create_dir_all(root)?;
+        let mut project = Project { root: root.to_path_buf(), manifest };
+        fn clear(nodes: &mut [Node]) {
+            for n in nodes {
+                if n.path.is_some() {
+                    n.path = Some(String::new());
+                }
+                clear(&mut n.children);
+            }
+        }
+        clear(&mut project.manifest.binder);
+        project.repair();
+        let ids: Vec<String> = project.all_nodes().iter().filter(|n| n.path.is_some()).map(|n| n.id.clone()).collect();
+        for id in &ids {
+            project.node_mut(id).expect("listed").path = None;
+        }
+        for id in ids {
+            let title = project.node(&id).expect("listed").title.clone();
+            let dir = project.top_of(&id).map_or_else(|| Role::Manuscript.folder().to_owned(), |t| t.id.clone());
+            let rel = project.free_path(&dir, &slug(&title), None);
+            fs::create_dir_all(root.join(&dir))?;
+            write_atomically(&root.join(&rel), texts.get(&id).map_or("", String::as_str).as_bytes())?;
+            project.node_mut(&id).expect("listed").path = Some(rel);
+        }
+        project.save()?;
+        Ok(project)
+    }
+
+    /// Take a binder merged with another computer's (see merge.rs and
+    /// sync.rs): documents gone there are kept as a snapshot and removed;
+    /// documents new from there are written, named as this computer names
+    /// files; and each document's file goes to the folder the merge put it
+    /// in (into the Trash, say). Returns where files moved, for open
+    /// documents to follow.
+    pub fn take_merged(&mut self, merged: Manifest, new: &BTreeMap<String, String>, gone: &[String]) -> io::Result<Vec<PathChange>> {
+        for id in gone {
+            if let Some(path) = self.file_path(id) {
+                if let Ok(text) = read_text(&path) {
+                    let _ = crate::snapshots::take(&self.root, id, &text, "removed on another computer");
+                }
+                match fs::remove_file(&path) {
+                    Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+                    _ => {}
+                }
+            }
+        }
+        // This computer's own settings stay its own.
+        let sync_id = self.manifest.sync_id.clone();
+        self.manifest = Manifest { sync_id, ..merged };
+        // New documents: their file names are the other computer's.
+        for id in new.keys() {
+            if let Some(node) = self.node_mut(id) {
+                node.path = None;
+            }
+        }
+        for (id, text) in new {
+            let Some(node) = self.node(id) else { continue };
+            let title = node.title.clone();
+            let Some(dir) = self.top_of(id).map(|t| t.id.clone()) else { continue };
+            let rel = self.free_path(&dir, &slug(&title), None);
+            write_atomically(&self.root.join(&rel), text.as_bytes())?;
+            self.node_mut(id).expect("just found").path = Some(rel);
+        }
+        // Files in another top folder than their document now is.
+        let mut changes = Vec::new();
+        // (Every document, the Trash's too: that's where the merge most
+        // often moves one.)
+        let misplaced: Vec<(String, String, String)> = self
+            .all_nodes()
+            .iter()
+            .filter(|n| n.is_document())
+            .filter_map(|n| {
+                let path = n.path.clone()?;
+                let dir = self.top_of(&n.id)?.id.clone();
+                (!path.starts_with(&format!("{dir}/"))).then(|| (n.id.clone(), path, dir))
+            })
+            .collect();
+        for (id, old, dir) in misplaced {
+            let stem = Path::new(&old).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "untitled".into());
+            let new_rel = self.free_path(&dir, &stem, None);
+            let (from, to) = (self.root.join(&old), self.root.join(&new_rel));
+            if from.is_file() {
+                fs::create_dir_all(to.parent().expect("in a folder"))?;
+                fs::rename(&from, &to)?;
+                changes.push(PathChange { from, to });
+            }
+            self.node_mut(&id).expect("listed").path = Some(new_rel);
+        }
+        self.repair();
+        self.save()?;
+        Ok(changes)
     }
 
     /// Add a document for a file already in the project's folders (`rel`,

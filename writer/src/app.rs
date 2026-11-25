@@ -276,8 +276,11 @@ impl WriterApp {
         // Fonts for the Settings window's list (scanned in the background).
         sloth_core::fonts::start_scan(&cc.egui_ctx);
         sloth_core::fonts::set_icon_font(include_bytes!("../icons/writer-icons.ttf"));
-        let settings: settings_ui::WriterSettings =
+        let mut settings: settings_ui::WriterSettings =
             cc.storage.and_then(|s| eframe::get_value(s, settings_ui::SETTINGS_KEY)).unwrap_or_default();
+        if settings.device_id.is_empty() {
+            settings.device_id = crate::project::random_id(8);
+        }
         let mut app = Self {
             project: None,
             selected: None,

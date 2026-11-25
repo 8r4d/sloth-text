@@ -105,6 +105,9 @@ pub struct WriterSettings {
     pub elevator: bool,
     /// With a Severance theme: scanlines and a vignette, like an old screen.
     pub screen_glow: bool,
+    /// This computer's own name for itself, for its sync records (see
+    /// sync.rs). Made on first use.
+    pub device_id: String,
 }
 
 impl Default for WriterSettings {
@@ -140,6 +143,7 @@ impl Default for WriterSettings {
             // Not while testing: screenshots would catch it mid-ride.
             elevator: !cfg!(test),
             screen_glow: false,
+            device_id: String::new(),
             theme: ThemeChoice::default(),
         }
     }

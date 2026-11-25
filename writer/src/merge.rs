@@ -26,9 +26,6 @@
 //! A document's file name isn't merged: each computer names its own files,
 //! and the helper knows documents by id (see sync.rs).
 
-// Used by tests until whole-project sync is wired in (CROSS-PLATFORM.md, 4d).
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde_json::Value;

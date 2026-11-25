@@ -517,7 +517,8 @@ function scene_id(): string {
 function list_projects(int $userId): array {
     $stmt = db()->prepare('SELECT p.uid, p.title, UNIX_TIMESTAMP(p.updated_at) AS updated,
                                   (SELECT COUNT(*) FROM {scenes} s WHERE s.project_id = p.id
-                                     AND s.scene_id NOT LIKE \'%-notes\' AND s.scene_id <> \'notepad\') AS scenes
+                                     AND s.scene_id NOT LIKE \'%-notes\' AND s.scene_id <> \'notepad\'
+                                     AND s.scene_id NOT LIKE \'\\_%\') AS scenes
                            FROM {projects} p WHERE p.user_id = ? ORDER BY p.updated_at DESC');
     $stmt->execute([$userId]);
     return array_map(fn($p) => [
