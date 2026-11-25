@@ -66,6 +66,9 @@ fn state_file(device: &str) -> String {
 /// The binder's id on the helper (ids of documents are letters and digits).
 pub const BINDER: &str = "_binder";
 
+/// Each computer's own tally of words, as `_stats-<device>` (see stats.rs).
+pub const STATS_PREFIX: &str = "_stats-";
+
 /// The binder as sent to the helper: the project file, and who sent it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SharedBinder {
@@ -179,6 +182,12 @@ pub enum Action {
     NewScene { inbox_id: i64, title: String, text: String },
     /// The notepad was started on the web, and the Mac has none yet.
     NewNotepad { text: String },
+    /// Another computer changed this document (a whole project): put `text`
+    /// in, as `Replace` does, but it's that computer's writing, not counted
+    /// in today's words here (it counts its own).
+    FromComputer { id: String, was: String, text: String },
+    /// Another computer's own tally of words (see stats.rs), by its device id.
+    OtherStats { device: String, tally: crate::stats::Tally },
     /// A whole project's binder, merged with another computer's: take it,
     /// write the documents new from there (`new`, by id), and remove the
     /// ones gone there (`gone`; keep a snapshot of each first).
@@ -227,6 +236,8 @@ pub struct Change {
     pub id: String,
     pub text: String,
     pub version: u32,
+    /// Saved in the web editor (rather than by a copy of Writer).
+    pub from_web: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -283,7 +294,11 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
                         out.state.scenes.insert(id.clone(), Synced { version: t.version, text: t.text.clone() });
                     }
                     Some(t) if !mine_changed => {
-                        out.actions.push(Action::Replace { id: id.clone(), was: mine.clone(), text: t.text.clone() });
+                        out.actions.push(if t.from_web {
+                            Action::Replace { id: id.clone(), was: mine.clone(), text: t.text.clone() }
+                        } else {
+                            Action::FromComputer { id: id.clone(), was: mine.clone(), text: t.text.clone() }
+                        });
                         out.state.scenes.insert(id.clone(), Synced { version: t.version, text: t.text.clone() });
                         out.received += 1;
                     }
@@ -310,13 +325,21 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
     if let Some(ours) = binder {
         sync_binder(remote, &project, &mut out, &scenes, &theirs, ours, &today)?;
     }
+    // Other computers' tallies of words (this one's is among `scenes`).
+    for (id, change) in &theirs {
+        if let Some(device) = id.strip_prefix(STATS_PREFIX).filter(|_| !scenes.contains_key(*id))
+            && let Some(tally) = crate::stats::Tally::from_text(&change.text)
+        {
+            out.actions.push(Action::OtherStats { device: device.to_owned(), tally });
+        }
+    }
     out.state.seq = seq;
     Ok(out)
 }
 
-/// What `fetch` brings: the binder, each document's text by id, and the
-/// sync record to carry on from.
-pub type Fetched = (SharedBinder, BTreeMap<String, String>, SyncState);
+/// What `fetch` brings: the binder, each document's text by id, the sync
+/// record to carry on from, and the other computers' tallies of words.
+pub type Fetched = (SharedBinder, BTreeMap<String, String>, SyncState, BTreeMap<String, crate::stats::Tally>);
 
 /// A whole project from the helper, for a computer that doesn't have it
 /// yet: its binder, every document's text (by id), and the sync record to
@@ -338,7 +361,11 @@ pub fn fetch(remote: &mut dyn Remote, project: &str) -> Result<Option<Fetched>, 
         imported: BTreeSet::new(),
         binder: Some(Synced { version: synced.version, text: synced.text.clone() }),
     };
-    Ok(Some((binder, texts, state)))
+    let tallies = changes
+        .iter()
+        .filter_map(|c| Some((c.id.strip_prefix(STATS_PREFIX)?.to_owned(), crate::stats::Tally::from_text(&c.text)?)))
+        .collect();
+    Ok(Some((binder, texts, state, tallies)))
 }
 
 /// A whole project's binder: send it if only this side changed; merge if
@@ -606,6 +633,7 @@ impl Remote for Http {
                     id: s["id"].as_str()?.to_owned(),
                     text: s["text"].as_str()?.to_owned(),
                     version: s["version"].as_u64()? as u32,
+                    from_web: s["by"].as_str() == Some("web"),
                 })
             })
             .collect();
@@ -659,6 +687,8 @@ pub mod fake {
         pub scenes: BTreeMap<String, (String, u32, i64)>, // text, version, seq
         pub seq: i64,
         pub inbox: Vec<(InboxItem, bool)>, // item, collected
+        /// Scenes last saved in the web editor.
+        pub by_web: BTreeSet<String>,
     }
 
     impl Fake {
@@ -666,6 +696,7 @@ pub mod fake {
         pub fn ipad_edit(&mut self, id: &str, text: &str) {
             let version = self.scenes.get(id).map_or(0, |s| s.1);
             assert_eq!(self.put_scene("p", id, text, version).unwrap(), Put::Saved { version: version + 1 });
+            self.by_web.insert(id.to_owned());
         }
 
         pub fn text(&self, id: &str) -> Option<&str> {
@@ -682,7 +713,7 @@ pub mod fake {
         fn changes(&mut self, _: &str, since: i64) -> Result<(Vec<Change>, i64), SyncError> {
             let mut changed: Vec<_> = self.scenes.iter().filter(|(_, s)| s.2 > since).collect();
             changed.sort_by_key(|(_, s)| s.2);
-            let list = changed.into_iter().map(|(id, s)| Change { id: id.clone(), text: s.0.clone(), version: s.1 }).collect();
+            let list = changed.into_iter().map(|(id, s)| Change { id: id.clone(), text: s.0.clone(), version: s.1, from_web: self.by_web.contains(id) }).collect();
             Ok((list, self.seq))
         }
 
@@ -695,6 +726,7 @@ pub mod fake {
                 return Ok(Put::Saved { version: base });
             }
             self.seq += 1;
+            self.by_web.remove(id);
             self.scenes.insert(id.to_owned(), (text.to_owned(), base + 1, self.seq));
             Ok(Put::Saved { version: base + 1 })
         }
@@ -737,11 +769,18 @@ mod tests {
     /// One computer's sync, as the app does it: every document, the binder,
     /// and the results put into the project.
     fn sync_computer(helper: &mut Fake, p: &mut crate::project::Project, state: &mut SyncState, host: &str) {
-        let scenes: BTreeMap<String, String> = p
+        let mut stats = crate::stats::Stats::default();
+        sync_counting(helper, p, state, host, &mut stats);
+    }
+
+    /// The same, with this computer's statistics sent and the others' taken in.
+    fn sync_counting(helper: &mut Fake, p: &mut crate::project::Project, state: &mut SyncState, host: &str, stats: &mut crate::stats::Stats) {
+        let mut scenes: BTreeMap<String, String> = p
             .documents()
             .iter()
             .map(|n| (n.id.clone(), crate::project::read_text(&p.file_path(&n.id).unwrap()).unwrap_or_default()))
             .collect();
+        scenes.insert(format!("{STATS_PREFIX}{host}"), stats.tally().to_text());
         let input = Input {
             project: "p".into(),
             title: "Book".into(),
@@ -755,7 +794,8 @@ mod tests {
         let out = run(helper, input).unwrap();
         for action in out.actions {
             match action {
-                Action::Replace { id, text, .. } => std::fs::write(p.file_path(&id).unwrap(), text).unwrap(),
+                Action::Replace { id, text, .. } | Action::FromComputer { id, text, .. } => std::fs::write(p.file_path(&id).unwrap(), text).unwrap(),
+                Action::OtherStats { device, tally } => stats.set_other(&device, tally),
                 Action::Binder { manifest, new, gone, .. } => {
                     p.take_merged(*manifest, &new, &gone).unwrap();
                 }
@@ -797,7 +837,7 @@ mod tests {
         sync_computer(&mut helper, &mut mac, &mut mac_state, "Mac");
 
         // The PC gets it from the helper.
-        let (binder, texts, mut pc_state) = fetch(&mut helper, "p").unwrap().expect("synced whole");
+        let (binder, texts, mut pc_state, _) = fetch(&mut helper, "p").unwrap().expect("synced whole");
         let mut pc = Project::from_shared(&base.join("pc"), binder.manifest, &texts).unwrap();
         assert_eq!(titles(&pc), titles(&mac));
         assert_eq!(text(&pc, "Two"), "The second.");
@@ -837,6 +877,36 @@ mod tests {
         assert_eq!(text(&pc, "Three"), "The PC's version.");
         let kept: Vec<String> = crate::snapshots::list(&pc.root, &three).iter().map(|s| s.text().unwrap()).collect();
         assert!(kept.contains(&"The Mac's version.".to_owned()), "{kept:?}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn each_computers_words_are_added_up_once() {
+        use crate::project::Project;
+        let base = std::env::temp_dir().join(format!("sloth-writer-tallies-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let mut helper = Fake::default();
+        let mut mac = Project::create(&base.join("mac"), "Book").unwrap();
+        mac.manifest.whole_sync = true;
+        let today = crate::stats::today();
+        let (mut mac_stats, mut pc_stats) = (crate::stats::Stats::default(), crate::stats::Stats::default());
+        // 300 typed on the Mac, 200 on the PC, and the same 50 from the web
+        // editor reaching both.
+        mac_stats.add(today, 300);
+        mac_stats.add_web(today, 50);
+        pc_stats.add(today, 200);
+        pc_stats.add_web(today, 50);
+        let mut mac_state = SyncState::default();
+        sync_counting(&mut helper, &mut mac, &mut mac_state, "mac", &mut mac_stats);
+        let (binder, texts, mut pc_state, tallies) = fetch(&mut helper, "p").unwrap().unwrap();
+        let mut pc = Project::from_shared(&base.join("pc"), binder.manifest, &texts).unwrap();
+        for (device, tally) in tallies {
+            pc_stats.set_other(&device, tally);
+        }
+        sync_counting(&mut helper, &mut pc, &mut pc_state, "pc", &mut pc_stats);
+        sync_counting(&mut helper, &mut mac, &mut mac_state, "mac", &mut mac_stats);
+        assert_eq!(pc_stats.written(today), 550, "300 + 200, and the web's 50 once");
+        assert_eq!(mac_stats.written(today), 550);
         let _ = std::fs::remove_dir_all(&base);
     }
 

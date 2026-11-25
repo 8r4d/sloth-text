@@ -9,7 +9,7 @@
 //! The daily log lives in `.sloth/stats.ron` in the project folder, beside
 //! the sync record; the goals are in the project file.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::Path;
 
@@ -32,10 +32,27 @@ pub fn today() -> NaiveDate {
 }
 
 /// The words written each day.
+///
+/// A project synced whole between computers (sync.rs) counts each source
+/// once: words typed on this computer (`mine`), words that came from the
+/// web editor (`web`), and each other computer's own typing (`others`, as
+/// it sent them). `days`, what everything reads, is their sum, with the web
+/// editor's taken once however many computers received it (the most any
+/// one did). A project only ever used on one computer has just `mine`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Stats {
-    /// Net words by day ("YYYY-MM-DD"). Negative when more was cut than written.
+    /// Net words by day ("YYYY-MM-DD"), all sources. Negative when more was
+    /// cut than written.
     pub days: BTreeMap<String, i64>,
+    /// Typed on this computer, by day.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mine: BTreeMap<String, i64>,
+    /// From the web editor, as this computer received them, by day.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub web: BTreeMap<String, i64>,
+    /// Other computers' tallies, by their device id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub others: BTreeMap<String, Tally>,
     /// The last day reaching the goal was celebrated, so it's only once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub celebrated: Option<String>,
@@ -51,6 +68,24 @@ pub struct Stats {
     pub sprints: Vec<Sprint>,
 }
 
+/// One computer's own words by day, as it sends them to the others.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Tally {
+    pub typed: BTreeMap<String, i64>,
+    pub web: BTreeMap<String, i64>,
+}
+
+impl Tally {
+    pub fn to_text(&self) -> String {
+        ron::to_string(self).unwrap_or_default()
+    }
+
+    pub fn from_text(text: &str) -> Option<Self> {
+        ron::from_str(text).ok()
+    }
+}
+
 /// A writing sprint, finished: the day, how long it was, and the words.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Sprint {
@@ -61,10 +96,61 @@ pub struct Sprint {
 
 impl Stats {
     pub fn load(root: &Path) -> Self {
-        std::fs::read_to_string(root.join(STATS_FILE))
+        let mut stats: Stats = std::fs::read_to_string(root.join(STATS_FILE))
             .ok()
             .and_then(|text| ron::from_str(&text).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // From before the sources were kept apart: all of it was this
+        // computer's.
+        if stats.mine.is_empty() && stats.web.is_empty() && stats.others.is_empty() {
+            stats.mine = stats.days.clone();
+        }
+        stats
+    }
+
+    /// This computer's own tally, to send to the others.
+    pub fn tally(&self) -> Tally {
+        Tally { typed: self.mine.clone(), web: self.web.clone() }
+    }
+
+    /// Another computer's tally, as it sent it.
+    pub fn set_other(&mut self, device: &str, tally: Tally) {
+        self.others.insert(device.to_owned(), tally);
+        self.recount();
+    }
+
+    /// Words that came from the web editor.
+    pub fn add_web(&mut self, date: NaiveDate, words: i64) {
+        if words != 0 {
+            *self.web.entry(key(date)).or_default() += words;
+            self.recount_day(&key(date));
+        }
+    }
+
+    fn recount(&mut self) {
+        let days: BTreeSet<String> = self
+            .mine
+            .keys()
+            .chain(self.web.keys())
+            .chain(self.others.values().flat_map(|t| t.typed.keys().chain(t.web.keys())))
+            .cloned()
+            .collect();
+        for day in days {
+            self.recount_day(&day);
+        }
+    }
+
+    /// A day's total: everyone's typing, and the web's once.
+    fn recount_day(&mut self, day: &str) {
+        let get = |m: &BTreeMap<String, i64>| m.get(day).copied().unwrap_or(0);
+        let typed: i64 = get(&self.mine) + self.others.values().map(|t| get(&t.typed)).sum::<i64>();
+        let web = self.others.values().map(|t| get(&t.web)).fold(get(&self.web), i64::max);
+        let total = typed + web;
+        if total == 0 {
+            self.days.remove(day);
+        } else {
+            self.days.insert(day.to_owned(), total);
+        }
     }
 
     pub fn save(&self, root: &Path) -> io::Result<()> {
@@ -78,6 +164,7 @@ impl Stats {
 
     pub fn add(&mut self, date: NaiveDate, words: i64) {
         if words != 0 {
+            *self.mine.entry(key(date)).or_default() += words;
             *self.days.entry(key(date)).or_default() += words;
         }
     }
@@ -219,6 +306,21 @@ pub fn thousands(n: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn earlier_statistics_are_this_computers_own() {
+        let dir = std::env::temp_dir().join(format!("sloth-writer-stats-old-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".sloth")).unwrap();
+        std::fs::write(dir.join(STATS_FILE), "(days: {\"2026-11-20\": 400})").unwrap();
+        let mut stats = Stats::load(&dir);
+        assert_eq!(stats.mine.get("2026-11-20"), Some(&400));
+        // Another computer's words add to the day.
+        let other = Tally { typed: [("2026-11-20".to_owned(), 100)].into(), web: BTreeMap::new() };
+        stats.set_other("pc", other);
+        assert_eq!(stats.days.get("2026-11-20"), Some(&500));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn sprints_this_week() {

@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.3.0
+
+- Writing statistics across computers. With a project synced whole, each computer sends the words written on it, and each adds up the others': the day's words, the goal ring, streaks, rewards and Statistics count everything you wrote, on any computer. Edits from the web editor count once, however many computers bring them in, and another computer's writing arriving by sync no longer counts as written here.
+
 ## 2.2.0
 
 Three new themes, each with a touch of its own.

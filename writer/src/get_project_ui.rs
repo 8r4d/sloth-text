@@ -122,9 +122,17 @@ impl WriterApp {
             std::thread::spawn(move || {
                 let mut helper = Http::new(&url, &token);
                 let result = match sync::fetch(&mut helper, &id) {
-                    Ok(Some((binder, texts, state))) => {
-                        Project::from_shared(&root, binder.manifest, &texts).map(|p| (p, state)).map_err(|e| format!("Couldn't write the project to {}: {e}", root.display()))
-                    }
+                    Ok(Some((binder, texts, state, tallies))) => Project::from_shared(&root, binder.manifest, &texts)
+                        .and_then(|p| {
+                            // The other computers' words, for streaks and goals here.
+                            let mut stats = crate::stats::Stats::load(&p.root);
+                            for (device, tally) in tallies {
+                                stats.set_other(&device, tally);
+                            }
+                            stats.save(&p.root).map(|()| p)
+                        })
+                        .map(|p| (p, state))
+                        .map_err(|e| format!("Couldn't write the project to {}: {e}", root.display())),
                     Ok(None) => Err("That project isn't synced whole yet: on the computer that has it, turn on Project Settings \u{2192} Web helper \u{2192} Sync the whole project, and sync.".into()),
                     Err(e) => Err(format!("Couldn't bring it over: {e}")),
                 };

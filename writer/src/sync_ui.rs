@@ -161,6 +161,8 @@ impl WriterApp {
                     scenes.insert(node.id.clone(), text);
                 }
             }
+            // This computer's own tally of words, for the others to add up.
+            scenes.insert(format!("{}{}", sync::STATS_PREFIX, self.settings.device_id), self.stats.tally().to_text());
             sync::SharedBinder { from: crate::lock::host().to_owned(), manifest: project.manifest.clone() }
         });
         let input = Input {
@@ -210,7 +212,13 @@ impl WriterApp {
         };
         for action in std::mem::take(&mut outcome.actions) {
             match action {
-                Action::Replace { id, was, text } => self.take_ipad_text(root, &local(id), &was, &text),
+                Action::Replace { id, was, text } => self.take_ipad_text(root, &local(id), &was, &text, true),
+                // Another computer's writing: in, but its words are its own.
+                Action::FromComputer { id, was, text } => self.take_ipad_text(root, &local(id), &was, &text, false),
+                Action::OtherStats { device, tally } => {
+                    self.stats.set_other(&device, tally);
+                    self.stats_dirty = true;
+                }
                 // Notes changed on both: the Mac's stay, with the web editor's added.
                 Action::Snapshot { id, text, .. } if sync::notes_of(&id).is_some() => {
                     let scene = sync::notes_of(&id).expect("just checked").to_owned();
@@ -300,7 +308,9 @@ impl WriterApp {
     /// An edit made on the web. If the scene changed here since the sync
     /// read it (typing meanwhile), the Mac's text stays and the web editor's is
     /// kept as a snapshot; the next sync sends the Mac's.
-    fn take_ipad_text(&mut self, root: &Path, id: &str, was: &str, text: &str) {
+    /// (`from_web`: the web editor's, counted in today's words; else another
+    /// computer's, which counts its own.)
+    fn take_ipad_text(&mut self, root: &Path, id: &str, was: &str, text: &str, from_web: bool) {
         if let Some(scene) = sync::notes_of(id) {
             self.take_ipad_notes(scene, was, text);
             return;
@@ -309,7 +319,7 @@ impl WriterApp {
             if tab.doc.text == was {
                 tab.doc.text = text.to_owned();
                 let _ = tab.doc.save();
-                self.note_words(id, text);
+                self.note_synced_words(id, text, from_web);
             } else {
                 let _ = snapshots::take(root, id, text, "from the web (you were typing)");
             }
@@ -319,7 +329,7 @@ impl WriterApp {
         match crate::project::read_text(&path) {
             Ok(now) if now == was => {
                 match sloth_core::document::write_atomically(&path, text.as_bytes()) {
-                    Ok(()) => self.note_words(id, text),
+                    Ok(()) => self.note_synced_words(id, text, from_web),
                     Err(e) => self.error = Some(format!("Couldn't save the web editor's edit: {e}")),
                 }
             }
@@ -356,6 +366,10 @@ impl WriterApp {
         if project.set_meta(scene, Meta { notes, ..node.meta.clone() }) {
             self.manifest_dirty = true;
         }
+    }
+
+    fn note_synced_words(&mut self, id: &str, text: &str, from_web: bool) {
+        if from_web { self.note_web_words(id, text) } else { self.note_moved(id, text) }
     }
 
     /// A scene written on the web: into the Manuscript, and on the web.

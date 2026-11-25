@@ -45,6 +45,18 @@ impl WriterApp {
         }
     }
 
+    /// A document's words changed in the web editor: counted, as the web's
+    /// (so two computers that both receive it don't count it twice).
+    pub(super) fn note_web_words(&mut self, id: &str, text: &str) {
+        let words = count_words(text) as u32;
+        let before = self.word_counts.insert(id.to_owned(), words).unwrap_or(0);
+        let in_manuscript = self.project.as_ref().and_then(|p| p.role_of(id)) == Some(Role::Manuscript);
+        if in_manuscript && words != before {
+            self.stats.add_web(stats::today(), words as i64 - before as i64);
+            self.stats_dirty = true;
+        }
+    }
+
     /// A document's words changed by moving them (Break Up, Combine), not
     /// by writing: its count follows, and today's doesn't.
     pub(super) fn note_moved(&mut self, id: &str, text: &str) {

@@ -169,8 +169,9 @@ binder as the scene `_binder`, through the existing scene API: no new
 tables), 4b (sync records per computer, `.sloth/sync-<device>.ron`), and
 4d's Project Settings switch, Get Project from the Helper…, and the Sync
 status naming what came from where. A Rust test syncs one project between
-two computers end to end. **Still to do:** the Canvas (`canvas.ron`) and
-statistics across computers; batched saves for very big projects; the
+two computers end to end. *Statistics across computers built in 2.3.0* (each computer's own words as
+the scene `_stats-<device>`, added up; the web's counted once). **Still to
+do:** the Canvas (`canvas.ron`); batched saves for very big projects; the
 two-Writers test against the real helper (`helper/tests/run.sh`); a
 "last sync per computer" tooltip.
 
