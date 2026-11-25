@@ -356,6 +356,73 @@ pub fn edges(project: &Project, text: impl Fn(&Node) -> Option<String>) -> Vec<E
     found.into_iter().map(|((from, to), (references, linked))| Edge { from, to, references, linked }).collect()
 }
 
+/// Merge two computers' canvases from what they last agreed (`base`), for
+/// a project synced whole (see sync.rs). Each card's place, each note and
+/// each string merge on their own: what only one side changed comes
+/// through; a card moved on both stays where `ours` has it; a note edited
+/// on both keeps both texts; additions on either side are kept, and
+/// something removed on one side goes unless the other changed it. How
+/// the canvas is viewed (hidden folders, depth, outlines) stays `ours`:
+/// that's each computer's own.
+pub fn merge(base: &Canvas, ours: &Canvas, theirs: &Canvas) -> Canvas {
+    let mut out = ours.clone();
+    // Places.
+    let keys: BTreeSet<&String> = ours.places.keys().chain(theirs.places.keys()).chain(base.places.keys()).collect();
+    out.places.clear();
+    for key in keys {
+        let (b, o, t) = (base.places.get(key), ours.places.get(key), theirs.places.get(key));
+        let place = match (o, t) {
+            (Some(o), Some(t)) => Some(if b == Some(o) { *t } else { *o }),
+            (Some(o), None) => (b.is_none() || b != Some(o)).then_some(*o),
+            (None, Some(t)) => (b.is_none() || b != Some(t)).then_some(*t),
+            (None, None) => None,
+        };
+        if let Some(place) = place {
+            out.places.insert(key.clone(), place);
+        }
+    }
+    // Notes, by id.
+    let note = |c: &Canvas, id: &str| c.notes.iter().find(|n| n.id == id).map(|n| n.text.clone());
+    let mut ids: Vec<String> = ours.notes.iter().map(|n| n.id.clone()).collect();
+    let new_there: Vec<String> = theirs.notes.iter().map(|n| n.id.clone()).filter(|id| !ids.contains(id)).collect();
+    ids.extend(new_there);
+    out.notes = ids
+        .into_iter()
+        .filter_map(|id| {
+            let (b, o, t) = (note(base, &id), note(ours, &id), note(theirs, &id));
+            let text = match (o, t) {
+                (Some(o), Some(t)) if o == t || b.as_ref() == Some(&t) => o,
+                (Some(o), Some(t)) if b.as_ref() == Some(&o) => t,
+                (Some(o), Some(t)) => format!("{o}\n\n{t}"),
+                (Some(o), None) => (b.is_none() || b.as_ref() != Some(&o)).then_some(o)?,
+                (None, Some(t)) => (b.is_none() || b.as_ref() != Some(&t)).then_some(t)?,
+                (None, None) => return None,
+            };
+            Some(Note { id, text })
+        })
+        .collect();
+    // Strings, by the two cards they join.
+    let tie = |c: &Canvas, x: &Tie| c.strings.iter().find(|s| s.joins(&x.a, &x.b)).map(|s| s.label.clone());
+    let mut all: Vec<Tie> = ours.strings.clone();
+    all.extend(theirs.strings.iter().filter(|t| !ours.strings.iter().any(|o| o.joins(&t.a, &t.b))).cloned());
+    out.strings = all
+        .into_iter()
+        .filter_map(|s| {
+            let (b, o, t) = (tie(base, &s), tie(ours, &s), tie(theirs, &s));
+            let label = match (o, t) {
+                (Some(o), Some(t)) if o == t || b.as_ref() == Some(&t) => o,
+                (Some(o), Some(t)) if b.as_ref() == Some(&o) => t,
+                (Some(o), Some(t)) => format!("{o} / {t}"),
+                (Some(o), None) => (b.is_none() || b.as_ref() != Some(&o)).then_some(o)?,
+                (None, Some(t)) => (b.is_none() || b.as_ref() != Some(&t)).then_some(t)?,
+                (None, None) => return None,
+            };
+            Some(Tie { label, ..s })
+        })
+        .collect();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,4 +604,40 @@ mod tests {
         assert_eq!(Canvas::load(&dir.0), c);
         assert_eq!(Canvas::load(&dir.0.join("nowhere")), Canvas::default());
     }
+
+    #[test]
+    fn two_computers_canvases_merge() {
+        let mut base = Canvas::default();
+        base.places.insert("a".into(), [0.0, 0.0]);
+        base.places.insert("b".into(), [100.0, 0.0]);
+        base.notes.push(Note { id: "note-1".into(), text: "An idea".into() });
+        base.strings.push(Tie { a: "a".into(), b: "b".into(), label: "echoes".into() });
+        let (mut ours, mut theirs) = (base.clone(), base.clone());
+        // Here: a moved, a note written, the view changed.
+        ours.places.insert("a".into(), [10.0, 10.0]);
+        ours.notes.push(Note { id: "note-2".into(), text: "Mine".into() });
+        ours.depth = Some(1);
+        // There: b moved, the first note edited, a string tied and one cut.
+        theirs.places.insert("b".into(), [200.0, 50.0]);
+        theirs.notes[0].text = "An idea, grown".into();
+        theirs.strings.clear();
+        theirs.strings.push(Tie { a: "b".into(), b: "c".into(), label: String::new() });
+        theirs.places.insert("c".into(), [300.0, 0.0]);
+        let m = merge(&base, &ours, &theirs);
+        assert_eq!(m.places["a"], [10.0, 10.0]);
+        assert_eq!(m.places["b"], [200.0, 50.0]);
+        assert_eq!(m.places["c"], [300.0, 0.0]);
+        assert_eq!(m.notes.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(), ["An idea, grown", "Mine"]);
+        assert!(m.strings.iter().any(|s| s.joins("b", "c")), "tied there");
+        assert!(!m.strings.iter().any(|s| s.joins("a", "b")), "cut there, untouched here");
+        assert_eq!(m.depth, Some(1), "the view is this computer's own");
+        // A note edited on both keeps both.
+        let (mut o, mut t) = (base.clone(), base.clone());
+        o.notes[0].text = "Here".into();
+        t.notes[0].text = "There".into();
+        assert_eq!(merge(&base, &o, &t).notes[0].text, "Here\n\nThere");
+        // Nothing changed is nothing changed.
+        assert_eq!(merge(&base, &base, &base), base);
+    }
+
 }

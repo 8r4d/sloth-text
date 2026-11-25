@@ -172,6 +172,8 @@ impl WriterApp {
             scenes,
             state: SyncState::load(&project.root, &self.settings.device_id),
             stats,
+            // The Canvas as it is (the one open, or as saved), for a whole project.
+            canvas: binder.as_ref().map(|_| self.canvas.as_ref().map_or_else(|| crate::canvas::Canvas::load(&project.root), |c| c.data().clone())),
             binder,
             today: crate::stats::key(crate::stats::today()),
         };
@@ -215,6 +217,14 @@ impl WriterApp {
                 Action::Replace { id, was, text } => self.take_ipad_text(root, &local(id), &was, &text, true),
                 // Another computer's writing: in, but its words are its own.
                 Action::FromComputer { id, was, text } => self.take_ipad_text(root, &local(id), &was, &text, false),
+                Action::Canvas(canvas) => match self.canvas.as_mut() {
+                    Some(open) => open.replace(*canvas),
+                    None => {
+                        if let Err(e) = canvas.save(root) {
+                            self.error = Some(format!("Couldn't save the canvas from the other computer: {e}"));
+                        }
+                    }
+                },
                 Action::OtherStats { device, tally } => {
                     self.stats.set_other(&device, tally);
                     self.stats_dirty = true;

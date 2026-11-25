@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.4.0
+
+- The Canvas across computers. With a project synced whole, the Canvas travels too: cards moved, notes written and strings tied on one computer show on the others. Changes made on two computers at once are merged piece by piece (a card moved on both stays where this computer put it; a note edited on both keeps both texts). How you view it (hidden folders, depth, outlines) stays each computer's own.
+
 ## 2.3.0
 
 - Writing statistics across computers. With a project synced whole, each computer sends the words written on it, and each adds up the others': the day's words, the goal ring, streaks, rewards and Statistics count everything you wrote, on any computer. Edits from the web editor count once, however many computers bring them in, and another computer's writing arriving by sync no longer counts as written here.

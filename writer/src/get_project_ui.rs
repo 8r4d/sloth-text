@@ -122,14 +122,18 @@ impl WriterApp {
             std::thread::spawn(move || {
                 let mut helper = Http::new(&url, &token);
                 let result = match sync::fetch(&mut helper, &id) {
-                    Ok(Some((binder, texts, state, tallies))) => Project::from_shared(&root, binder.manifest, &texts)
+                    Ok(Some(sync::Fetched { binder, texts, state, tallies, canvas })) => Project::from_shared(&root, binder.manifest, &texts)
                         .and_then(|p| {
                             // The other computers' words, for streaks and goals here.
                             let mut stats = crate::stats::Stats::load(&p.root);
                             for (device, tally) in tallies {
                                 stats.set_other(&device, tally);
                             }
-                            stats.save(&p.root).map(|()| p)
+                            stats.save(&p.root)?;
+                            if let Some(canvas) = canvas {
+                                canvas.save(&p.root)?;
+                            }
+                            Ok(p)
                         })
                         .map(|p| (p, state))
                         .map_err(|e| format!("Couldn't write the project to {}: {e}", root.display())),

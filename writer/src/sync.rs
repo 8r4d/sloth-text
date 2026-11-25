@@ -66,6 +66,9 @@ fn state_file(device: &str) -> String {
 /// The binder's id on the helper (ids of documents are letters and digits).
 pub const BINDER: &str = "_binder";
 
+/// The Canvas's id on the helper (see canvas.rs), for a project synced whole.
+pub const CANVAS: &str = "_canvas";
+
 /// Each computer's own tally of words, as `_stats-<device>` (see stats.rs).
 pub const STATS_PREFIX: &str = "_stats-";
 
@@ -102,6 +105,9 @@ pub struct SyncState {
     /// projects only): the base for merging.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binder: Option<Synced>,
+    /// The Canvas, likewise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canvas: Option<Synced>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -154,6 +160,8 @@ pub struct Input {
     pub binder: Option<SharedBinder>,
     /// The day, for notes about clashes ("2026-11-25").
     pub today: String,
+    /// A whole project's Canvas as it is here.
+    pub canvas: Option<crate::canvas::Canvas>,
 }
 
 /// The mobile notepad's id on the helper. Ids here are six letters and
@@ -186,6 +194,8 @@ pub enum Action {
     /// in, as `Replace` does, but it's that computer's writing, not counted
     /// in today's words here (it counts its own).
     FromComputer { id: String, was: String, text: String },
+    /// The Canvas, merged with another computer's: take it.
+    Canvas(Box<crate::canvas::Canvas>),
     /// Another computer's own tally of words (see stats.rs), by its device id.
     OtherStats { device: String, tally: crate::stats::Tally },
     /// A whole project's binder, merged with another computer's: take it,
@@ -259,7 +269,7 @@ pub trait Remote {
 
 /// Sync once. See the module's description for the rules.
 pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> {
-    let Input { project, title, index, scenes, state, stats, binder, today } = input;
+    let Input { project, title, index, scenes, state, stats, binder, today, canvas } = input;
     let mut out = Outcome { state, ..Outcome::default() };
 
     remote.put_index(&project, &title, &index, &stats)?;
@@ -325,6 +335,9 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
     if let Some(ours) = binder {
         sync_binder(remote, &project, &mut out, &scenes, &theirs, ours, &today)?;
     }
+    if let Some(ours) = canvas {
+        sync_canvas(remote, &project, &mut out, &theirs, ours)?;
+    }
     // Other computers' tallies of words (this one's is among `scenes`).
     for (id, change) in &theirs {
         if let Some(device) = id.strip_prefix(STATS_PREFIX).filter(|_| !scenes.contains_key(*id))
@@ -337,9 +350,17 @@ pub fn run(remote: &mut dyn Remote, input: Input) -> Result<Outcome, SyncError> 
     Ok(out)
 }
 
-/// What `fetch` brings: the binder, each document's text by id, the sync
-/// record to carry on from, and the other computers' tallies of words.
-pub type Fetched = (SharedBinder, BTreeMap<String, String>, SyncState, BTreeMap<String, crate::stats::Tally>);
+/// What `fetch` brings.
+pub struct Fetched {
+    pub binder: SharedBinder,
+    /// Each document's text, by id.
+    pub texts: BTreeMap<String, String>,
+    /// The sync record to carry on from.
+    pub state: SyncState,
+    /// The other computers' tallies of words.
+    pub tallies: BTreeMap<String, crate::stats::Tally>,
+    pub canvas: Option<crate::canvas::Canvas>,
+}
 
 /// A whole project from the helper, for a computer that doesn't have it
 /// yet: its binder, every document's text (by id), and the sync record to
@@ -360,12 +381,14 @@ pub fn fetch(remote: &mut dyn Remote, project: &str) -> Result<Option<Fetched>, 
         scenes: changes.iter().filter(|c| c.id != BINDER).map(|c| (c.id.clone(), Synced { version: c.version, text: c.text.clone() })).collect(),
         imported: BTreeSet::new(),
         binder: Some(Synced { version: synced.version, text: synced.text.clone() }),
+        canvas: changes.iter().find(|c| c.id == CANVAS).map(|c| Synced { version: c.version, text: c.text.clone() }),
     };
     let tallies = changes
         .iter()
         .filter_map(|c| Some((c.id.strip_prefix(STATS_PREFIX)?.to_owned(), crate::stats::Tally::from_text(&c.text)?)))
         .collect();
-    Ok(Some((binder, texts, state, tallies)))
+    let canvas = changes.iter().find(|c| c.id == CANVAS).and_then(|c| ron::from_str(&c.text).ok());
+    Ok(Some(Fetched { binder, texts, state, tallies, canvas }))
 }
 
 /// A whole project's binder: send it if only this side changed; merge if
@@ -431,6 +454,39 @@ fn sync_binder(
         Put::Saved { version } => out.state.binder = Some(Synced { version, text }),
         // Changed again meanwhile: the next sync merges that too.
         Put::Clash { .. } => {}
+    }
+    Ok(())
+}
+
+/// A whole project's Canvas: sent if only this side changed; merged with
+/// the helper's if that's moved on (canvas::merge), and the result sent.
+fn sync_canvas(remote: &mut dyn Remote, project: &str, out: &mut Outcome, theirs: &BTreeMap<&str, &Change>, ours: crate::canvas::Canvas) -> Result<(), SyncError> {
+    use crate::canvas::Canvas;
+    let parse = |text: &str| ron::from_str::<Canvas>(text).ok();
+    let last = out.state.canvas.clone();
+    let base = last.as_ref().and_then(|s| parse(&s.text));
+    let newer = theirs.get(CANVAS).filter(|t| last.as_ref().is_none_or(|l| t.version > l.version)).copied();
+    let (send, version) = match newer.and_then(|t| Some((t, parse(&t.text)?))) {
+        Some((change, there)) => {
+            let merged = crate::canvas::merge(&base.unwrap_or_default(), &ours, &there);
+            if merged != ours {
+                out.actions.push(Action::Canvas(Box::new(merged.clone())));
+            }
+            (merged, change.version)
+        }
+        None => {
+            // Only the view changed, or nothing: nothing to send.
+            let shared = |c: &Canvas| (c.places.clone(), c.notes.clone(), c.strings.clone());
+            if base.as_ref().is_some_and(|b| shared(b) == shared(&ours)) {
+                return Ok(());
+            }
+            let version = last.as_ref().map_or_else(|| theirs.get(CANVAS).map_or(0, |t| t.version), |l| l.version);
+            (ours, version)
+        }
+    };
+    let text = ron::to_string(&send).unwrap_or_default();
+    if let Put::Saved { version } = remote.put_scene(project, CANVAS, &text, version)? {
+        out.state.canvas = Some(Synced { version, text });
     }
     Ok(())
 }
@@ -761,6 +817,7 @@ mod tests {
             stats: Value::Null,
             binder: None,
             today: "2026-11-25".into(),
+            canvas: None,
         }
     }
 
@@ -790,12 +847,14 @@ mod tests {
             stats: Value::Null,
             binder: Some(SharedBinder { from: host.into(), manifest: p.manifest.clone() }),
             today: "2026-11-25".into(),
+            canvas: Some(crate::canvas::Canvas::load(&p.root)),
         };
         let out = run(helper, input).unwrap();
         for action in out.actions {
             match action {
                 Action::Replace { id, text, .. } | Action::FromComputer { id, text, .. } => std::fs::write(p.file_path(&id).unwrap(), text).unwrap(),
                 Action::OtherStats { device, tally } => stats.set_other(&device, tally),
+                Action::Canvas(canvas) => canvas.save(&p.root).unwrap(),
                 Action::Binder { manifest, new, gone, .. } => {
                     p.take_merged(*manifest, &new, &gone).unwrap();
                 }
@@ -837,7 +896,7 @@ mod tests {
         sync_computer(&mut helper, &mut mac, &mut mac_state, "Mac");
 
         // The PC gets it from the helper.
-        let (binder, texts, mut pc_state, _) = fetch(&mut helper, "p").unwrap().expect("synced whole");
+        let Fetched { binder, texts, state: mut pc_state, .. } = fetch(&mut helper, "p").unwrap().expect("synced whole");
         let mut pc = Project::from_shared(&base.join("pc"), binder.manifest, &texts).unwrap();
         assert_eq!(titles(&pc), titles(&mac));
         assert_eq!(text(&pc, "Two"), "The second.");
@@ -869,6 +928,22 @@ mod tests {
         assert!(mac.file_path(&two).unwrap().starts_with(mac.root.join("trash")), "{:?}", mac.file_path(&two));
         assert_eq!(crate::project::read_text(&mac.file_path(&two).unwrap()).unwrap(), "The second, revised.");
 
+        // The Canvas: a note written on the Mac, a card moved on the PC.
+        let mut canvas = crate::canvas::Canvas::load(&mac.root);
+        let note = canvas.add_note([40.0, 40.0], "Ferry timetable?");
+        canvas.save(&mac.root).unwrap();
+        let mut theirs = crate::canvas::Canvas::load(&pc.root);
+        theirs.places.insert(three.clone(), [500.0, 120.0]);
+        theirs.save(&pc.root).unwrap();
+        sync_computer(&mut helper, &mut mac, &mut mac_state, "Mac");
+        sync_computer(&mut helper, &mut pc, &mut pc_state, "Writing PC");
+        sync_computer(&mut helper, &mut mac, &mut mac_state, "Mac");
+        for p in [&mac, &pc] {
+            let c = crate::canvas::Canvas::load(&p.root);
+            assert_eq!(c.note(&note).map(|n| n.text.as_str()), Some("Ferry timetable?"));
+            assert_eq!(c.places.get(&three), Some(&[500.0, 120.0]));
+        }
+
         // Both change the same document: this side's kept, the other's in a snapshot.
         std::fs::write(mac.file_path(&three).unwrap(), "The Mac's version.").unwrap();
         std::fs::write(pc.file_path(&three).unwrap(), "The PC's version.").unwrap();
@@ -898,7 +973,7 @@ mod tests {
         pc_stats.add_web(today, 50);
         let mut mac_state = SyncState::default();
         sync_counting(&mut helper, &mut mac, &mut mac_state, "mac", &mut mac_stats);
-        let (binder, texts, mut pc_state, tallies) = fetch(&mut helper, "p").unwrap().unwrap();
+        let Fetched { binder, texts, state: mut pc_state, tallies, .. } = fetch(&mut helper, "p").unwrap().unwrap();
         let mut pc = Project::from_shared(&base.join("pc"), binder.manifest, &texts).unwrap();
         for (device, tally) in tallies {
             pc_stats.set_other(&device, tally);

@@ -44,6 +44,14 @@ const NOTE_GRIP: f32 = 16.0;
 /// How near (on screen) the pointer has to be to a string to pick it.
 const STRING_REACH: f32 = 6.0;
 
+impl CanvasState {
+    /// Another computer's changes, merged in (see sync.rs): shown and saved.
+    pub(super) fn replace(&mut self, data: Canvas) {
+        self.data = data;
+        self.dirty = true;
+    }
+}
+
 pub(super) struct CanvasState {
     data: Canvas,
     dirty: bool,
@@ -112,7 +120,7 @@ impl CanvasState {
         }
     }
 
-    #[cfg(test)]
+    /// The canvas as it is now (for tests, and syncing).
     pub(super) fn data(&self) -> &Canvas {
         &self.data
     }
