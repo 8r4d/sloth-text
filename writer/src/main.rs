@@ -28,6 +28,12 @@ use eframe::egui;
 fn main() -> eframe::Result {
     // Before anything else, so any crash is recorded (see crash_log.rs).
     crash_log::install();
+    // Windows and Linux: words learned for spelling are kept here, and the
+    // dictionaries load while the window opens (the Mac has its own).
+    if let Some(data) = places::data_dir() {
+        sloth_core::spell::set_personal_words(data.join("words.txt"));
+    }
+    sloth_core::spell::warm_up();
     // `sloth-writer path/to/project` opens that project.
     let open = std::env::args_os().nth(1).map(std::path::PathBuf::from);
     #[allow(unused_mut)] // Only changed on macOS.

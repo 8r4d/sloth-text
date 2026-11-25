@@ -69,8 +69,8 @@ compile error at once and keeps the other systems working afterwards.
 | Where | What it does on the Mac | Windows and Linux | Size |
 |---|---|---|---|
 | `writer/src/keychain.rs` | Keeps the helper token in the Keychain (`/usr/bin/security`) | *Done:* Credential Manager on Windows (`keyring` 3). On Linux, a file only the user can read, in Writer's data folder (the Secret Service would need D-Bus libraries). | M |
-| `core/src/spell.rs` | Spell checks with NSSpellChecker | `spellbook` with bundled en-US/en-GB dictionaries and a word list you can add to. Same interface, so the editor doesn't change. | L |
-| `core/src/trash.rs` (and emptying Writer's Trash, `backup.rs`) | Moves files to the Mac's Trash | The `trash` crate: the Recycle Bin on Windows, the desktop's trash on Linux | S |
+| `core/src/spell.rs` | Spell checks with NSSpellChecker | *Done:* `spellbook` with English (US) and English (UK) dictionaries built in (a word is right if either has it), and a personal word list in Writer's data folder (`words.txt`). Other languages: later, if wanted. | L |
+| `core/src/trash.rs` (and emptying Writer's Trash, `backup.rs`) | Moves files to the Mac's Trash | *Done:* the `trash` crate: the Recycle Bin on Windows, the desktop's trash on Linux. | S |
 | `core/src/motion.rs` | Follows Reduce motion | *Done:* Windows' animation effects setting (`SystemParametersInfoW`, no crate), GNOME's `enable-animations` on Linux. | S |
 | `settings_ui.rs`, `inspector.rs` | Opens folders and web addresses with `open` | *Done:* the `opener` crate (Explorer, `xdg-open`). The rule that only web addresses open is kept. "Show in Finder" says Show in Explorer on Windows, Open Folder on Linux. | S |
 | `writer/src/lock.rs` | The computer's name (`scutil`, falling back to `hostname`); "another Mac" when there's none | *Done:* `COMPUTERNAME` on Windows, `/proc/sys/kernel/hostname` or `/etc/hostname` on Linux, with no command or new crate; "another computer" when there's none. The Mac is unchanged. | S |

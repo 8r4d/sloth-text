@@ -5,6 +5,8 @@ edition = "2024"
 description = "Shared editor code for Sloth and Sloth Writer: documents, the text editor, find, themes, syntax highlighting, recovery"
 
 [dependencies]
+# Spell checking on Windows and Linux (and in tests on the Mac).
+spellbook = "0.4.2"
 # Formatted (HTML) copies; egui only puts plain text on the clipboard.
 arboard = { version = "3.7", default-features = false }
 chardetng = "1.0.0"

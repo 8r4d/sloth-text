@@ -1738,7 +1738,6 @@ fn statistics_show_a_year_of_days() {
 // ----- spelling ----------------------------------------------------------------
 
 #[test]
-#[cfg_attr(not(target_os = "macos"), ignore = "spell checking is the Mac's for now")]
 fn right_clicking_a_misspelled_word_offers_its_spelling() {
     let dir = TempDir::new("spelling");
     let mut harness = harness(project(&dir, "Teh snow came early."));
