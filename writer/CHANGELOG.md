@@ -2,6 +2,13 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.42.2
+
+More getting ready for Windows and Linux. Nothing changes on the Mac.
+
+- Web addresses and the backups folder open the way each system does. The backups folder's button says Show in Explorer on Windows and Open Folder on Linux.
+- When a project is open on another computer, it's named on Windows and Linux too, or called "another computer" when there's no name to show.
+
 ## 1.42.1
 
 Getting ready for Windows and Linux: names that work everywhere.

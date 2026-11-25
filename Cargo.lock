@@ -4059,7 +4059,7 @@ dependencies = [
 
 [[package]]
 name = "sloth-writer"
-version = "1.42.1"
+version = "1.42.2"
 dependencies = [
  "chrono",
  "docx-rs",
