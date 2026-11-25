@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- For the release's universal "Sloth Writer.app" (.github/workflows/release.yml
+     fills in VERSION). The same as cargo-bundle makes for scripts/install-writer.sh. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key><string>Sloth Writer</string>
+	<key>CFBundleDisplayName</key><string>Sloth Writer</string>
+	<key>CFBundleIdentifier</key><string>com.bradsalomons.sloth-writer</string>
+	<key>CFBundleExecutable</key><string>sloth-writer</string>
+	<key>CFBundleIconFile</key><string>SlothWriter</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>VERSION</string>
+	<key>CFBundleVersion</key><string>VERSION</string>
+	<key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+	<key>LSMinimumSystemVersion</key><string>11.0</string>
+	<key>NSHighResolutionCapable</key><true/>
+	<key>NSHumanReadableCopyright</key><string>© 2026 Brad Salomons</string>
+</dict>
+</plist>
