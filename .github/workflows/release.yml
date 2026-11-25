@@ -105,7 +105,12 @@ jobs:
             }
             makensis="$(find_nsis)"
             if [ -z "$makensis" ]; then
-              choco install nsis -y --no-progress
+              # NSIS 3.10's own portable zip, from its home on SourceForge.
+              curl -sfL --retry 5 --retry-all-errors -o nsis.zip "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.10/nsis-3.10.zip" \
+                && 7z x -y nsis.zip > /dev/null && makensis="$PWD/nsis-3.10/makensis.exe" || true
+            fi
+            if [ -z "$makensis" ]; then
+              choco install nsis -y --no-progress || true
               makensis="$(find_nsis)"
             fi
             echo "NSIS: $makensis"
