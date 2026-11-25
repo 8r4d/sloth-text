@@ -65,8 +65,10 @@ fn pick(env: &Env, kind: Kind) -> Option<PathBuf> {
                 Kind::Data => ("XDG_DATA_HOME", ".local/share"),
                 Kind::Logs => ("XDG_STATE_HOME", ".local/state"),
             };
-            // The XDG rules: a relative path there is to be ignored.
-            let base = var(xdg).filter(|p| p.is_absolute()).or_else(|| var("HOME").map(|h| h.join(fallback)))?;
+            // The XDG rules: a relative path there is to be ignored. (Has a
+            // root rather than is absolute, so the tests read the same on
+            // Windows, where an absolute path needs a drive.)
+            let base = var(xdg).filter(|p| p.has_root()).or_else(|| var("HOME").map(|h| h.join(fallback)))?;
             Some(base.join("sloth-writer"))
         }
     }
