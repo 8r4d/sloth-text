@@ -2,6 +2,14 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.42.0
+
+Project Settings.
+
+- A Project Settings window (More… → Project Settings…, or ⌥⌘,) gathers what belongs to the open project: its title and icon, where new items go, word goals, statuses, labels, and each kind of profile's sections. Statuses, labels and sections open their own editors from here, as they still do from where they're used.
+- New: each project can add new documents and folders at the top of their folder, newest first, for a journal or blog. Off (as before), a new item goes after the selected document, or at the bottom of the selected folder, for writing a story start to finish. In Project Settings → Binder.
+- Settings is now App Settings (⌘,): what's the same for every project.
+
 ## 1.41.1
 
 - Fixed: on the web, a new document sent just as the connection dropped (so the reply never came) could arrive twice when sent again, two copies in your Mac's inbox. Each is now sent with the page's own name for it, and the helper keeps one. The same goes for your words saved aside by "Use the Mac's" in a clash.

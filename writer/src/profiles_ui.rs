@@ -191,6 +191,13 @@ impl WriterApp {
         }
     }
 
+    /// Open the Sections window for a kind of profile.
+    pub(super) fn edit_sections(&mut self, kind: &str) {
+        if let Some(kind) = self.project.as_ref().and_then(|p| p.profile_kind(kind)) {
+            self.editing_sections = Some(EditingSections { kind: kind.id.clone(), names: kind.sections.clone() });
+        }
+    }
+
     /// The Sections window: a kind's list of sections. Renaming one renames
     /// that section in every profile of the kind.
     pub(super) fn sections_window(&mut self, ctx: &egui::Context) {

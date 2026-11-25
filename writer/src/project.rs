@@ -283,6 +283,10 @@ pub struct Manifest {
     /// web (see `notepad`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notepad: Option<String>,
+    /// New documents and folders go at the top of their folder, newest
+    /// first, rather than in order after what's selected.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub new_at_top: bool,
 }
 
 /// What sort of writing a project is, shown by its icon and colour on the
@@ -469,6 +473,7 @@ impl Project {
                 goals: Default::default(),
                 kind: Kind::default(),
                 notepad: None,
+                new_at_top: false,
             },
         };
         project.repair();
@@ -564,6 +569,24 @@ impl Project {
     pub fn set_kind(&mut self, kind: Kind) -> io::Result<()> {
         self.manifest.kind = kind;
         self.save()
+    }
+
+    /// Whether new items go at the top of their folder (see `Manifest`).
+    pub fn new_at_top(&self) -> bool {
+        self.manifest.new_at_top
+    }
+
+    pub fn set_new_at_top(&mut self, top: bool) -> io::Result<()> {
+        self.manifest.new_at_top = top;
+        self.save()
+    }
+
+    /// The folder (or document) an item is directly in; `None` at the top.
+    pub fn parent_of(&self, id: &str) -> Option<&Node> {
+        fn find<'a>(nodes: &'a [Node], id: &str) -> Option<&'a Node> {
+            nodes.iter().find_map(|n| if n.children.iter().any(|c| c.id == id) { Some(n) } else { find(&n.children, id) })
+        }
+        find(&self.manifest.binder, id)
     }
 
     pub fn set_title(&mut self, title: &str) -> io::Result<()> {

@@ -181,7 +181,7 @@ impl WriterApp {
         let mut token_changed = false;
         let mut show_about = false;
         let mut open = true;
-        egui::Window::new("Settings")
+        egui::Window::new("App Settings")
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -407,8 +407,9 @@ impl WriterApp {
 }
 
 /// A heading for a group of settings.
-fn group(ui: &mut egui::Ui, title: &str) {
-    if title != "Text" {
+pub(super) fn group(ui: &mut egui::Ui, title: &str) {
+    // No rule above the first group.
+    if !matches!(title, "Text" | "Project") {
         ui.add_space(4.0);
         ui.separator();
     }

@@ -1,6 +1,6 @@
 //! The day's goal, made visible: a ring in the status bar that fills as
 //! the words come, and, once a day when the goal's reached, a small moment:
-//! the ring pulses and the sloth says so, then goes. (Settings → Writing →
+//! the ring pulses and the sloth says so, then goes. (App Settings → Writing →
 //! Celebrate reaching the day's goal; animation follows Reduce Motion.)
 
 use std::f32::consts::{PI, TAU};

@@ -167,6 +167,7 @@ impl WriterApp {
                     target_section(ui, goals, total, written, today);
                     ui.add_space(8.0);
                     ui.separator();
+                    ui.strong("Goals");
                     goals_form(ui, goals, fields);
                     if !chapters.is_empty() {
                         ui.add_space(8.0);
@@ -376,8 +377,7 @@ fn target_section(ui: &mut egui::Ui, goals: &Goals, total: u32, written: u32, to
 }
 
 /// The goals, typed in. A field that doesn't make sense is left as it was.
-fn goals_form(ui: &mut egui::Ui, goals: &mut Goals, fields: &mut [String; 3]) {
-    ui.strong("Goals");
+pub(super) fn goals_form(ui: &mut egui::Ui, goals: &mut Goals, fields: &mut [String; 3]) {
     egui::Grid::new("stats-goals").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         ui.label("Words a day");
         if ui.add(egui::TextEdit::singleline(&mut fields[0]).hint_text("e.g. 1000").desired_width(120.0)).changed()

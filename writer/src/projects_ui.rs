@@ -92,9 +92,9 @@ fn kind_color(kind: Kind) -> egui::Color32 {
 
 /// The kinds to choose from, each with its icon in its colour, in three
 /// columns. Returns the one clicked.
-pub(super) fn kind_picker(ui: &mut egui::Ui, current: Kind) -> Option<Kind> {
+pub(super) fn kind_picker(ui: &mut egui::Ui, id: &str, current: Kind) -> Option<Kind> {
     let mut picked = None;
-    egui::Grid::new(egui::Id::unique("kind-picker")).num_columns(3).spacing([4.0, 2.0]).show(ui, |ui| {
+    egui::Grid::new(id).num_columns(3).spacing([4.0, 2.0]).show(ui, |ui| {
         let style = ui.style().clone();
         for (i, kind) in Kind::ALL.into_iter().enumerate() {
             let mut label = egui::text::LayoutJob::default();
@@ -151,7 +151,7 @@ fn recent_tile(ui: &mut egui::Ui, root: &Path, facts: Option<&TileFacts>) -> Opt
     response.context_menu(|ui| {
         if available {
             ui.menu_button("Icon", |ui| {
-                if let Some(picked) = kind_picker(ui, kind) {
+                if let Some(picked) = kind_picker(ui, "tile-kind", kind) {
                     choice = Some(TileChoice::Kind(picked));
                     ui.close();
                 }
@@ -313,7 +313,7 @@ impl WriterApp {
             ui.checkbox(&mut state.folder_too, format!("Also rename the folder \u{201c}{folder}\u{201d}"));
             ui.add_space(10.0);
             ui.label(RichText::new("Icon on the start screen").small().weak());
-            new_kind = kind_picker(ui, kind);
+            new_kind = kind_picker(ui, "rename-kind", kind);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button("Rename").clicked() {

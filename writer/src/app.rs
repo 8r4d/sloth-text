@@ -30,6 +30,8 @@ mod compile_window;
 mod goal_ui;
 #[path = "inspector.rs"]
 pub(crate) mod inspector;
+#[path = "project_settings_ui.rs"]
+mod project_settings_ui;
 #[path = "projects_ui.rs"]
 mod projects_ui;
 #[path = "references_ui.rs"]
@@ -218,6 +220,8 @@ pub struct WriterApp {
     // Settings (see settings_ui.rs).
     settings: settings_ui::WriterSettings,
     settings_open: bool,
+    /// The Project Settings window is open.
+    project_settings_open: bool,
     /// The About and Help window, open at this page (see about_ui.rs).
     help: Option<about_ui::HelpPage>,
     about_icon: Option<egui::TextureHandle>,
@@ -258,6 +262,7 @@ impl WriterApp {
             editor: settings.editor(),
             settings,
             settings_open: false,
+            project_settings_open: false,
             help: None,
             about_icon: None,
             font_filter: String::new(),
@@ -486,6 +491,7 @@ impl WriterApp {
         self.inspector_buffers = None;
         self.editing_labels = false;
         self.editing_statuses = false;
+        self.project_settings_open = false;
         self.compile_open = false;
         self.comparing = None;
         self.confirm_delete_snapshot = None;
@@ -711,17 +717,24 @@ impl WriterApp {
 
     /// Where a new item goes when made from `near`: inside a folder, after a
     /// document, and into the Manuscript when there's no sensible spot (or
-    /// `near` is in the Trash).
+    /// `near` is in the Trash). With the project set to newest first, it goes
+    /// at the top of the folder instead: the one selected, or the one the
+    /// selected document is in.
     fn place_near(&self, near: Option<&str>) -> Place {
-        let manuscript = Place::Into(Role::Manuscript.folder().to_owned());
-        let Some(project) = &self.project else { return manuscript };
-        let Some(node) = near.and_then(|id| project.node(id)) else { return manuscript };
-        if project.role_of(&node.id) == Some(Role::Trash) {
-            manuscript
-        } else if node.role.is_some() || !node.is_document() {
-            Place::Into(node.id.clone())
-        } else {
-            Place::After(node.id.clone())
+        let manuscript = Role::Manuscript.folder();
+        let Some(project) = &self.project else { return Place::Into(manuscript.to_owned()) };
+        let near = near.and_then(|id| project.node(id)).filter(|n| project.role_of(&n.id) != Some(Role::Trash));
+        let top = project.new_at_top();
+        let folder = match near {
+            None => project.node(manuscript),
+            Some(node) if node.role.is_some() || !node.is_document() => Some(node),
+            Some(node) if top => project.parent_of(&node.id),
+            Some(node) => return Place::After(node.id.clone()),
+        };
+        let Some(folder) = folder else { return Place::Into(manuscript.to_owned()) };
+        match folder.children.first() {
+            Some(first) if top => Place::Before(first.id.clone()),
+            _ => Place::Into(folder.id.clone()),
         }
     }
 
@@ -1187,6 +1200,10 @@ impl WriterApp {
         {
             self.find_action(ctx, FindAction::Close);
         }
+        // ⌥⌘, before ⌘, so it isn't taken as App Settings.
+        if pressed(ctx, Modifiers::COMMAND | Modifiers::ALT, Key::Comma) {
+            self.open_project_settings();
+        }
         if pressed(ctx, Modifiers::COMMAND, Key::Comma) {
             self.settings_open = true;
         }
@@ -1317,8 +1334,13 @@ impl WriterApp {
                             self.back_up_dialog(now);
                             ui.close();
                         }
-                        if ui.add(egui::Button::new("Settings\u{2026}").shortcut_text("\u{2318},")).clicked() {
+                        if ui.add(egui::Button::new("App Settings\u{2026}").shortcut_text("\u{2318},")).clicked() {
                             self.settings_open = true;
+                            ui.close();
+                        }
+                        let project_settings = egui::Button::new("Project Settings\u{2026}").shortcut_text("\u{2325}\u{2318},");
+                        if ui.add(project_settings).on_hover_text("Title, icon, where new items go, goals, statuses, labels and profile sections").clicked() {
+                            self.open_project_settings();
                             ui.close();
                         }
                         let mut repeats = self.settings.show_repetition;
@@ -1715,6 +1737,7 @@ impl eframe::App for WriterApp {
         self.create_menu_ui(&ctx);
         self.empty_trash_dialog(&ctx);
         self.project_replace_dialog(&ctx);
+        self.project_settings_window(&ctx);
         self.labels_window(&ctx);
         self.statuses_window(&ctx);
         self.compile_window(&ctx);

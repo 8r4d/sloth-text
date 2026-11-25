@@ -113,6 +113,44 @@ fn a_new_document_is_named_by_typing() {
 }
 
 #[test]
+fn new_items_go_in_order_or_newest_first() {
+    let dir = TempDir::new("new-at-top");
+    let mut p = Project::create(&dir.0, "Story").unwrap();
+    let chapter = p.add_folder(&Place::Into("manuscript".into()), "Chapter").unwrap();
+    let a = p.add_document(&Place::Into(chapter.clone()), "A").unwrap();
+    p.add_document(&Place::Into(chapter.clone()), "B").unwrap();
+    let mut harness = harness(p);
+    let titles = |harness: &Harness<'_, WriterApp>| -> Vec<String> {
+        let project = harness.state().project.as_ref().unwrap();
+        project.node(&chapter).unwrap().children.iter().map(|n| n.title.clone()).collect()
+    };
+    let rename_last = |harness: &mut Harness<'_, WriterApp>, title: &str| {
+        harness.run_steps(3);
+        harness.event(egui::Event::Text(title.into()));
+        harness.key_press(egui::Key::Enter);
+        harness.run_steps(3);
+    };
+
+    // In order (the default): after the selected document, or at the
+    // bottom of the selected folder.
+    harness.state_mut().new_item(Some(a.clone()), true);
+    rename_last(&mut harness, "After A");
+    harness.state_mut().new_item(Some(chapter.clone()), true);
+    rename_last(&mut harness, "Last");
+    assert_eq!(titles(&harness), ["A", "After A", "B", "Last"]);
+
+    // Newest first: at the top of the folder, whether it or a document in
+    // it is selected. It's remembered in the project.
+    harness.state_mut().project.as_mut().unwrap().set_new_at_top(true).unwrap();
+    harness.state_mut().new_item(Some(a.clone()), true);
+    rename_last(&mut harness, "Newer");
+    harness.state_mut().new_item(Some(chapter.clone()), false);
+    rename_last(&mut harness, "Newest");
+    assert_eq!(titles(&harness), ["Newest", "Newer", "A", "After A", "B", "Last"]);
+    assert!(Project::open(&dir.0).unwrap().new_at_top());
+}
+
+#[test]
 fn renaming_an_open_document_keeps_its_unsaved_words() {
     let dir = TempDir::new("rename");
     let mut harness = harness(project(&dir, "saved"));
@@ -1201,6 +1239,31 @@ fn settings_change_the_editor_and_are_remembered() {
     harness.run_steps(2);
     assert_eq!(harness.state().settings, crate::app::settings_ui::WriterSettings::default());
     assert!(harness.state().editor.smart_dashes);
+}
+
+#[test]
+fn project_settings_are_kept_in_the_project() {
+    let dir = TempDir::new("project-settings");
+    let mut harness = harness(project(&dir, ""));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::Comma);
+    harness.run_steps(6);
+    assert!(harness.state().project_settings_open);
+    assert!(!harness.state().settings_open, "\u{2325}\u{2318}, isn't taken as App Settings");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/project-settings.png")).unwrap();
+    }
+
+    harness.get_by_label("New documents and folders go at the top of their folder").click();
+    harness.run_steps(3);
+    assert!(Project::open(&dir.0).unwrap().new_at_top());
+
+    // The lists keep their own editors, opened from here.
+    harness.get_all_by_label("Edit\u{2026}").nth(1).unwrap().click();
+    harness.run_steps(3);
+    assert!(harness.state().editing_labels);
+    harness.get_by_label("Rename\u{2026}").click();
+    harness.run_steps(3);
+    assert!(harness.state().renaming_project.is_some());
 }
 
 #[test]
