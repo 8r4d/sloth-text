@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.42.3
+
+- On Windows, automatic backups are kept in your own app data folder (%LOCALAPPDATA%\Sloth Writer\Backups), not the temporary folder, which Windows may clear. Any made there already are moved over the first time. On Linux they're in ~/.local/share/sloth-writer. Nothing changes on the Mac.
+- On Windows and Linux, if Writer stops on an error, what went wrong is now written to a crash log, as on the Mac: in %LOCALAPPDATA%\Sloth Writer\Logs, or ~/.local/state/sloth-writer.
+
 ## 1.42.2
 
 More getting ready for Windows and Linux. Nothing changes on the Mac.
