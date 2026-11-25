@@ -96,7 +96,13 @@ jobs:
             (cd dist && 7z a -tzip "$name.zip" "$name" > /dev/null)
             files+=("dist/$name.zip")
             # The installer (NSIS): for you alone, with a Start menu entry.
-            find_nsis() { command -v makensis || ls "/c/Program Files (x86)/NSIS/makensis.exe" "/c/Program Files/NSIS/makensis.exe" 2>/dev/null | head -1; }
+            # (Each place tried in turn: the step stops at any failed command.)
+            find_nsis() {
+              for p in "/c/Program Files (x86)/NSIS/makensis.exe" "/c/Program Files/NSIS/makensis.exe"; do
+                if [ -x "$p" ]; then echo "$p"; return 0; fi
+              done
+              command -v makensis || true
+            }
             makensis="$(find_nsis)"
             if [ -z "$makensis" ]; then
               choco install nsis -y --no-progress
