@@ -20,6 +20,7 @@ mod lock;
 mod places;
 mod project;
 mod references;
+mod rewards;
 mod repetition;
 mod rtf;
 mod scrivener;

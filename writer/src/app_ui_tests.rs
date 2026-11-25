@@ -977,6 +977,10 @@ fn the_card_file_flips_a_to_z_and_opens_the_front_card() {
         harness.state_mut().apply_settings(&ctx);
         harness.run_steps(3);
         harness.render().unwrap().save(format!("{dir}/card-file-severance.png")).unwrap();
+        harness.state_mut().settings.screen_glow = true;
+        harness.run_steps(2);
+        harness.render().unwrap().save(format!("{dir}/card-file-severance-glow.png")).unwrap();
+        harness.state_mut().settings.screen_glow = false;
         harness.state_mut().settings.theme = sloth_core::theme::ThemeChoice::SeveranceLight;
         harness.state_mut().apply_settings(&ctx);
         harness.run_steps(3);
@@ -1035,6 +1039,50 @@ fn focus_bins_fill_by_chapter_and_each_lid_lifts_once() {
     let done = harness.state().stats.bins_done.clone();
     assert_eq!(done.len(), 1, "{done:?}");
     harness.get_by_label_contains("% complete");
+}
+
+#[test]
+fn rewards_are_earned_once_and_the_highest_is_shown() {
+    let dir = TempDir::new("rewards");
+    let mut p = project(&dir, &"word ".repeat(120));
+    p.manifest.goals.total = Some(100);
+    p.save().unwrap();
+    // Three days running, today included.
+    let today = crate::stats::today();
+    let mut stats = crate::stats::Stats::default();
+    for back in 0..3 {
+        stats.days.insert(crate::stats::key(today - chrono::Duration::days(back)), 50);
+    }
+    stats.save(&dir.0).unwrap();
+    let mut harness = harness(p);
+    harness.run_steps(20);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/rewards-finale.png")).unwrap();
+    }
+    // The manuscript's past its target: the party's shown, and every rung
+    // passed is recorded (the streak's too), once.
+    harness.get_by_label("The target, reached");
+    let keys: Vec<String> = harness.state().stats.rewards.iter().map(|e| e.key.clone()).collect();
+    assert_eq!(keys, ["manuscript-25", "manuscript-50", "manuscript-75", "manuscript-100", "streak-3"]);
+}
+
+#[test]
+fn the_elevator_rides_up_and_away_when_a_project_opens() {
+    let dir = TempDir::new("elevator");
+    let mut harness = harness(project(&dir, "Rain on the bay."));
+    harness.state_mut().close_project();
+    harness.state_mut().settings.elevator = true;
+    harness.run_steps(3);
+    harness.state_mut().open_project_anyway(&dir.0);
+    harness.run_steps(14);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/elevator.png")).unwrap();
+    }
+    assert!(harness.state().elevator.is_some(), "still riding");
+    // Underneath, the project's already there and usable.
+    assert_eq!(current_text(&mut harness).as_deref(), Some("Rain on the bay."));
+    harness.run_steps(30);
+    assert!(harness.state().elevator.is_none());
 }
 
 #[test]

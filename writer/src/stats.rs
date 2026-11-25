@@ -43,6 +43,9 @@ pub struct Stats {
     /// each lid lifts once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bins_done: Vec<String>,
+    /// Rewards earned (see rewards.rs), oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rewards: Vec<crate::rewards::Earned>,
     /// Writing sprints finished, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sprints: Vec<Sprint>,

@@ -4115,7 +4115,7 @@ dependencies = [
 
 [[package]]
 name = "sloth-writer"
-version = "1.49.0"
+version = "1.50.0"
 dependencies = [
  "chrono",
  "docx-rs",

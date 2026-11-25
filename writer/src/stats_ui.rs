@@ -144,6 +144,19 @@ impl WriterApp {
                     let longest = stats.longest_streak(goal);
                     let what = if goal.is_some() { "meeting the goal" } else { "writing" };
                     ui.weak(format!("Longest run {what}: {} {}", thousands(longest), if longest == 1 { "day" } else { "days" }));
+                    // The rewards earned, on a shelf.
+                    if !stats.rewards.is_empty() {
+                        ui.add_space(10.0);
+                        ui.strong("Rewards");
+                        ui.horizontal_wrapped(|ui| {
+                            for earned in &stats.rewards {
+                                if let Some(reward) = crate::rewards::find(&earned.key) {
+                                    let when = stats::parse_date(&earned.day).map(|d| d.format("%-d %B %Y").to_string()).unwrap_or_default();
+                                    ui.label(RichText::new(reward.prize).size(20.0)).on_hover_text(format!("{}\n{when}", reward.title));
+                                }
+                            }
+                        });
+                    }
                     ui.add_space(10.0);
                     egui::Grid::new("stats-totals").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
                         ui.label("Manuscript");

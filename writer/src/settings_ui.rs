@@ -101,6 +101,10 @@ pub struct WriterSettings {
     pub show_fact: bool,
     /// Focus mode's progress bar and a bin per chapter.
     pub show_bins: bool,
+    /// The elevator: a panel sliding away when a project opens or closes.
+    pub elevator: bool,
+    /// With a Severance theme: scanlines and a vignette, like an old screen.
+    pub screen_glow: bool,
 }
 
 impl Default for WriterSettings {
@@ -133,6 +137,9 @@ impl Default for WriterSettings {
             start_view: StartView::Tiles,
             show_fact: true,
             show_bins: true,
+            // Not while testing: screenshots would catch it mid-ride.
+            elevator: !cfg!(test),
+            screen_glow: false,
             theme: ThemeChoice::default(),
         }
     }
@@ -335,7 +342,7 @@ impl WriterApp {
                         ui.add(egui::TextEdit::singleline(&mut settings.common_words).desired_width(320.0).hint_text("people, really, maybe"))
                             .on_hover_text("Left out of Statistics' most used words, and never tinted as repeats, like the little words Writer already leaves out. Commas between. In Statistics, right-click a word to add it.");
                     });
-                    ui.checkbox(&mut settings.celebrate_goals, "Celebrate reaching the day's goal")
+                    ui.checkbox(&mut settings.celebrate_goals, "Celebrate the day's goal, streaks and milestones")
                         .on_hover_text("Once a day: the goal ring pulses, and the sloth says so.");
                     ui.add_space(4.0);
                     row(ui, "Typewriter", &mut |ui| {
@@ -351,6 +358,12 @@ impl WriterApp {
                     row(ui, "Theme", &mut |ui| {
                         theme::picker(ui, "theme", &mut settings.theme, 180.0);
                     });
+                    if settings.theme.is_severance() {
+                        ui.checkbox(&mut settings.screen_glow, "Old screen glow")
+                            .on_hover_text("Faint scanlines and darker edges, like an old monitor. With the Severance themes only.");
+                    }
+                    ui.checkbox(&mut settings.elevator, "Slide between the start screen and a project")
+                        .on_hover_text("A panel with the project's name slides up and away as it opens. Not with reduced motion.");
                     ui.checkbox(&mut settings.show_fact, "A fact about your work on the start screen")
                         .on_hover_text("One a day, from your writing statistics. Click it for another.");
 

@@ -47,7 +47,7 @@ a glance.
 Test: a project with three chapters and a target; the bins show the right
 shares, and passing one marks it done once.
 
-## 2. Rewards that grow (M)
+## 2. Rewards that grow (M) ✅ (1.50.0)
 
 The sloth already cheers when the day's goal is reached (`goal_ui.rs`). This
 gives the cheer a ladder.
@@ -88,7 +88,7 @@ corporate voice, chosen fresh each day.
 Test: each fact appears only when its numbers exist; the same date gives the
 same fact.
 
-## 4. The elevator (S–M)
+## 4. The elevator (S–M) ✅ (1.50.0)
 
 Opening a project feels like arriving: the start screen slides up and away,
 the project rises in, about 0.4 s. The project's title shows briefly in the
@@ -106,7 +106,7 @@ Test: with motion off, opening is immediate; with it on, the project is
 usable as soon as the panel has gone, and keys pressed meanwhile aren't
 lost.
 
-## 5. Screen glow (M, the riskiest)
+## 5. Screen glow (M, the riskiest) ✅ (1.50.0; checked by eye, not by the contrast test)
 
 The retro monitor's look, for the Severance themes only, and off by
 default.

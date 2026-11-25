@@ -31,6 +31,8 @@ mod card_file_ui;
 mod comments_ui;
 #[path = "compile_window.rs"]
 mod compile_window;
+#[path = "elevator_ui.rs"]
+mod elevator_ui;
 #[path = "goal_ui.rs"]
 mod goal_ui;
 #[path = "inspector.rs"]
@@ -206,6 +208,8 @@ pub struct WriterApp {
     stats_open: bool,
     /// The day's goal just reached, being celebrated (see goal_ui.rs).
     celebration: Option<goal_ui::Celebration>,
+    /// Opening or closing a project: the panel sliding away.
+    elevator: Option<elevator_ui::Ride>,
     /// A bin in Focus mode whose lid is lifting, and since when.
     bin_lid: Option<(String, f64)>,
     /// A writing sprint under way (see sprint_ui.rs).
@@ -351,6 +355,7 @@ impl WriterApp {
             stats_open: false,
             celebration: None,
             bin_lid: None,
+            elevator: None,
             sprint: None,
             repetition: Default::default(),
             comment_focus: None,
@@ -461,7 +466,11 @@ impl WriterApp {
 
     fn open_project_anyway(&mut self, root: &Path) {
         match Project::open(root) {
-            Ok(project) => self.set_project(project),
+            Ok(project) => {
+                let title = project.title().to_owned();
+                self.set_project(project);
+                self.ride_to(&title);
+            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 self.error = Some(format!("{} isn't a Sloth Writer project (it has no {MANIFEST_FILE}).", root.display()));
             }
@@ -527,6 +536,7 @@ impl WriterApp {
         // The project just closed is newly written in.
         self.tile_facts.clear();
         self.start_facts = None;
+        self.ride_to("Sloth Writer");
     }
 
     // ----- documents ---------------------------------------------------------
@@ -1769,6 +1779,8 @@ impl eframe::App for WriterApp {
             self.start_screen(ui);
             self.settings_window(&ctx);
             self.help_window(&ctx);
+            self.screen_glow_ui(&ctx);
+            self.elevator_ui(&ctx);
             return;
         }
 
@@ -1782,6 +1794,7 @@ impl eframe::App for WriterApp {
             self.main_view(ui);
         }
         self.check_goal(now);
+        self.check_rewards(now);
         self.sprint_tick(&ctx, now);
         self.celebration_ui(&ctx);
         self.create_menu_ui(&ctx);
@@ -1801,6 +1814,8 @@ impl eframe::App for WriterApp {
         self.help_window(&ctx);
         self.stats_window(&ctx);
         self.delete_snapshot_dialog(&ctx);
+        self.screen_glow_ui(&ctx);
+        self.elevator_ui(&ctx);
 
         if now - self.last_autosave >= AUTOSAVE_SECONDS {
             self.save_all();

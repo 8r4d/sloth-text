@@ -26,6 +26,10 @@ pub(super) struct Celebration {
     detail: String,
     /// Where the ring is on screen, for the moment to rise from.
     ring: Option<egui::Rect>,
+    /// A reward's prize, shown beside the title (see rewards.rs).
+    prize: Option<String>,
+    /// The manuscript's target reached: leaves fall across the window.
+    finale: bool,
 }
 
 impl WriterApp {
@@ -98,7 +102,36 @@ impl WriterApp {
 
     /// Show the moment: the cheering sloth, a title and a line.
     pub(super) fn celebrate(&mut self, now: f64, title: &str, detail: &str) {
-        self.celebration = Some(Celebration { start: now, title: title.to_owned(), detail: detail.to_owned(), ring: None });
+        self.celebration = Some(Celebration { start: now, title: title.to_owned(), detail: detail.to_owned(), ring: None, prize: None, finale: false });
+    }
+
+    /// Rewards newly earned (see rewards.rs): recorded, and the highest
+    /// shown, once nothing else is being celebrated.
+    pub(super) fn check_rewards(&mut self, now: f64) {
+        if !self.settings.celebrate_goals || self.project.is_none() || self.celebration.is_some() {
+            return;
+        }
+        let goal = self.project.as_ref().and_then(|p| p.manifest.goals.daily);
+        let streak = self.stats.streak(stats::today(), goal);
+        let (_, total, target) = self.bins();
+        let percent = target.map(|t| (total as u64 * 100 / t.max(1) as u64) as u32);
+        let (show, new) = crate::rewards::due(streak, percent, &self.stats.rewards);
+        if new.is_empty() {
+            return;
+        }
+        let day = stats::key(stats::today());
+        self.stats.rewards.extend(new.iter().map(|k| crate::rewards::Earned { key: (*k).to_owned(), day: day.clone() }));
+        self.stats_dirty = true;
+        if let Some(reward) = show {
+            self.celebration = Some(Celebration {
+                start: now,
+                title: reward.title.to_owned(),
+                detail: reward.line.to_owned(),
+                ring: None,
+                prize: Some(reward.prize.to_owned()),
+                finale: crate::rewards::is_finale(reward.key),
+            });
+        }
     }
 
     /// The moment itself: the sloth and a line, just above the ring (or the
@@ -123,7 +156,7 @@ impl WriterApp {
         };
         // Rises a little as it comes in.
         let rise = if animate { (1.0 - motion::ease(now, c.start, FADE_IN)) * 10.0 } else { 0.0 };
-        let (title, detail) = (c.title.clone(), c.detail.clone());
+        let (title, detail, prize, finale) = (c.title.clone(), c.detail.clone(), c.prize.clone(), c.finale);
         let window = ctx.content_rect();
         let anchor = c.ring.map_or(Pos2::new(window.left() + 12.0, window.bottom() - 36.0), |r| Pos2::new(r.left() - 8.0, r.top() - 10.0));
         let icon = self.sloth(ctx, super::sloth_ui::Pose::Cheering);
@@ -138,13 +171,37 @@ impl WriterApp {
                     ui.horizontal(|ui| {
                         ui.add(egui::Image::new(&icon).fit_to_exact_size(Vec2::splat(44.0)));
                         ui.vertical(|ui| {
-                            ui.label(RichText::new(&title).strong());
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(&title).strong());
+                                if let Some(prize) = &prize {
+                                    ui.label(RichText::new(prize).size(18.0));
+                                }
+                            });
                             ui.label(RichText::new(&detail).weak());
                         });
                     });
                 });
             });
+        if finale && animate {
+            falling_leaves(ctx, window, elapsed as f32, opacity.clamp(0.0, 1.0));
+        }
         ctx.request_repaint();
+    }
+}
+
+/// The finale: leaves drifting down across the whole window, swaying.
+fn falling_leaves(ctx: &egui::Context, window: egui::Rect, t: f32, opacity: f32) {
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("falling-leaves")));
+    let leaves = ["\u{1f343}", "\u{1f342}", "\u{1f33f}"];
+    for k in 0..36u32 {
+        // Spread by a cheap hash of the leaf's number.
+        let h = |salt: u32| ((k.wrapping_mul(2_654_435_761).wrapping_add(salt.wrapping_mul(40_503))) % 1000) as f32 / 1000.0;
+        let speed = 70.0 + 90.0 * h(1);
+        let y = window.top() - 30.0 + ((t * speed + h(2) * window.height()) % (window.height() + 60.0));
+        let x = window.left() + h(3) * window.width() + (t * (0.8 + h(4)) + h(5) * TAU).sin() * 24.0;
+        let size = 14.0 + 10.0 * h(6);
+        let color = Color32::WHITE.gamma_multiply(opacity);
+        painter.text(Pos2::new(x, y), egui::Align2::CENTER_CENTER, leaves[(k % 3) as usize], egui::FontId::proportional(size), color);
     }
 }
 

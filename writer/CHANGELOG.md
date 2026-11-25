@@ -2,6 +2,12 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.50.0
+
+- Rewards that grow. On top of the day's cheer: writing 3, 7, 14 and 30 days in a row, and the manuscript reaching a quarter, half and three quarters of its target, each earn a small prize, once. Reaching the target itself is a party, with leaves falling across the window. What you've earned is on a shelf in Statistics. (App Settings → Writing → "Celebrate the day's goal, streaks and milestones".)
+- The elevator: opening a project, a panel carrying its name slides up and away as it arrives (and back to the start screen the same way). Not with reduced motion; turn it off in App Settings → Appearance.
+- With a Severance theme, an "Old screen glow" in App Settings → Appearance: faint scanlines and darker edges, like an old monitor. Off unless you turn it on.
+
 ## 1.49.0
 
 - Focus mode shows progress. Across the top, the document's title and how far the manuscript has come ("53% complete", or its words with no target). Along the bottom, a bin for each chapter (each top-level item in the Manuscript), filling towards its share: its own target, its documents' targets, or the manuscript's target shared evenly. The chapter you're in is outlined. When a bin first fills, its lid lifts and settles, once, and a tick stays. Turn it off in App Settings → Writing.
