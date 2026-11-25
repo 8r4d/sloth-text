@@ -1,0 +1,55 @@
+# Builds and tests Sloth Writer (and the shared core) on macOS, Windows and
+# Linux on every push, so a change that breaks one of them shows straight
+# away. See CROSS-PLATFORM.md, phase 1a. Sloth (the plain-text editor) is
+# Mac-only for now, so it's built and tested on macOS alone.
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            packages: -p sloth-core -p sloth-writer -p sloth
+          - name: Windows
+            os: windows-latest
+            packages: -p sloth-core -p sloth-writer
+          - name: Linux
+            os: ubuntu-latest
+            packages: -p sloth-core -p sloth-writer
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # What eframe and winit need to build on Linux, and Mesa's software
+      # Vulkan (lavapipe) so the interface tests can draw without a GPU.
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libfontconfig1-dev mesa-vulkan-drivers
+
+      - name: Build
+        run: cargo build --locked ${{ matrix.packages }}
+
+      - name: Test
+        run: cargo test --locked ${{ matrix.packages }}
