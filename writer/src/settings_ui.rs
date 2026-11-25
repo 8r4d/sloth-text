@@ -67,7 +67,7 @@ pub struct WriterSettings {
     /// How many automatic backups to keep, per project.
     pub backup_keep: u32,
     /// Where automatic backups go (each project in a folder of its own);
-    /// `None` for ~/Library/Application Support/Sloth Writer/Backups.
+    /// `None` for Backups in Writer's data folder (see places.rs).
     pub auto_backup_folder: Option<String>,
     /// Where the last backup went, to offer it next time.
     pub backup_folder: Option<String>,

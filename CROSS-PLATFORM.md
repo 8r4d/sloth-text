@@ -74,7 +74,7 @@ compile error at once and keeps the other systems working afterwards.
 | `core/src/motion.rs` | Follows Reduce motion | Windows: the "Show animations" setting. Linux: GNOME's `enable-animations` setting. Otherwise, a Writer setting. | S |
 | `settings_ui.rs`, `inspector.rs` | Opens folders and web addresses with `open` | *Done:* the `opener` crate (Explorer, `xdg-open`). The rule that only web addresses open is kept. "Show in Finder" says Show in Explorer on Windows, Open Folder on Linux. | S |
 | `writer/src/lock.rs` | The computer's name (`scutil`, falling back to `hostname`); "another Mac" when there's none | *Done:* `COMPUTERNAME` on Windows, `/proc/sys/kernel/hostname` or `/etc/hostname` on Linux, with no command or new crate; "another computer" when there's none. The Mac is unchanged. | S |
-| `backup.rs`, `crash_log.rs` | Paths under `~/Library/…` | The `directories` crate: `%APPDATA%` on Windows, `~/.local/share` and `~/.local/state` on Linux | S |
+| `backup.rs`, `crash_log.rs` | Paths under `~/Library/…` | *Done* (`places.rs`, no crate): `%LOCALAPPDATA%\Sloth Writer` on Windows (local, not roaming: backups are big), `~/.local/share` and `~/.local/state` on Linux, following XDG. Backups already put in the temp folder are moved over once. | S |
 | `core/src/document.rs` | Keeps Finder's extended attributes when saving | Nothing needed (already skipped on other systems) | — |
 | `writer/src/main.rs` | Turns off winit's Mac menu, so ⌘Q saves first | Nothing needed. Check that closing the window still saves. | — |
 | Fonts | Mac fonts as the defaults | Check the default prose and interface fonts. Choose defaults for each system (Georgia and Cambria on Windows, DejaVu Serif and Noto Serif on Linux), falling back to egui's own. | S |

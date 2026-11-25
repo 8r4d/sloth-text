@@ -1,5 +1,6 @@
 //! If Writer ever stops on an error (a panic), what went wrong is added to
-//! `~/Library/Logs/Sloth Writer/crash.log`: when, which version, the
+//! `crash.log` in `~/Library/Logs/Sloth Writer` (on a Mac; see places.rs
+//! for Windows and Linux): when, which version, the
 //! message, where in the code, and the backtrace. Opened from Finder, the
 //! app's error output goes nowhere, so without this it would be lost.
 //!
@@ -14,9 +15,10 @@ const FILE: &str = "crash.log";
 const OLD_FILE: &str = "crash.old.log";
 const MAX_BYTES: u64 = 256 * 1024;
 
-/// Where the log goes: `~/Library/Logs/Sloth Writer`.
+/// Where the log goes: `~/Library/Logs/Sloth Writer` on a Mac (see
+/// places.rs for the others).
 pub fn dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Library/Logs/Sloth Writer"))
+    crate::places::log_dir()
 }
 
 /// Record panics in the log, then report them as usual (to the terminal,

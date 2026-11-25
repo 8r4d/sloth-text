@@ -185,7 +185,11 @@ and the app's Help (⌘?) lists every shortcut.
 - Settings: macOS's usual place for the app's saved state. The web helper's
   token is in the Keychain.
 - Automatic backups: `~/Library/Application Support/Sloth Writer/Backups`,
-  a folder per project (or another folder chosen in Settings).
+  a folder per project (or another folder chosen in App Settings). On
+  Windows, `%LOCALAPPDATA%\Sloth Writer\Backups`; on Linux,
+  `~/.local/share/sloth-writer/Backups`.
+- The crash log: `~/Library/Logs/Sloth Writer/crash.log`. On Windows,
+  `%LOCALAPPDATA%\Sloth Writer\Logs`; on Linux, `~/.local/state/sloth-writer`.
 
 ## The web helper
 

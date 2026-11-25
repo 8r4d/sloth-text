@@ -46,11 +46,37 @@ pub fn back_up(root: &Path, folder: &Path, name: &str) -> io::Result<PathBuf> {
     result.map(|()| path)
 }
 
-/// Where automatic backups go unless another folder is chosen:
-/// ~/Library/Application Support/Sloth Writer/Backups.
+/// Where automatic backups go unless another folder is chosen: Backups in
+/// Writer's data folder (~/Library/Application Support/Sloth Writer on a
+/// Mac; see places.rs).
 pub fn default_root() -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    home.join("Library/Application Support/Sloth Writer/Backups")
+    let Some(data) = crate::places::data_dir() else {
+        // Nowhere better: at least somewhere.
+        return std::env::temp_dir().join("Sloth Writer Backups");
+    };
+    let root = data.join("Backups");
+    bring_over_from_temp(&root);
+    root
+}
+
+/// Before 1.42.3, Windows and Linux without a home folder set kept
+/// automatic backups in the temporary folder, which the system may clear.
+/// Move them to the proper place, once, if they're there.
+fn bring_over_from_temp(root: &Path) {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        if cfg!(test) {
+            return;
+        }
+        let old = std::env::temp_dir().join("Library/Application Support/Sloth Writer/Backups");
+        if old.is_dir() && !root.exists() {
+            if let Some(parent) = root.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::rename(&old, root);
+        }
+    });
 }
 
 /// A project's automatic backups: a folder named like the project's own.

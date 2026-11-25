@@ -12,6 +12,7 @@ mod compile;
 mod crash_log;
 mod keychain;
 mod lock;
+mod places;
 mod project;
 mod references;
 mod repetition;
