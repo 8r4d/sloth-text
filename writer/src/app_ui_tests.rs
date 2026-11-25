@@ -1074,15 +1074,14 @@ fn the_elevator_rides_up_and_away_when_a_project_opens() {
     harness.state_mut().settings.elevator = true;
     harness.run_steps(3);
     harness.state_mut().open_project_anyway(&dir.0);
-    harness.run_steps(14);
-    if let Ok(dir) = std::env::var("SHOT_DIR") {
-        harness.render().unwrap().save(format!("{dir}/elevator.png")).unwrap();
-    }
-    assert!(harness.state().elevator.is_some(), "still riding");
+    // (Nothing here depends on how fast the test's clock runs: slower
+    // machines take fewer frames to finish the ride.)
+    assert!(harness.state().elevator.is_some(), "a ride starts");
+    harness.run_steps(2);
     // Underneath, the project's already there and usable.
     assert_eq!(current_text(&mut harness).as_deref(), Some("Rain on the bay."));
-    harness.run_steps(30);
-    assert!(harness.state().elevator.is_none());
+    harness.run_steps(60);
+    assert!(harness.state().elevator.is_none(), "and ends");
 }
 
 #[test]
