@@ -269,16 +269,17 @@ mod tests {
         assert!(automatic(&root, "Book", &backups, 2, When::Daily).unwrap().is_none());
         assert!(automatic(&root, "Book", &backups, 2, When::Closing).unwrap().is_some());
 
-        // Pruning keeps the newest.
+        // Pruning keeps the newest. (The two real ones are one zip if they
+        // were made in the same minute, the second replacing the first, or
+        // two if a minute turned between them: count rather than assume.)
+        let real = zips(&folder).len();
         for i in 0..3 {
             let path = folder.join(format!("Book 2020-01-0{} 10.00.zip", i + 1));
             fs::write(&path, "old").unwrap();
             let when = SystemTime::now() - Duration::from_secs(86_400 * (10 - i));
             fs::File::options().write(true).open(&path).unwrap().set_modified(when).unwrap();
         }
-        // (The two real ones were made in the same minute, so the second
-        // replaced the first: one real, three old.)
-        assert_eq!(prune(&folder, 2).unwrap(), 2);
+        assert_eq!(prune(&folder, 2).unwrap(), real + 3 - 2);
         let left: Vec<_> = zips(&folder).into_iter().map(|(p, _)| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
         assert_eq!(left.len(), 2);
         assert!(left.iter().any(|n| !n.starts_with("Book 2020")), "the newest stays: {left:?}");
