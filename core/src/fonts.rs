@@ -181,6 +181,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "needs the Mac's own fonts")]
     fn finds_menlo_and_skips_proportional_fonts() {
         let (families, all) = scan();
         assert!(all.iter().any(|f| f == "Helvetica") && all.iter().any(|f| f == "Menlo"), "every family is listed");
@@ -191,6 +192,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "needs the Mac's own fonts")]
     fn finds_true_bold_and_italic_faces() {
         // Georgia ships with macOS with all four faces.
         assert!(load_face("Georgia", true, false).is_some());
@@ -199,6 +201,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "needs the Mac's own fonts")]
     fn a_reading_face_is_installed() {
         // Georgia and Palatino have shipped with macOS for decades.
         assert!(default_prose_font().is_some());

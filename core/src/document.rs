@@ -417,6 +417,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)] // Permissions and symlinks as Unix has them.
     fn atomic_save_keeps_permissions_and_symlinks() {
         use std::os::unix::fs::{PermissionsExt, symlink};
         let dir = temp_dir("atomic");
