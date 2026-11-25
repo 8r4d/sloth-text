@@ -585,6 +585,22 @@ impl Project {
         self.save()
     }
 
+    /// The target a new document made at or beside `near` starts with: the
+    /// project's default for new documents, in the Manuscript only (not
+    /// for notes, research or profiles).
+    pub fn new_document_target(&self, near: &str) -> Option<u32> {
+        (self.role_of(near) == Some(Role::Manuscript)).then_some(self.manifest.goals.document).flatten()
+    }
+
+    /// The targets of the documents inside a folder (or a document with
+    /// documents in it), added up: what it's aiming at when it has no
+    /// target of its own. `None` when none of them has one.
+    pub fn targets_inside(&self, id: &str) -> Option<u32> {
+        let node = self.node(id)?;
+        let sum: u32 = node.subtree().into_iter().skip(1).filter(|n| n.is_document()).filter_map(|n| n.meta.target_words).sum();
+        (sum > 0).then_some(sum)
+    }
+
     /// Whether new items go at the top of their folder (see `Manifest`).
     pub fn new_at_top(&self) -> bool {
         self.manifest.new_at_top
@@ -806,7 +822,9 @@ impl Project {
         } else {
             None
         };
-        let node = Node { id: self.new_id(), title, role: None, path, children: Vec::new(), meta: Meta::default() };
+        let target_words = if document { self.new_document_target(place.target()) } else { None };
+        let meta = Meta { target_words, ..Meta::default() };
+        let node = Node { id: self.new_id(), title, role: None, path, children: Vec::new(), meta };
         let id = node.id.clone();
         insert(&mut self.manifest.binder, place, node).expect("checked above");
         self.save()?;
@@ -1575,6 +1593,33 @@ mod tests {
         let sheet = crate::character::Sheet::parse(&read_text(&file).unwrap());
         assert_eq!(sheet.sections[0].heading, "Voice");
         assert_eq!(sheet.sections[0].text.trim(), "Dry");
+    }
+
+    #[test]
+    fn new_documents_in_the_manuscript_start_with_the_default_target() {
+        let dir = TempDir::new("default-target");
+        let mut p = Project::create(&dir.0.join("Essays"), "Essays").unwrap();
+        let before = p.add_document(&Place::Into("manuscript".into()), "Before").unwrap();
+        assert_eq!(p.node(&before).unwrap().meta.target_words, None, "no default, no target");
+
+        p.manifest.goals.document = Some(1500);
+        p.save().unwrap();
+        let chapter = p.add_folder(&Place::Into("manuscript".into()), "Chapter").unwrap();
+        assert_eq!(p.node(&chapter).unwrap().meta.target_words, None, "not folders");
+        let essay = p.add_document(&Place::Into(chapter.clone()), "Essay").unwrap();
+        assert_eq!(p.node(&essay).unwrap().meta.target_words, Some(1500));
+        let next = p.add_document(&Place::After(essay), "Next").unwrap();
+        assert_eq!(p.node(&next).unwrap().meta.target_words, Some(1500));
+        let note = p.add_document(&Place::Into("notes".into()), "Idea").unwrap();
+        assert_eq!(p.node(&note).unwrap().meta.target_words, None, "not outside the Manuscript");
+        assert_eq!(p.node(&before).unwrap().meta.target_words, None, "documents already there keep theirs");
+
+        // Kept with the project.
+        assert_eq!(Project::open(&dir.0.join("Essays")).unwrap().manifest.goals.document, Some(1500));
+
+        // The chapter has no target of its own: its documents' add up.
+        assert_eq!(p.targets_inside(&chapter), Some(3000));
+        assert_eq!(p.targets_inside(&note), None, "nothing inside");
     }
 
     #[test]

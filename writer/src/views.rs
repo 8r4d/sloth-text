@@ -37,6 +37,9 @@ pub(super) struct Item {
     depth: usize,
     meta: Meta,
     words: usize,
+    /// For a folder with no target of its own: its documents' targets
+    /// added up (see `Project::targets_inside`).
+    targets_inside: Option<u32>,
     /// A document's first words, shown on its card or row in place of a
     /// synopsis it doesn't have.
     pub(super) opening: String,
@@ -54,6 +57,7 @@ impl Item {
             depth,
             meta: node.meta.clone(),
             words: 0,
+            targets_inside: None,
             opening: String::new(),
             url: super::inspector::web_address(&node.meta.url),
         }
@@ -203,6 +207,9 @@ impl WriterApp {
     fn counted(&mut self, mut items: Vec<Item>) -> Vec<Item> {
         for item in &mut items {
             item.words = self.words_under(&item.id);
+            if item.meta.target_words.is_none() {
+                item.targets_inside = self.project.as_ref().and_then(|p| p.targets_inside(&item.id));
+            }
             if item.is_document && item.meta.synopsis.trim().is_empty() {
                 item.opening = self.opening_of(&item.id);
             }
@@ -547,13 +554,27 @@ fn outline(
                 });
         });
         row.allocate_ui(Vec2::new(WORDS_W, row_height), |ui| {
-            match meta.target_words {
-                // Green once the target is reached.
-                Some(target) if target > 0 && item.words >= target as usize => {
-                    ui.label(RichText::new(format!("{} / {target}", item.words)).color(label_color(3)))
+            // Its own target, or else its documents' added up (shown
+            // italic, and said so on hover).
+            let (target, summed) = match meta.target_words {
+                Some(t) => (Some(t), false),
+                None => (item.targets_inside, true),
+            };
+            match target {
+                Some(target) if target > 0 => {
+                    let mut text = RichText::new(format!("{} / {target}", item.words));
+                    // Green once the target is reached.
+                    if item.words >= target as usize {
+                        text = text.color(label_color(3));
+                    }
+                    let shown = ui.label(if summed { text.italics() } else { text });
+                    if summed {
+                        shown.on_hover_text("Its documents' targets, added up");
+                    }
                 }
-                Some(target) if target > 0 => ui.label(format!("{} / {target}", item.words)),
-                _ => ui.label(format!("{}", item.words)),
+                _ => {
+                    ui.label(format!("{}", item.words));
+                }
             };
         });
 

@@ -1435,10 +1435,14 @@ fn project_settings_are_kept_in_the_project() {
     harness.run_steps(3);
     assert!(Project::open(&dir.0).unwrap().new_at_top());
 
-    // The lists keep their own editors, opened from here.
+    // The lists keep their own editors, opened from here (scrolled to).
+    harness.get_all_by_label("Edit\u{2026}").nth(1).unwrap().scroll_to_me();
+    harness.run_steps(3);
     harness.get_all_by_label("Edit\u{2026}").nth(1).unwrap().click();
     harness.run_steps(3);
     assert!(harness.state().editing_labels);
+    harness.get_by_label("Rename\u{2026}").scroll_to_me();
+    harness.run_steps(3);
     harness.get_by_label("Rename\u{2026}").click();
     harness.run_steps(3);
     assert!(harness.state().renaming_project.is_some());
@@ -3338,4 +3342,65 @@ fn move_to_trash_is_only_in_the_binders_menu() {
     assert_eq!(harness.query_all_by_label_contains("Move to Trash").count(), 0, "not in More\u{2026}");
     // Highlight Repeated Words is in App Settings (and \u{2325}\u{2318}R), not here.
     assert_eq!(harness.query_all_by_label_contains("Highlight Repeated Words").count(), 0);
+}
+
+#[test]
+fn the_default_target_for_new_documents_is_a_project_setting() {
+    let dir = TempDir::new("default-target-ui");
+    let mut harness = harness(project(&dir, ""));
+    harness.key_press_modifiers(sloth_core::keys::OPT_CMD, egui::Key::Comma);
+    harness.run_steps(4);
+    harness.get_by(|n| n.placeholder() == Some("e.g. 1500")).focus();
+    harness.run_steps(1);
+    harness.event(egui::Event::Text("1,200".into()));
+    harness.run_steps(3);
+    assert_eq!(harness.state().project.as_ref().unwrap().manifest.goals.document, Some(1200));
+}
+
+#[test]
+fn targets_for_all_inside_and_from_the_web() {
+    let dir = TempDir::new("targets-inside");
+    let (mut p, chapter, scenes) = chapter_project(&dir);
+    p.node_mut_for_test(&scenes[0]).meta.target_words = Some(900);
+    p.manifest.goals.document = Some(1500);
+    p.save().unwrap();
+    let mut harness = harness(p);
+    let target = |h: &Harness<'static, WriterApp>, id: &str| h.state().project.as_ref().unwrap().node(id).unwrap().meta.target_words;
+
+    // Where there's none: the one with its own target keeps it.
+    harness.state_mut().apply(BinderAction::TargetInside { id: chapter.clone(), target: Some(1500), only_missing: true, deep: false });
+    harness.run_steps(2);
+    assert_eq!(scenes.iter().map(|s| target(&harness, s)).collect::<Vec<_>>(), [Some(900), Some(1500), Some(1500)]);
+    assert_eq!(target(&harness, &chapter), None, "not the folder itself");
+    assert_eq!(harness.state().project.as_ref().unwrap().targets_inside(&chapter), Some(3900));
+
+    // All, then none.
+    harness.state_mut().apply(BinderAction::TargetInside { id: chapter.clone(), target: Some(1500), only_missing: false, deep: false });
+    assert_eq!(target(&harness, &scenes[0]), Some(1500));
+    harness.state_mut().apply(BinderAction::TargetInside { id: chapter.clone(), target: None, only_missing: false, deep: false });
+    assert!(scenes.iter().all(|s| target(&harness, s).is_none()));
+
+    // A document written on the web starts with the default too.
+    assert!(harness.state_mut().add_ipad_scene("From the phone", "Written on the train."));
+    let project = harness.state().project.as_ref().unwrap();
+    let web = project.manifest.binder[0].children.iter().find(|n| n.title == "From the phone").unwrap();
+    assert_eq!(web.meta.target_words, Some(1500));
+    assert!(web.meta.on_ipad);
+}
+
+#[test]
+fn a_folder_without_a_target_shows_its_documents_added_up() {
+    let dir = TempDir::new("summed-target");
+    let (mut p, chapter, scenes) = chapter_project(&dir);
+    for s in &scenes {
+        p.node_mut_for_test(s).meta.target_words = Some(1000);
+    }
+    p.save().unwrap();
+    let mut harness = harness(p);
+    harness.state_mut().select(chapter);
+    harness.run_steps(3);
+    harness.get_by_label("3,000 inside");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/summed-target.png")).unwrap();
+    }
 }

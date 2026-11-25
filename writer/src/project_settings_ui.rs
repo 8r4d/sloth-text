@@ -34,6 +34,7 @@ impl WriterApp {
                 goals.daily.map(|n| n.to_string()).unwrap_or_default(),
                 goals.total.map(|n| n.to_string()).unwrap_or_default(),
                 goals.deadline.clone().unwrap_or_default(),
+                goals.document.map(|n| n.to_string()).unwrap_or_default(),
             ]
         });
         let goals_before = goals.clone();
@@ -90,7 +91,7 @@ impl WriterApp {
                         .on_hover_text("Newest first, for a journal or blog. Off, a new item goes after the selected document, or at the bottom of the selected folder, in order.");
 
                     group(ui, "Goals");
-                    super::stats_ui::goals_form(ui, goals, fields);
+                    super::stats_ui::goals_form(ui, goals, fields, true);
 
                     group(ui, "Statuses and Labels");
                     egui::Grid::new("project-settings-lists").num_columns(3).spacing([12.0, 8.0]).show(ui, |ui| {

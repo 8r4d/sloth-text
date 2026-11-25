@@ -298,6 +298,10 @@ impl WriterApp {
         let (title, role, mut meta) = (node.title.clone(), node.role, node.meta.clone());
         let is_document = node.is_document();
         let in_manuscript = project.role_of(&id) == Some(Role::Manuscript);
+        // Ticking Target on a document starts it at the project's default.
+        let default_target = project.new_document_target(&id);
+        // A folder with no target of its own aims at its documents' total.
+        let targets_inside = if role.is_none() && meta.target_words.is_none() { project.targets_inside(&id) } else { None };
         let is_profile = project.profile_of(&id).is_some();
         let statuses = project.manifest.statuses.clone();
         let labels = project.manifest.labels.clone();
@@ -353,7 +357,14 @@ impl WriterApp {
                 }
                 let mut has_target = meta.target_words.is_some();
                 if ui.checkbox(&mut has_target, "Target").changed() {
-                    meta.target_words = has_target.then_some(if role == Some(Role::Manuscript) { 80_000 } else { 2_000 });
+                    let start = match role {
+                        Some(Role::Manuscript) => 80_000,
+                        _ => default_target.filter(|_| is_document).unwrap_or(2_000),
+                    };
+                    meta.target_words = has_target.then_some(start);
+                }
+                if let Some(sum) = targets_inside {
+                    ui.weak(format!("{} inside", crate::stats::thousands(sum))).on_hover_text("Its documents' targets, added up. Tick Target to give it one of its own.");
                 }
             });
         });
@@ -361,7 +372,7 @@ impl WriterApp {
             let now = ui.input(|i| i.time);
             self.copy_document(ui.ctx(), &id, now);
         }
-        if let Some(target) = meta.target_words.filter(|&t| t > 0) {
+        if let Some(target) = meta.target_words.or(targets_inside).filter(|&t| t > 0) {
             let fraction = (words as f32 / target as f32).min(1.0);
             ui.add(egui::ProgressBar::new(fraction).desired_height(6.0));
         }

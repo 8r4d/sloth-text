@@ -132,6 +132,7 @@ impl WriterApp {
                 goals.daily.map(|n| n.to_string()).unwrap_or_default(),
                 goals.total.map(|n| n.to_string()).unwrap_or_default(),
                 goals.deadline.clone().unwrap_or_default(),
+                goals.document.map(|n| n.to_string()).unwrap_or_default(),
             ]
         });
         let before = goals.clone();
@@ -193,7 +194,7 @@ impl WriterApp {
                     ui.add_space(8.0);
                     ui.separator();
                     ui.strong("Goals");
-                    goals_form(ui, goals, fields);
+                    goals_form(ui, goals, fields, false);
                     if !chapters.is_empty() {
                         ui.add_space(8.0);
                         ui.separator();
@@ -402,7 +403,9 @@ fn target_section(ui: &mut egui::Ui, goals: &Goals, total: u32, written: u32, to
 }
 
 /// The goals, typed in. A field that doesn't make sense is left as it was.
-pub(super) fn goals_form(ui: &mut egui::Ui, goals: &mut Goals, fields: &mut [String; 3]) {
+/// `document_target`: also the target new documents start with (in
+/// Project Settings; Statistics leaves it out).
+pub(super) fn goals_form(ui: &mut egui::Ui, goals: &mut Goals, fields: &mut [String; 4], document_target: bool) {
     egui::Grid::new("stats-goals").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         ui.label("Words a day");
         if ui.add(egui::TextEdit::singleline(&mut fields[0]).hint_text("e.g. 1000").desired_width(120.0)).changed()
@@ -432,6 +435,17 @@ pub(super) fn goals_form(ui: &mut egui::Ui, goals: &mut Goals, fields: &mut [Str
             }
         });
         ui.end_row();
+        if document_target {
+            ui.label("New document target");
+            let field = egui::TextEdit::singleline(&mut fields[3]).hint_text("e.g. 1500").desired_width(120.0);
+            let field = ui.add(field).on_hover_text("Each new document in the Manuscript starts with this target; change any one in the inspector. Blank for none.");
+            if field.changed()
+                && let Some(n) = number(&fields[3])
+            {
+                goals.document = n;
+            }
+            ui.end_row();
+        }
     });
     if goals.daily.is_none() && goals.total.is_some() && goals.deadline.is_some() {
         ui.weak("With no daily goal, the day's goal is what the deadline needs.");

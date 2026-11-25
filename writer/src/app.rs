@@ -248,7 +248,7 @@ pub struct WriterApp {
     view_since: f64,
     view_opacity: f32,
     /// The Statistics window's goal fields as typed: daily, total, deadline.
-    goal_fields: Option<[String; 3]>,
+    goal_fields: Option<[String; 4]>,
 
     // Settings (see settings_ui.rs).
     settings: settings_ui::WriterSettings,
@@ -827,6 +827,7 @@ impl WriterApp {
         let Some(node) = project.node(id) else { return };
         let title = format!("{} (continued)", node.title);
         let meta = Meta {
+            target_words: project.new_document_target(id),
             status: node.meta.status,
             label: node.meta.label,
             keywords: node.meta.keywords.clone(),
@@ -1033,8 +1034,14 @@ impl WriterApp {
             BinderAction::BreakUp(id) => self.start_break_up(&id),
             BinderAction::Combine(id) => self.start_combine(&id, false),
             BinderAction::CombineWithNext(id) => self.start_combine(&id, true),
-            BinderAction::StatusInside { id, status, deep } => self.set_inside(&id, deep, |meta| meta.status = status),
-            BinderAction::LabelInside { id, label, deep } => self.set_inside(&id, deep, |meta| meta.label = label),
+            BinderAction::StatusInside { id, status, deep } => self.set_inside(&id, deep, |meta, _| meta.status = status),
+            BinderAction::LabelInside { id, label, deep } => self.set_inside(&id, deep, |meta, _| meta.label = label),
+            // Documents only: a folder's target is its own business.
+            BinderAction::TargetInside { id, target, only_missing, deep } => self.set_inside(&id, deep, |meta, document| {
+                if document && !(only_missing && meta.target_words.is_some()) {
+                    meta.target_words = target;
+                }
+            }),
             BinderAction::RemoveProfileFolder(kind) => {
                 let Some(project) = self.project.as_mut() else { return };
                 match project.remove_profile_folder(&kind) {
@@ -1052,13 +1059,14 @@ impl WriterApp {
     /// Change the metadata of what's in an item (not the item itself):
     /// what's directly in it, or (`deep`) everything under it. Says how
     /// many changed.
-    fn set_inside(&mut self, id: &str, deep: bool, change: impl Fn(&mut Meta)) {
+    /// `change` is given each item's details and whether it's a document.
+    fn set_inside(&mut self, id: &str, deep: bool, change: impl Fn(&mut Meta, bool)) {
         let Some(project) = self.project.as_mut() else { return };
         let Some(node) = project.node(id) else { return };
-        let inside: Vec<(String, Meta)> = binder::inside(node, deep).into_iter().map(|n| (n.id.clone(), n.meta.clone())).collect();
+        let inside: Vec<(String, Meta, bool)> = binder::inside(node, deep).into_iter().map(|n| (n.id.clone(), n.meta.clone(), n.is_document())).collect();
         let mut changed = 0;
-        for (item, mut meta) in inside {
-            change(&mut meta);
+        for (item, mut meta, document) in inside {
+            change(&mut meta, document);
             if project.set_meta(&item, meta) {
                 changed += 1;
             }

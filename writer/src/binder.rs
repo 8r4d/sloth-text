@@ -34,6 +34,9 @@ pub enum BinderAction {
     StatusInside { id: String, status: Option<usize>, deep: bool },
     /// What's in an item gets this label, likewise.
     LabelInside { id: String, label: Option<usize>, deep: bool },
+    /// The documents in an item get this target (or none); with
+    /// `only_missing`, just those without one.
+    TargetInside { id: String, target: Option<u32>, only_missing: bool, deep: bool },
 }
 
 /// What's being dragged: a binder item's id.
@@ -61,6 +64,7 @@ pub fn show(
     let mut tree = Tree {
         statuses: &manifest.statuses,
         labels: &manifest.labels,
+        default_target: manifest.goals.document,
         kinds: &manifest.profiles,
         selected,
         notepad,
@@ -78,6 +82,8 @@ pub fn show(
 struct Tree<'a> {
     statuses: &'a [String],
     labels: &'a [Label],
+    /// The target new documents start with (Project Settings).
+    default_target: Option<u32>,
     /// The project's profile kinds, to offer the rest as new folders.
     kinds: &'a [ProfileKind],
     selected: Option<&'a str>,
@@ -197,6 +203,8 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
     }
     let kinds = tree.kinds;
     let (statuses, labels) = (tree.statuses, tree.labels);
+    // Targets are for the manuscript's documents.
+    let default_target = (top == Some(Role::Manuscript)).then_some(tree.default_target);
     response.context_menu(|ui| {
         // At the top level: profile folders to add (and this one to remove).
         if node.role.is_some() {
@@ -265,7 +273,7 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
                 ui.close();
             }
             if !node.children.is_empty() {
-                inside_menus(ui, node, statuses, labels, actions);
+                inside_menus(ui, node, statuses, labels, default_target, actions);
             }
             if !node.children.is_empty()
                 && ui.button("Combine into One Document\u{2026}").on_hover_text("Everything in it as one document").clicked()
@@ -298,7 +306,9 @@ pub fn inside(node: &Node, deep: bool) -> Vec<&Node> {
 /// Set Status / Set Label for All Inside: what's in a folder at once. Only
 /// what's directly in it, unless Include subfolders is ticked (remembered
 /// while Writer's open). The choice they all have already is highlighted.
-fn inside_menus(ui: &mut egui::Ui, node: &Node, statuses: &[String], labels: &[Label], actions: &mut Vec<BinderAction>) {
+/// `default_target`: in the Manuscript, the project's default target for
+/// new documents (if it has one); outside it, `None` and no target menu.
+fn inside_menus(ui: &mut egui::Ui, node: &Node, statuses: &[String], labels: &[Label], default_target: Option<Option<u32>>, actions: &mut Vec<BinderAction>) {
     let key = egui::Id::unique("binder-inside-subfolders");
     let mut deep = ui.data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
     let has_subfolders = node.children.iter().any(|c| !c.children.is_empty());
@@ -346,6 +356,37 @@ fn inside_menus(ui: &mut egui::Ui, node: &Node, statuses: &[String], labels: &[L
             ui.close();
         }
     });
+    if let Some(default) = default_target {
+        submenu("Set Target for All Inside").ui(ui, |ui| {
+            subfolders(ui, &mut deep);
+            let docs: Vec<&Node> = inside(node, deep).into_iter().filter(|n| n.is_document()).collect();
+            match default {
+                Some(target) => {
+                    let words = crate::stats::thousands(target);
+                    let missing = docs.iter().filter(|n| n.meta.target_words.is_none()).count();
+                    let fill = egui::Button::new(format!("Where There\u{2019}s None: {words} Words"));
+                    if ui.add_enabled(missing > 0, fill).on_hover_text("The project's default target, for the documents that don't have one yet").clicked() {
+                        actions.push(BinderAction::TargetInside { id: node.id.clone(), target: Some(target), only_missing: true, deep });
+                        ui.close();
+                    }
+                    let all = docs.iter().all(|n| n.meta.target_words == Some(target));
+                    if ui.add(egui::Button::selectable(all, format!("All: {words} Words"))).on_hover_text("The project's default target, for every document, replacing any they have").clicked() {
+                        actions.push(BinderAction::TargetInside { id: node.id.clone(), target: Some(target), only_missing: false, deep });
+                        ui.close();
+                    }
+                }
+                None => {
+                    ui.weak(sloth_core::keys::shown("Set a default target in Project Settings (\u{2325}\u{2318},)"));
+                }
+            }
+            ui.separator();
+            let none = docs.iter().all(|n| n.meta.target_words.is_none());
+            if ui.add(egui::Button::selectable(none, "No Target")).clicked() {
+                actions.push(BinderAction::TargetInside { id: node.id.clone(), target: None, only_missing: false, deep });
+                ui.close();
+            }
+        });
+    }
     ui.data_mut(|d| d.insert_temp(key, deep));
 }
 

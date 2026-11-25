@@ -384,14 +384,16 @@ impl WriterApp {
     }
 
     /// A scene written on the web: into the Manuscript, and on the web.
-    fn add_ipad_scene(&mut self, title: &str, text: &str) -> bool {
+    pub(super) fn add_ipad_scene(&mut self, title: &str, text: &str) -> bool {
         let Some(project) = self.project.as_mut() else { return false };
         let Ok(id) = project.add_document(&Place::Into(Role::Manuscript.folder().into()), title) else { return false };
         let Some(path) = project.file_path(&id) else { return false };
         if sloth_core::document::write_atomically(&path, text.as_bytes()).is_err() {
             return false;
         }
-        project.set_meta(&id, Meta { on_ipad: true, ..Meta::default() });
+        // Like any new document: the project's default target, if it has one.
+        let target_words = project.node(&id).and_then(|n| n.meta.target_words);
+        project.set_meta(&id, Meta { on_ipad: true, target_words, ..Meta::default() });
         self.manifest_dirty = true;
         self.note_words(&id, text);
         true

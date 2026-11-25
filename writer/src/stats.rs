@@ -285,6 +285,9 @@ pub struct Goals {
     /// When it's to be finished ("YYYY-MM-DD").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deadline: Option<String>,
+    /// The target a new document in the Manuscript starts with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<u32>,
 }
 
 impl Goals {

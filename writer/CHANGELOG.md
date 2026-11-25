@@ -2,6 +2,16 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.7.0
+
+Word targets for a project of many short pieces.
+
+- A default target for new documents, in Project Settings → Goals. Each new document in the Manuscript starts with it: made with New Document, Split at Cursor, Break Up, or written on the web. Ticking Target in the inspector starts there too. Change any one in the inspector.
+- Set Target for All Inside, in a folder's right-click menu: give the documents in it the default target (just those without one, or all of them), or take their targets away.
+- A folder with no target of its own shows its documents' targets added up: in the inspector ("9,000 inside", with its progress bar) and in the outline (in italics).
+
+If you sync one project between computers, update Writer on each of them, so the default target isn't lost when an older Writer syncs.
+
 ## 2.6.0
 
 A tidier start screen and toolbar.

@@ -265,6 +265,7 @@ impl WriterApp {
         let title = node.title.clone();
         // As Split at Cursor: each keeps the status, label, keywords and links.
         let meta = Meta {
+            target_words: project.new_document_target(id),
             status: node.meta.status,
             label: node.meta.label,
             keywords: node.meta.keywords.clone(),
