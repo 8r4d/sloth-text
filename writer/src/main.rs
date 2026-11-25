@@ -18,6 +18,7 @@ mod facts;
 mod icons;
 mod keychain;
 mod lock;
+mod merge;
 mod places;
 mod project;
 mod references;

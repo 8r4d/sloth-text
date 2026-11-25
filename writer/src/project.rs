@@ -972,6 +972,27 @@ impl Project {
         Ok(zip)
     }
 
+    /// For tests elsewhere: a copy to change independently, an item to
+    /// change directly, and an item gone as if emptied from the Trash.
+    #[cfg(test)]
+    pub fn clone_for_test(&self) -> Project {
+        Project { root: self.root.clone(), manifest: self.manifest.clone() }
+    }
+
+    #[cfg(test)]
+    pub fn node_mut_for_test(&mut self, id: &str) -> &mut Node {
+        self.node_mut(id).expect("in the binder")
+    }
+
+    #[cfg(test)]
+    pub fn remove_for_test(&mut self, id: &str) {
+        fn cut(nodes: &mut Vec<Node>, id: &str) {
+            nodes.retain(|n| n.id != id);
+            nodes.iter_mut().for_each(|n| cut(&mut n.children, id));
+        }
+        cut(&mut self.manifest.binder, id);
+    }
+
     fn node_mut(&mut self, id: &str) -> Option<&mut Node> {
         find_mut(&mut self.manifest.binder, id)
     }
