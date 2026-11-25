@@ -160,6 +160,10 @@ pub struct WriterApp {
     recent: Vec<PathBuf>,
     /// What each recent project's tile shows, once worked out.
     tile_facts: HashMap<PathBuf, Option<projects_ui::TileFacts>>,
+    /// The start screen's facts (made when it's first shown), and how many
+    /// times the fact's been clicked for another.
+    start_facts: Option<Vec<String>>,
+    fact_skip: usize,
     /// The start screen's card file: which card is in front.
     card_file: card_file_ui::CardFileState,
     renaming_project: Option<projects_ui::Renaming>,
@@ -323,6 +327,8 @@ impl WriterApp {
             renaming_project: None,
             tile_facts: HashMap::new(),
             card_file: Default::default(),
+            start_facts: None,
+            fact_skip: 0,
             profile_name: HashMap::new(),
             profile_sheet: HashMap::new(),
             backlinks: None,
@@ -515,6 +521,7 @@ impl WriterApp {
         self.sprint = None;
         // The project just closed is newly written in.
         self.tile_facts.clear();
+        self.start_facts = None;
     }
 
     // ----- documents ---------------------------------------------------------
@@ -1266,10 +1273,15 @@ impl WriterApp {
                 // The sloth, and hello for the time of day.
                 let hour = chrono::Timelike::hour(&chrono::Local::now());
                 let (hello, pose) = sloth_ui::greeting(hour);
-                let sloth = self.sloth(ui.ctx(), pose);
-                ui.add(egui::Image::new(&sloth).fit_to_exact_size(egui::Vec2::splat(120.0)));
+                if self.settings.theme.is_severance() {
+                    self.sloth_emblem(ui);
+                } else {
+                    let sloth = self.sloth(ui.ctx(), pose);
+                    ui.add(egui::Image::new(&sloth).fit_to_exact_size(egui::Vec2::splat(120.0)));
+                }
                 ui.heading(hello);
                 ui.weak(format!("Sloth Writer \u{b7} Version {}", crate::version::VERSION));
+                self.fact_of_the_day(ui);
                 ui.add_space(16.0);
                 if ui.button("New Project…").clicked() {
                     self.new_project_dialog();

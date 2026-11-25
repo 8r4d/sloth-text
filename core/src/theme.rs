@@ -121,6 +121,12 @@ impl ThemeChoice {
         }
     }
 
+    /// One of the two Severance themes, which bring the office touches
+    /// that are only looks (the start screen's emblem, say).
+    pub fn is_severance(self) -> bool {
+        matches!(self, ThemeChoice::Severance | ThemeChoice::SeveranceLight)
+    }
+
     /// Stable name used when saving the setting.
     pub fn key(self) -> String {
         format!("{self:?}")

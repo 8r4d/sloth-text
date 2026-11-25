@@ -97,6 +97,8 @@ pub struct WriterSettings {
     pub common_words: String,
     /// Recent projects on the start screen: tiles or the card file.
     pub start_view: StartView,
+    /// A fact about your work under the start screen's greeting.
+    pub show_fact: bool,
 }
 
 impl Default for WriterSettings {
@@ -127,6 +129,7 @@ impl Default for WriterSettings {
             watch_words: crate::repetition::default_watch_list().join(", "),
             common_words: String::new(),
             start_view: StartView::Tiles,
+            show_fact: true,
             theme: ThemeChoice::default(),
         }
     }
@@ -343,6 +346,8 @@ impl WriterApp {
                     row(ui, "Theme", &mut |ui| {
                         theme::picker(ui, "theme", &mut settings.theme, 180.0);
                     });
+                    ui.checkbox(&mut settings.show_fact, "A fact about your work on the start screen")
+                        .on_hover_text("One a day, from your writing statistics. Click it for another.");
 
                     group(ui, "Backups");
                     ui.checkbox(&mut settings.auto_backup, "Back up automatically when a project closes, and once a day");

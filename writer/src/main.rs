@@ -14,6 +14,7 @@ mod canvas;
 mod character;
 mod compile;
 mod crash_log;
+mod facts;
 mod keychain;
 mod lock;
 mod places;

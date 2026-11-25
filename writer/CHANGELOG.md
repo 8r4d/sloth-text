@@ -2,6 +2,11 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 1.48.0
+
+- The start screen has a fact about your work under the greeting: one calm, true sentence a day from your writing statistics ("You wrote 1,204 words on Tuesday." "Bellingham is 38% of the way to its target."). Click it for another. Turn it off in App Settings → Appearance.
+- With a Severance theme, the start screen's sloth is a one-colour emblem in the theme's colour, inside a ring.
+
 ## 1.47.0
 
 - Severance Light: the daytime office to go with Severance, deep teal on cool white. In App Settings → Appearance, with the light themes.

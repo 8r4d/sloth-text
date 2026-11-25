@@ -31,6 +31,8 @@ impl Pose {
 #[derive(Default)]
 pub(super) struct SlothArt {
     textures: HashMap<Pose, egui::TextureHandle>,
+    /// The reading pose in shades of white, to tint as the emblem.
+    emblem: Option<egui::TextureHandle>,
 }
 
 impl WriterApp {
@@ -45,6 +47,66 @@ impl WriterApp {
                 ctx.load_texture(format!("sloth-{pose:?}"), image, egui::TextureOptions::LINEAR)
             })
             .clone()
+    }
+
+    /// The Severance themes' start screen crest: the reading sloth in one
+    /// colour (its light and dark kept, in shades of the theme's accent),
+    /// inside a thin ring.
+    pub(super) fn sloth_emblem(&mut self, ui: &mut egui::Ui) {
+        let texture = self
+            .sloth_art
+            .emblem
+            .get_or_insert_with(|| {
+                let png = eframe::icon_data::from_png_bytes(Pose::Reading.png()).expect("the sloth is a valid PNG");
+                let rgba: Vec<u8> = png
+                    .rgba
+                    .as_chunks::<4>().0.iter()
+                    .flat_map(|p| {
+                        // Brightness, lifted so the darkest parts still show.
+                        let l = (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32) / 255.0;
+                        let v = ((0.35 + 0.65 * l) * 255.0) as u8;
+                        [v, v, v, p[3]]
+                    })
+                    .collect();
+                let image = egui::ColorImage::from_rgba_unmultiplied([png.width as usize, png.height as usize], &rgba);
+                ui.ctx().load_texture("sloth-emblem", image, egui::TextureOptions::LINEAR)
+            })
+            .clone();
+        let accent = ui.visuals().hyperlink_color;
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(120.0), egui::Sense::hover());
+        let ring = rect.width() / 2.0 - 2.0;
+        ui.painter().circle_stroke(rect.center(), ring, egui::Stroke::new(1.5, accent));
+        ui.painter().circle_stroke(rect.center(), ring - 5.0, egui::Stroke::new(0.75, accent.gamma_multiply(0.6)));
+        let inner = egui::Rect::from_center_size(rect.center(), Vec2::splat(rect.width() * 0.62));
+        egui::Image::new(&texture).tint(accent).paint_at(ui, inner);
+    }
+
+    /// The day's fact about your work, under the greeting. Click it for
+    /// another.
+    pub(super) fn fact_of_the_day(&mut self, ui: &mut egui::Ui) {
+        if !self.settings.show_fact {
+            return;
+        }
+        let facts = self.start_facts.get_or_insert_with(|| {
+            let projects: Vec<crate::facts::ProjectFacts> = self
+                .recent
+                .iter()
+                .filter_map(|root| {
+                    let (title, _) = super::projects_ui::title_of(root)?;
+                    let facts = super::projects_ui::facts_of(root)?;
+                    Some(crate::facts::ProjectFacts { title, words: facts.words, target: facts.target, stats: crate::stats::Stats::load(root) })
+                })
+                .collect();
+            crate::facts::all(&projects, crate::stats::today())
+        });
+        let Some(fact) = crate::facts::for_today(facts, crate::stats::today(), self.fact_skip) else { return };
+        ui.add_space(6.0);
+        let label = egui::Label::new(RichText::new(fact).italics().weak()).sense(egui::Sense::click());
+        let more = facts.len() > 1;
+        let response = ui.add(label);
+        if more && response.on_hover_text("Another fact").clicked() {
+            self.fact_skip += 1;
+        }
     }
 
     /// An empty place, kindly: the sloth, a line saying what's (not) here,

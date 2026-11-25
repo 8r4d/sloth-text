@@ -12,7 +12,7 @@ shapes. It takes the feel of the show, not its logo, company name, artwork
 or lines, so nothing is copied and it all still makes sense to someone who
 hasn't seen the show.
 
-## Decisions to make first
+## Decisions (made 2026-11-25: the recommendations below)
 
 1. **How the touches are switched on.**
    - **Recommendation:** the purely visual ones (the emblem and the screen
@@ -69,7 +69,7 @@ gives the cheer a ladder.
 Test: a streak crossing 3 and 7 days earns each reward once; turning the
 setting off shows none.
 
-## 3. Facts about your work (S)
+## 3. Facts about your work (S) ✅ (1.48.0)
 
 A calm, true statement under the start screen's greeting, in a gentle
 corporate voice, chosen fresh each day.
@@ -123,7 +123,7 @@ default.
 Test: a screenshot with it on, checked by eye; the contrast check with the
 overlay included.
 
-## 6. The emblem (S)
+## 6. The emblem (S) ✅ (1.48.0)
 
 On the start screen with a Severance theme, the sloth becomes a
 one-colour emblem: the reading pose tinted in the theme's accent, inside a
