@@ -850,8 +850,20 @@ impl Palette {
         v.text_edit_bg_color = Some(self.editor_bg);
         v.faint_bg_color = self.chrome_bg;
         v.panel_fill = self.chrome_bg;
-        v.window_fill = self.chrome_bg;
-        v.window_stroke.color = self.border;
+        // Menus and dialogs float over the panels, which share their
+        // colour: raised a step (lighter in a dark theme, nearer white in a
+        // light one), with a firmer edge and, in light themes, a clearer
+        // shadow, so a menu over the inspector reads as on top of it.
+        v.window_fill = if self.dark {
+            self.chrome_bg.lerp_to_gamma(self.text, 0.14)
+        } else {
+            self.chrome_bg.lerp_to_gamma(Color32::WHITE, 0.6)
+        };
+        v.window_stroke.color = self.border.lerp_to_gamma(self.text, 0.3);
+        if !self.dark {
+            v.popup_shadow.color = Color32::from_black_alpha(45);
+            v.window_shadow.color = Color32::from_black_alpha(45);
+        }
 
         // Text.
         v.override_text_color = Some(self.text);

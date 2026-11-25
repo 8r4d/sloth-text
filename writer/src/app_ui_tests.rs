@@ -3329,14 +3329,13 @@ fn the_card_files_bottom_half_flips_back_one() {
 }
 
 #[test]
-fn move_to_trash_is_in_the_more_menu() {
-    let dir = TempDir::new("trash-in-more");
+fn move_to_trash_is_only_in_the_binders_menu() {
+    let dir = TempDir::new("trash-in-binder");
     let mut harness = harness(project(&dir, "The ferry had gone."));
     assert_eq!(harness.query_all_by_label_contains("Move to Trash").count(), 0, "not on the toolbar");
-    let before = manuscript_titles(&harness).len();
     harness.get_by_label("More\u{2026}").click();
     harness.run_steps(2);
-    harness.get_by_label(&format!("{} Move to Trash", crate::icons::TRASH)).click();
-    harness.run_steps(3);
-    assert_eq!(manuscript_titles(&harness).len(), before - 1, "the selected document went to the Trash");
+    assert_eq!(harness.query_all_by_label_contains("Move to Trash").count(), 0, "not in More\u{2026}");
+    // Highlight Repeated Words is in App Settings (and \u{2325}\u{2318}R), not here.
+    assert_eq!(harness.query_all_by_label_contains("Highlight Repeated Words").count(), 0);
 }
