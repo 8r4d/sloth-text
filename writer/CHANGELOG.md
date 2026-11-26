@@ -2,6 +2,10 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.11.0
+
+- Corkboard cards in three sizes: Small, Medium (as before) or Large, in Project Settings → Binder. Smaller to see more of a folder at once, larger for longer synopses. Each project keeps its own, and it travels with a project synced between computers.
+
 ## 2.10.0
 
 Research files: PDFs and pictures in the project.

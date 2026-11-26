@@ -304,6 +304,9 @@ pub struct Manifest {
     /// first, rather than in order after what's selected.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub new_at_top: bool,
+    /// How big the corkboard's cards are.
+    #[serde(default, skip_serializing_if = "CardSize::is_default")]
+    pub card_size: CardSize,
     /// Sync every document and the binder through the web helper, so
     /// other computers can share the project (see sync.rs), not only the
     /// documents marked for the web.
@@ -504,6 +507,7 @@ impl Project {
                 kind: Kind::default(),
                 notepad: None,
                 new_at_top: false,
+                card_size: CardSize::default(),
                 whole_sync: false,
             },
         };
@@ -1467,6 +1471,41 @@ fn reserved_on_windows(name: &str) -> bool {
 
 /// A file-name stem from a title: lower case, letters and digits, words
 /// joined by `-`. "Mara's Arrival!" becomes `maras-arrival`.
+/// How big the corkboard's cards are: smaller to see more at once, larger
+/// for longer synopses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CardSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl CardSize {
+    pub const ALL: [CardSize; 3] = [CardSize::Small, CardSize::Medium, CardSize::Large];
+
+    fn is_default(&self) -> bool {
+        *self == CardSize::default()
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            CardSize::Small => "Small",
+            CardSize::Medium => "Medium",
+            CardSize::Large => "Large",
+        }
+    }
+
+    /// Width and height in points.
+    pub fn size(self) -> (f32, f32) {
+        match self {
+            CardSize::Small => (170.0, 115.0),
+            CardSize::Medium => (220.0, 150.0),
+            CardSize::Large => (300.0, 210.0),
+        }
+    }
+}
+
 /// Where research files go, in the project folder.
 pub const RESEARCH_FILES: &str = "Research Files";
 

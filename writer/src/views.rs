@@ -24,7 +24,6 @@ pub(super) enum FolderView {
 /// Which view each folder was last shown in, for this session.
 pub(super) type FolderViews = HashMap<String, FolderView>;
 
-const CARD_SIZE: Vec2 = Vec2::new(220.0, 150.0);
 const CARD_GAP: f32 = 16.0;
 
 /// One item as a view shows it, copied out of the project so the view can
@@ -110,10 +109,11 @@ impl WriterApp {
             }
             return;
         }
-        let (statuses, labels) = match &self.project {
-            Some(p) => (p.manifest.statuses.clone(), p.manifest.labels.clone()),
+        let (statuses, labels, card_size) = match &self.project {
+            Some(p) => (p.manifest.statuses.clone(), p.manifest.labels.clone(), p.manifest.card_size.size()),
             None => return,
         };
+        let card_size = Vec2::new(card_size.0, card_size.1);
         let dragging = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).map(|d| d.0.clone());
         let mut actions = Vec::new();
         if mode == FolderView::Slothenings {
@@ -123,7 +123,7 @@ impl WriterApp {
         // Filtered, the order shown isn't the binder's: no reordering.
         let reorder = keyword.is_none();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match mode {
-            FolderView::Corkboard => corkboard(ui, &items, &statuses, &labels, dragging.as_deref(), reorder, &mut actions),
+            FolderView::Corkboard => corkboard(ui, &items, card_size, &statuses, &labels, dragging.as_deref(), reorder, &mut actions),
             _ => outline(ui, &items, &statuses, &labels, dragging.as_deref(), reorder, &mut actions),
         });
 
@@ -265,9 +265,11 @@ fn collect<'a>(nodes: &'a [Node], depth: usize, nested: bool, out: &mut Vec<(&'a
 
 // ----- corkboard -------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn corkboard(
     ui: &mut egui::Ui,
     items: &[Item],
+    size: Vec2,
     statuses: &[String],
     labels: &[Label],
     dragging: Option<&str>,
@@ -278,7 +280,7 @@ fn corkboard(
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(CARD_GAP);
         for item in items {
-            card(ui, item, statuses, labels, dragging, reorder, actions);
+            card(ui, item, size, statuses, labels, dragging, reorder, actions);
         }
     });
 }
@@ -352,9 +354,11 @@ pub(super) fn opening_color(ui: &egui::Ui) -> Color32 {
 /// Room kept at the bottom of a card for its status and words.
 const FOOTER_HEIGHT: f32 = 16.0;
 
+#[allow(clippy::too_many_arguments)]
 fn card(
     ui: &mut egui::Ui,
     item: &Item,
+    size: Vec2,
     statuses: &[String],
     labels: &[Label],
     dragging: Option<&str>,
@@ -364,7 +368,7 @@ fn card(
     // The card's background takes clicks and drags; the synopsis field,
     // added on top, takes its own clicks. The title isn't selectable text,
     // so pressing on it drags the card.
-    let (rect, response) = ui.allocate_exact_size(CARD_SIZE, Sense::click_and_drag());
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
     let visuals = ui.visuals();
     let fill = if visuals.dark_mode { Color32::from_gray(48) } else { Color32::from_rgb(0xFD, 0xFB, 0xF4) };
     let painter = ui.painter_at(rect);

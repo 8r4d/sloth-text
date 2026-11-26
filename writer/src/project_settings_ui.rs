@@ -41,6 +41,7 @@ impl WriterApp {
         let title = project.manifest.title.clone();
         let kind = project.manifest.kind;
         let mut new_at_top = project.manifest.new_at_top;
+        let mut card_size = project.manifest.card_size;
         let mut whole_sync = project.manifest.whole_sync;
         let helper_ready = !self.settings.helper_url.trim().is_empty() && !self.helper_token.trim().is_empty();
         let statuses = project.manifest.statuses.clone();
@@ -89,6 +90,14 @@ impl WriterApp {
                     group(ui, "Binder");
                     ui.checkbox(&mut new_at_top, "New documents and folders go at the top of their folder")
                         .on_hover_text("Newest first, for a journal or blog. Off, a new item goes after the selected document, or at the bottom of the selected folder, in order.");
+                    ui.horizontal(|ui| {
+                        ui.label("Corkboard cards");
+                        for size in crate::project::CardSize::ALL {
+                            ui.selectable_value(&mut card_size, size, size.name());
+                        }
+                    })
+                    .response
+                    .on_hover_text("Smaller to see more of a folder at once; larger for longer synopses.");
 
                     group(ui, "Goals");
                     super::stats_ui::goals_form(ui, goals, fields, true);
@@ -152,6 +161,10 @@ impl WriterApp {
             project.manifest.whole_sync = whole_sync;
             self.manifest_dirty = true;
             self.sync_now = true;
+        }
+        if card_size != project.manifest.card_size {
+            project.manifest.card_size = card_size;
+            self.manifest_dirty = true;
         }
         if new_at_top != project.manifest.new_at_top
             && let Err(e) = project.set_new_at_top(new_at_top)

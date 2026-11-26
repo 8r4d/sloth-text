@@ -3473,3 +3473,35 @@ fn research_files_show_where_the_editor_is() {
     harness.get_by_label("Not on this computer");
     harness.get_by_label("Find the File\u{2026}");
 }
+
+// ----- card sizes ------------------------------------------------------------
+
+#[test]
+fn corkboard_cards_come_in_three_sizes() {
+    let dir = TempDir::new("card-sizes");
+    let mut p = project(&dir, "The ferry had gone.");
+    for title in ["Arrival", "The Letter", "Storm", "Morning"] {
+        p.add_document(&Place::Into("manuscript".into()), title).unwrap();
+    }
+    let mut harness = harness(p);
+    harness.state_mut().show_inspector = false;
+    harness.state_mut().project_settings_open = true;
+    harness.run_steps(3);
+    harness.get_by_label("Large").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().project.as_ref().unwrap().manifest.card_size, crate::project::CardSize::Large);
+    assert!(harness.state().manifest_dirty, "kept with the project");
+    harness.state_mut().project_settings_open = false;
+    harness.state_mut().select("manuscript".into());
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/cards-large.png")).unwrap();
+        harness.state_mut().project.as_mut().unwrap().manifest.card_size = crate::project::CardSize::Small;
+        harness.run_steps(3);
+        harness.render().unwrap().save(format!("{dir}/cards-small.png")).unwrap();
+    }
+    // Saved, and back as it was when the project opens again.
+    harness.state_mut().save_all();
+    let again = Project::open(&dir.0).unwrap();
+    assert_ne!(again.manifest.card_size, crate::project::CardSize::Medium);
+}
