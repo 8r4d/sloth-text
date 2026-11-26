@@ -68,6 +68,7 @@ ICONS = [
     ("MYSTERY", "fingerprint", "Mystery"),
     ("SCIENCE_FICTION", "rocket", "Science fiction"),
     ("HORROR", "ghost", "Horror"),
+    ("LORE", "map", "Lore: worldbuilding"),
     # Rewards.
     ("LEAF", "leaf", "Three days running; and the finale's leaves"),
     ("FLOWER", "flower-2", "A week"),

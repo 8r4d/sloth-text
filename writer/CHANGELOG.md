@@ -2,6 +2,15 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.12.0
+
+Lore, for worldbuilding.
+
+- A new kind of project, Lore, with a map for its icon: pick it in Project Settings, or from Icon in a project's right-click menu on the start screen.
+- Six more ready-made profile folders, under Lore in New Profile Folder: Realms, Cultures, Religions, Creatures, Languages and Eras, each with its own sections (a realm's rulers, geography, economy, allies and enemies, history; an era's when, what happened, who mattered, what it left behind…). They sit beside fiction's Locations, Factions, Objects and Worldbuilding, and any project can use them.
+
+A project marked Lore opens as plain Writing in an older Writer until that one's updated.
+
 ## 2.11.0
 
 - Corkboard cards in three sizes: Small, Medium (as before) or Large, in Project Settings → Binder. Smaller to see more of a folder at once, larger for longer synopses. Each project keeps its own, and it travels with a project synced between computers.

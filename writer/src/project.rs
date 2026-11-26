@@ -189,12 +189,58 @@ fn kind(id: &str, name: &str, item: &str, sections: &[&str]) -> ProfileKind {
     ProfileKind { id: id.into(), name: name.into(), item: item.into(), sections: sections.iter().map(|s| s.to_string()).collect() }
 }
 
-/// The kinds a project can add, ready to use: for fiction, then for
-/// non-fiction (the bool says which).
-pub fn profile_presets() -> Vec<(ProfileKind, bool)> {
-    let fiction = fiction_presets().into_iter().map(|k| (k, true));
-    let non_fiction = non_fiction_presets().into_iter().map(|k| (k, false));
-    fiction.chain(non_fiction).collect()
+/// Which group a ready-made profile kind is offered under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PresetGroup {
+    Fiction,
+    Worldbuilding,
+    NonFiction,
+}
+
+impl PresetGroup {
+    pub const ALL: [PresetGroup; 3] = [PresetGroup::Fiction, PresetGroup::Worldbuilding, PresetGroup::NonFiction];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PresetGroup::Fiction => "Fiction",
+            // Not "Worldbuilding": that's one of the kinds in it.
+            PresetGroup::Worldbuilding => "Lore",
+            PresetGroup::NonFiction => "Non-fiction",
+        }
+    }
+
+    /// Kinds from another group that suit this one too, offered under both.
+    pub fn also(self) -> &'static [&'static str] {
+        match self {
+            // Lore adds to fiction's (locations, factions, objects, the
+            // world's rules), which are just above it in the menu.
+            PresetGroup::Fiction | PresetGroup::Worldbuilding => &[],
+            // Themes serve essays as well as novels.
+            PresetGroup::NonFiction => &["themes"],
+        }
+    }
+}
+
+/// The kinds a project can add, ready to use, each with the group it's
+/// offered under (see `PresetGroup::also` for those offered under two).
+pub fn profile_presets() -> Vec<(ProfileKind, PresetGroup)> {
+    let fiction = fiction_presets().into_iter().map(|k| (k, PresetGroup::Fiction));
+    let world = worldbuilding_presets().into_iter().map(|k| (k, PresetGroup::Worldbuilding));
+    let non_fiction = non_fiction_presets().into_iter().map(|k| (k, PresetGroup::NonFiction));
+    fiction.chain(world).chain(non_fiction).collect()
+}
+
+/// For lore: a setting's realms, peoples, beliefs, creatures, tongues and
+/// history (beside fiction's locations, factions, objects and rules).
+fn worldbuilding_presets() -> Vec<ProfileKind> {
+    vec![
+        kind("realms", "Realms", "Realm", &["Rulers", "Geography", "Economy", "Allies and enemies", "History"]),
+        kind("cultures", "Cultures", "Culture", &["Customs", "Values", "Daily life", "Art and stories", "Relations with others"]),
+        kind("religions", "Religions", "Religion", &["Gods and powers", "Beliefs", "Practices", "Clergy", "History"]),
+        kind("creatures", "Creatures", "Creature", &["Appearance", "Habitat", "Behaviour", "Uses and dangers", "Legends"]),
+        kind("languages", "Languages", "Language", &["Who speaks it", "Sound", "Words and phrases", "Writing", "Names"]),
+        kind("eras", "Eras", "Era", &["When", "What happened", "Who mattered", "What it left behind"]),
+    ]
 }
 
 fn non_fiction_presets() -> Vec<ProfileKind> {
@@ -335,6 +381,8 @@ pub enum Kind {
     Mystery,
     ScienceFiction,
     Horror,
+    /// Worldbuilding: a setting's places, peoples and history.
+    Lore,
     /// Anything, and a kind from a newer version that this one doesn't
     /// know (serde needs that catch-all last).
     #[default]
@@ -344,10 +392,11 @@ pub enum Kind {
 
 impl Kind {
     /// In the order they're offered.
-    pub const ALL: [Kind; 18] = [
+    pub const ALL: [Kind; 19] = [
         Kind::Writing, Kind::Novel, Kind::ShortFiction, Kind::Essay, Kind::Nonfiction, Kind::Blog,
         Kind::Podcast, Kind::Screenplay, Kind::StagePlay, Kind::Poetry, Kind::Journal, Kind::Personal,
         Kind::Letters, Kind::Children, Kind::Fantasy, Kind::Mystery, Kind::ScienceFiction, Kind::Horror,
+        Kind::Lore,
     ];
 
     fn is_default(&self) -> bool {
@@ -374,6 +423,7 @@ impl Kind {
             Kind::Mystery => "Mystery",
             Kind::ScienceFiction => "Science Fiction",
             Kind::Horror => "Horror",
+            Kind::Lore => "Lore",
         }
     }
 
@@ -397,6 +447,7 @@ impl Kind {
             Kind::Mystery => crate::icons::MYSTERY,
             Kind::ScienceFiction => crate::icons::SCIENCE_FICTION,
             Kind::Horror => crate::icons::HORROR,
+            Kind::Lore => crate::icons::LORE,
         }
     }
 
@@ -422,6 +473,7 @@ impl Kind {
             Kind::Mystery => (120, 112, 132),
             Kind::ScienceFiction => (50, 120, 220),
             Kind::Horror => (124, 96, 150),
+            Kind::Lore => (168, 120, 60),
         }
     }
 }
@@ -2117,11 +2169,19 @@ mod tests {
     #[test]
     fn there_are_presets_for_non_fiction() {
         let presets = profile_presets();
-        assert!(presets.iter().any(|(k, fiction)| k.id == "sources" && !fiction));
-        assert!(presets.iter().any(|(k, fiction)| k.id == CHARACTERS && *fiction));
+        assert!(presets.iter().any(|(k, group)| k.id == "sources" && *group == PresetGroup::NonFiction));
+        assert!(presets.iter().any(|(k, group)| k.id == CHARACTERS && *group == PresetGroup::Fiction));
+        assert!(presets.iter().any(|(k, group)| k.id == "realms" && *group == PresetGroup::Worldbuilding));
         let mut ids: Vec<_> = presets.iter().map(|(k, _)| k.id.clone()).collect();
+        ids.sort();
         ids.dedup();
-        assert_eq!(ids.len(), presets.len());
+        assert_eq!(ids.len(), presets.len(), "each kind once, with its own id");
+        // What's offered under two groups is a kind that exists.
+        for group in PresetGroup::ALL {
+            for id in group.also() {
+                assert!(presets.iter().any(|(k, _)| k.id == *id), "{id}");
+            }
+        }
     }
 
     #[test]

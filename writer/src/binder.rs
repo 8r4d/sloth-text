@@ -213,13 +213,13 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
         if node.role.is_some() {
             ui.menu_button("New Profile Folder", |ui| {
                 let unused: Vec<_> = profile_presets().into_iter().filter(|(p, _)| !kinds.iter().any(|k| k.id == p.id)).collect();
-                for (heading, fiction) in [("Fiction", true), ("Non-fiction", false)] {
-                    // Themes serve essays as well as novels: offered under both.
-                    let group: Vec<_> = unused.iter().filter(|(p, f)| *f == fiction || p.id == "themes").collect();
+                for heading in crate::project::PresetGroup::ALL {
+                    // Some kinds suit two groups: offered under both.
+                    let group: Vec<_> = unused.iter().filter(|(p, g)| *g == heading || heading.also().contains(&p.id.as_str())).collect();
                     if group.is_empty() {
                         continue;
                     }
-                    ui.label(egui::RichText::new(heading).small().weak());
+                    ui.label(egui::RichText::new(heading.name()).small().weak());
                     for (preset, _) in group {
                         if ui.button(&preset.name).clicked() {
                             actions.push(BinderAction::AddProfileFolder(Some(preset.clone())));

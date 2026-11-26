@@ -3505,3 +3505,27 @@ fn corkboard_cards_come_in_three_sizes() {
     let again = Project::open(&dir.0).unwrap();
     assert_ne!(again.manifest.card_size, crate::project::CardSize::Medium);
 }
+
+// ----- lore ----------------------------------------------------------------------
+
+#[test]
+fn worldbuilding_profile_folders_for_lore() {
+    let dir = TempDir::new("lore");
+    let mut harness = harness(project(&dir, ""));
+    harness.state_mut().project.as_mut().unwrap().set_kind(crate::project::Kind::Lore).unwrap();
+    harness.get_by_label(&format!("{} Notes", crate::icons::LIBRARY)).click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label("New Profile Folder").hover();
+    harness.run_steps(2);
+    harness.get_by_label("Lore");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/lore-menu.png")).unwrap();
+    }
+    harness.get_by_label("Realms").click();
+    harness.run_steps(3);
+    harness.get_by_label(&format!("{} Realms", crate::icons::PROFILES));
+    let project = Project::open(&dir.0).unwrap();
+    assert_eq!(project.kind(), crate::project::Kind::Lore);
+    let realms = project.profile_kind("realms").unwrap();
+    assert_eq!((realms.item.as_str(), realms.sections[0].as_str()), ("Realm", "Rulers"));
+}

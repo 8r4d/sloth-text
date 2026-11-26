@@ -90,6 +90,8 @@ pub const MYSTERY: &str = "\u{e2cb}";
 pub const SCIENCE_FICTION: &str = "\u{e286}";
 /// Horror (Lucide: ghost).
 pub const HORROR: &str = "\u{e20e}";
+/// Lore: worldbuilding (Lucide: map).
+pub const LORE: &str = "\u{e110}";
 /// Three days running; and the finale's leaves (Lucide: leaf).
 pub const LEAF: &str = "\u{e2de}";
 /// A week (Lucide: flower-2).
@@ -153,6 +155,7 @@ pub const ALL: &[(&str, &str)] = &[
     ("MYSTERY", MYSTERY),
     ("SCIENCE_FICTION", SCIENCE_FICTION),
     ("HORROR", HORROR),
+    ("LORE", LORE),
     ("LEAF", LEAF),
     ("FLOWER", FLOWER),
     ("TEA", TEA),
