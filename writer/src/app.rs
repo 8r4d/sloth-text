@@ -35,6 +35,8 @@ mod compile_window;
 mod elevator_ui;
 #[path = "files_ui.rs"]
 pub(crate) mod files_ui;
+#[path = "glossary_ui.rs"]
+mod glossary_ui;
 #[path = "get_project_ui.rs"]
 mod get_project_ui;
 #[path = "goal_ui.rs"]
@@ -263,6 +265,12 @@ pub struct WriterApp {
     help: Option<about_ui::HelpPage>,
     /// Research files being shown, by item (see files_ui.rs).
     shown_files: std::collections::HashMap<String, files_ui::Shown>,
+    /// Add to Glossary's box, while open (see glossary_ui.rs).
+    glossary_edit: Option<glossary_ui::GlossaryEdit>,
+    /// The document whose glossary terms are marked (the inspector's
+    /// Glossary Terms), until another is selected.
+    glossary_terms_in: Option<String>,
+    glossary_marks: glossary_ui::GlossaryMarks,
     about_icon: Option<egui::TextureHandle>,
     /// The text filtering the Settings window's font list.
     font_filter: String,
@@ -309,6 +317,9 @@ impl WriterApp {
             project_settings_open: false,
             help: None,
             shown_files: HashMap::new(),
+            glossary_edit: None,
+            glossary_terms_in: None,
+            glossary_marks: Default::default(),
             about_icon: None,
             font_filter: String::new(),
             // Tests never touch the real Keychain.
@@ -530,6 +541,7 @@ impl WriterApp {
         self.lock_lost = None;
         self.project = Some(project);
         self.count_all_words();
+        self.ignore_glossary_spellings();
         if let Some(id) = first {
             self.select(id);
         }
@@ -586,6 +598,10 @@ impl WriterApp {
     fn select(&mut self, id: String) {
         // Switching documents is a natural moment to save.
         self.save_all();
+        // Glossary Terms is for the document it was turned on in.
+        if self.glossary_terms_in.as_deref() != Some(id.as_str()) {
+            self.glossary_terms_in = None;
+        }
         if let Some(tab) = self.ensure_open(&id) {
             self.docs.activate(tab);
         }
@@ -1610,7 +1626,13 @@ impl WriterApp {
         }
         // Find matches in this document, highlighted while the find bar is open.
         let matches = if self.find.visible { self.current_matches().unwrap_or_default() } else { Vec::new() };
-        let marks = self.repetition_marks(ui.visuals());
+        let mut marks = self.repetition_marks(ui.visuals());
+        let terms = self.glossary_term_marks();
+        if !terms.is_empty() {
+            marks.retain(|m| !terms.iter().any(|t| t.range.start < m.range.end && m.range.start < t.range.end));
+            marks.extend(terms);
+            marks.sort_by_key(|m| m.range.start);
+        }
         // Where each comment is, for its card in the margin.
         let anchors: Vec<usize> = self.current().map(|t| sloth_core::markdown::comments(&t.doc.text).iter().map(|c| c.passage.as_ref().map_or(c.words.start, |p| p.start)).collect()).unwrap_or_default();
         let highlights = Highlights { all: &matches, current: self.find.current.clone(), marks: &marks, anchors: &anchors };
@@ -1654,8 +1676,13 @@ impl WriterApp {
                             None => editor::show(ui, tab.id, &mut tab.doc.text, &settings, highlights, reveal, None),
                         };
                         split = info.split_at;
+                        self.glossary_tooltip(ui, &info);
+                        let Some(tab) = self.current() else { return };
                         let (hovered, clicked) = references_ui::reported(&tab.doc.text, &info);
                         self.reference_events(ui, hovered, clicked);
+                        if let Some(words) = info.add_to_glossary.clone() {
+                            self.start_glossary_add(words);
+                        }
                         self.suggestions_ui(ui, &doc, &info);
                         if let Some(column) = column {
                             self.comment_cards(ui, column, &info.anchor_tops);
@@ -1806,6 +1833,9 @@ impl WriterApp {
                     let info = editor::show(ui, tab.id, &mut tab.doc.text, &settings, Highlights::default(), None, None);
                     let (hovered, clicked) = references_ui::reported(&tab.doc.text, &info);
                     self.reference_events(ui, hovered, clicked);
+                    if let Some(words) = info.add_to_glossary.clone() {
+                        self.start_glossary_add(words);
+                    }
                     if let Some(doc) = self.selected.clone() {
                         self.suggestions_ui(ui, &doc, &info);
                     }
@@ -1899,6 +1929,7 @@ impl eframe::App for WriterApp {
         self.labels_window(&ctx);
         self.statuses_window(&ctx);
         self.compile_window(&ctx);
+        self.glossary_window(&ctx);
         self.compare_window(&ctx);
         self.rename_project_window(&ctx);
         self.sections_window(&ctx);

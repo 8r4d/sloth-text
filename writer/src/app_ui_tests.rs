@@ -3529,3 +3529,55 @@ fn worldbuilding_profile_folders_for_lore() {
     let realms = project.profile_kind("realms").unwrap();
     assert_eq!((realms.item.as_str(), realms.sections[0].as_str()), ("Realm", "Rulers"));
 }
+
+// ----- glossary --------------------------------------------------------------------
+
+#[test]
+fn add_to_glossary_then_see_the_terms_in_the_text() {
+    let dir = TempDir::new("glossary-ui");
+    let mut harness = harness(project(&dir, "The ansible hummed. Mara read the ansible's log."));
+    harness.state_mut().show_inspector = true;
+    harness.run_steps(2);
+    let first = harness.state().selected.clone().unwrap();
+    let tab = harness.state_mut().current().unwrap().id;
+    let ctx = harness.ctx.clone();
+    sloth_core::editor::set_selection(&ctx, tab, 4..11); // "ansible"
+
+    // Right-click → Add to Glossary…: the box, with the term in it.
+    harness.get_by_label("Document text").click_secondary();
+    harness.run_steps(2);
+    harness.get_by_label("Add to Glossary\u{2026}").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().glossary_edit.as_ref().map(|e| e.term.as_str()), Some("ansible"));
+    harness.event(egui::Event::Text("A device that sends messages at once.".into()));
+    harness.run_steps(1);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/glossary-add.png")).unwrap();
+    }
+    harness.get_by_label("Add").click();
+    harness.run_steps(3);
+
+    // A Glossary document in Notes, holding it.
+    let (gid, glossary) = harness.state().read_glossary().expect("made");
+    assert_eq!(glossary.find("Ansible").unwrap().definition, "A device that sends messages at once.");
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.role_of(&gid), Some(crate::project::Role::Notes));
+    assert_eq!(project.node(&gid).unwrap().title, "Glossary");
+
+    // Glossary Terms on: both places it comes up (not inside "ansible's").
+    harness.get_by_label("Glossary Terms").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().glossary_terms_in.as_deref(), Some(first.as_str()));
+    let found: Vec<std::ops::Range<usize>> = harness.state().glossary_marks_found();
+    assert_eq!(found, vec![4..11], "whole words only");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/glossary-terms.png")).unwrap();
+    }
+
+    // To another document: off.
+    harness.state_mut().select(gid.clone());
+    harness.run_steps(2);
+    assert!(harness.state().glossary_terms_in.is_none());
+    // The glossary itself: its count, sorted already.
+    harness.get_by_label("The glossary: 1 term");
+}

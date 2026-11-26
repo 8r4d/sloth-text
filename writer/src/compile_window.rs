@@ -36,6 +36,7 @@ impl WriterApp {
         // Folders that can be front or back matter: any outside the
         // Manuscript and the Trash, by where they are.
         let folders = matter_folders(&project.manifest.binder);
+        let project_has_glossary = project.glossary().is_some();
         let before = project.manifest.compile.clone();
         let settings = &mut project.manifest.compile;
         let naming = &mut self.compile_preset_name;
@@ -170,6 +171,7 @@ impl WriterApp {
                     || settings.about_author
                     || settings.front_matter.is_some()
                     || settings.back_matter.is_some()
+                    || settings.glossary
                     || !settings.title_page;
                 egui::CollapsingHeader::new("Front and back matter").id_salt("compile-matter").default_open(in_use).show(ui, |ui| {
                     egui::Grid::new("compile-matter-grid").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
@@ -195,7 +197,14 @@ impl WriterApp {
                                     .response
                                     .on_disabled_hover_text("Manuscripts sent to agents and editors don't have one.");
                                 }
-                                let has_bio = !profile.bio.trim().is_empty();
+                                let has_glossary = project_has_glossary;
+                        ui.add_enabled_ui(has_glossary, |ui| {
+                            ui.checkbox(&mut settings.glossary, "Glossary, near the end");
+                        })
+                        .response
+                        .on_hover_text("Every term in the glossary, A to Z, before About the Author")
+                        .on_disabled_hover_text("Add a term first: select it in the text, right-click, Add to Glossary.");
+                        let has_bio = !profile.bio.trim().is_empty();
                                 ui.add_enabled_ui(has_bio, |ui| {
                                     ui.checkbox(&mut settings.about_author, "About the Author, at the end");
                                 })

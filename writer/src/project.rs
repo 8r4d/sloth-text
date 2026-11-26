@@ -346,6 +346,10 @@ pub struct Manifest {
     /// web (see `notepad`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notepad: Option<String>,
+    /// The glossary: the document of terms and definitions (see
+    /// glossary.rs), made on first Add to Glossary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glossary: Option<String>,
     /// New documents and folders go at the top of their folder, newest
     /// first, rather than in order after what's selected.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -558,6 +562,7 @@ impl Project {
                 goals: Default::default(),
                 kind: Kind::default(),
                 notepad: None,
+                glossary: None,
                 new_at_top: false,
                 card_size: CardSize::default(),
                 whole_sync: false,
@@ -1437,6 +1442,24 @@ impl Project {
     pub fn notepad(&self) -> Option<&Node> {
         let id = self.manifest.notepad.as_deref()?;
         self.node(id).filter(|n| n.is_document() && self.role_of(id) != Some(Role::Trash))
+    }
+
+    /// The glossary, if there is one: a document, outside the Trash.
+    pub fn glossary(&self) -> Option<&Node> {
+        let id = self.manifest.glossary.as_deref()?;
+        self.node(id).filter(|n| n.is_document() && self.role_of(id) != Some(Role::Trash))
+    }
+
+    /// The glossary, made if there isn't one: "Glossary" in Notes.
+    /// Returns its id.
+    pub fn make_glossary(&mut self) -> io::Result<String> {
+        if let Some(node) = self.glossary() {
+            return Ok(node.id.clone());
+        }
+        let id = self.add_document(&Place::Into(Role::Notes.folder().to_owned()), "Glossary")?;
+        self.manifest.glossary = Some(id.clone());
+        self.save()?;
+        Ok(id)
     }
 
     /// Make a document the notepad (there's one at most), or none.

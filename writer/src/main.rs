@@ -14,6 +14,7 @@ mod canvas;
 mod character;
 mod compile;
 mod compile_pdf;
+mod glossary;
 mod crash_log;
 mod facts;
 mod icons;

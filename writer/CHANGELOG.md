@@ -2,6 +2,16 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.13.0
+
+A glossary.
+
+- Select a word or phrase, right-click, Add to Glossary…: write what it means, and it goes in the project's glossary in its A–Z place. A term that's there already opens with its definition, to change it.
+- The glossary is one document, Glossary in Notes (made with your first term): each term a # heading with its definition under it, plain Markdown you can also write in by hand. Selected, the inspector says how many terms it has, with Sort A–Z for when you've added some out of order.
+- Glossary Terms, in a document's inspector: the glossary's words in its text get a teal underline, and resting the pointer on one shows its definition. It's off again when you go to another document.
+- In Compile, under Front and back matter: Glossary, near the end. Every term, A to Z, before About the Author and in the contents: a term in bold with its definition under it, in a PDF, an e-book, a Word file or Markdown.
+- Glossary terms aren't marked as misspelled.
+
 ## 2.12.0
 
 Lore, for worldbuilding.

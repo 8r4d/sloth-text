@@ -52,6 +52,9 @@ pub struct EditorSettings {
     /// Offer Split at Cursor in the right-click menu (the app does the
     /// splitting; see `CursorInfo::split_at`).
     pub split_menu: bool,
+    /// Offer Add to Glossary in the right-click menu for selected words
+    /// (the app keeps the glossary; see `CursorInfo::add_to_glossary`).
+    pub glossary_menu: bool,
     /// Typewriter scrolling: keep the line being typed in the middle of
     /// the editor (with room below the text to let the last line get there).
     pub typewriter: bool,
@@ -111,6 +114,7 @@ impl Default for EditorSettings {
             markdown: false,
             spell_check: false,
             split_menu: false,
+            glossary_menu: false,
             typewriter: false,
             paragraph_spacing: 0.0,
             first_line_indent: 0.0,
@@ -166,6 +170,12 @@ pub struct CursorInfo {
     pub reference_hovered: Option<(usize, usize)>,
     /// A `[[reference]]` was ⌘-clicked: the app opens what it refers to.
     pub reference_clicked: Option<(usize, usize)>,
+    /// Add to Glossary was chosen in the right-click menu, for these words
+    /// (see `EditorSettings::glossary_menu`).
+    pub add_to_glossary: Option<String>,
+    /// The byte in the text under the pointer, if it's over a word (not
+    /// past a line's end): for the app to explain what's there.
+    pub hovered_byte: Option<usize>,
     /// Where the cursor is on screen, if the editor has one (for a popup
     /// beside it, such as the app's suggestions).
     pub cursor_rect: Option<Rect>,
@@ -541,12 +551,21 @@ enum MenuChoice {
     RemoveBlankLines,
     Split,
     Comment,
+    Glossary,
 }
 
 /// Right-click in the editor: spelling suggestions for a misspelled word
 /// under the pointer, then Markdown formatting for the selection (or the
 /// cursor's line).
-fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut String, settings: &EditorSettings) -> Option<usize> {
+/// What the right-click menu asks of the app: Split at Cursor (where),
+/// Add to Glossary (which words).
+#[derive(Default)]
+struct MenuAsks {
+    split_at: Option<usize>,
+    glossary: Option<String>,
+}
+
+fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut String, settings: &EditorSettings) -> MenuAsks {
     let response = &output.response;
     // Clicking the menu takes focus from the text, which drops its
     // selection, so remember the selection the menu was opened on, and
@@ -565,7 +584,7 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
             d.insert_temp(clicked_word, word);
         });
     }
-    let mut split_at = None;
+    let mut asks = MenuAsks::default();
     response.context_menu(|ui| {
         let mut picked = None;
         let word: Option<Misspelling> = ui.ctx().data(|d| d.get_temp(clicked_word)).flatten();
@@ -623,6 +642,18 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                 picked = Some(MenuChoice::Comment);
             }
         }
+        if settings.glossary_menu {
+            ui.separator();
+            let words = ui.ctx().data(|d| d.get_temp::<Range<usize>>(opened_on)).filter(|r| !r.is_empty());
+            if ui
+                .add_enabled(words.is_some(), egui::Button::new("Add to Glossary\u{2026}"))
+                .on_hover_text("The selected words as a term in the project's glossary, with a definition")
+                .on_disabled_hover_text("Select the words first")
+                .clicked()
+            {
+                picked = Some(MenuChoice::Glossary);
+            }
+        }
         if settings.split_menu {
             ui.separator();
             let split = egui::Button::new("Split at Cursor").shortcut_text(crate::keys::shown("\u{2318}K"));
@@ -669,15 +700,23 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                 }
                 MenuChoice::Split => {
                     let range = ctx.data(|d| d.get_temp::<Range<usize>>(opened_on)).unwrap_or(0..0);
-                    split_at = Some(range.start);
+                    asks.split_at = Some(range.start);
+                }
+                MenuChoice::Glossary => {
+                    if let Some(range) = ctx.data(|d| d.get_temp::<Range<usize>>(opened_on)) {
+                        let words: String = text.chars().skip(range.start).take(range.len()).collect();
+                        asks.glossary = Some(words.split_whitespace().collect::<Vec<_>>().join(" "));
+                    }
                 }
             }
-            // Back to typing.
-            ui.ctx().memory_mut(|m| m.request_focus(editor_id(tab)));
+            // Back to typing (unless the app's opening a box of its own).
+            if asks.glossary.is_none() {
+                ui.ctx().memory_mut(|m| m.request_focus(editor_id(tab)));
+            }
             ui.close();
         }
     });
-    split_at
+    asks
 }
 
 /// The font the editor's text is set in: the fixed-width editor font, or
@@ -865,7 +904,12 @@ pub fn show(
                     paint_misspellings(ui, &output, text, &misspellings(text, cursor));
                 }
                 if menu {
-                    info.split_at = text_menu(&output, tab, text, settings);
+                    let asks = text_menu(&output, tab, text, settings);
+                    info.split_at = asks.split_at;
+                    info.add_to_glossary = asks.glossary;
+                }
+                if let Some(pos) = output.response.hover_pos() {
+                    info.hovered_byte = byte_at(&output, text, pos);
                 }
                 if settings.markdown
                     && let Some(pos) = output.response.hover_pos()
@@ -1090,6 +1134,19 @@ fn cursor_highlights(
 const COMMENT_TINT: Color32 = Color32::from_rgba_premultiplied(64, 46, 0, 48);
 const COMMENT_COLOR: Color32 = Color32::from_rgb(0xc9, 0x8a, 0x22);
 const REFERENCE_COLOR: Color32 = Color32::from_rgb(70, 130, 200);
+
+/// The byte under a point in the editor, if the point is over a character
+/// (not in the space past a line's end, nor between lines).
+fn byte_at(output: &egui::text_edit::TextEditOutput, text: &str, pos: egui::Pos2) -> Option<usize> {
+    let local = pos - output.galley_pos;
+    let row = output.galley.rows.iter().find(|r| local.y >= r.pos.y && local.y < r.pos.y + r.height())?;
+    let right = row.pos.x + row.row.glyphs.last().map_or(0.0, |g| g.pos.x + g.advance_width);
+    if local.x > right {
+        return None;
+    }
+    let index = output.galley.cursor_from_pos(local).index.0;
+    text.char_indices().nth(index).map(|(b, _)| b)
+}
 
 /// The `[[reference]]` under a point in the editor, if the point is on it
 /// (not just level with it, past the end of the line).

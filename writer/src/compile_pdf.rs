@@ -25,7 +25,7 @@ use krilla::paint::Stroke;
 use krilla::text::{Font, TextDirection};
 
 use crate::compile::{
-    ABOUT_HEADING, Block, CompileSettings, Entry, Manuscript, Matter, Paper, Piece, Span, blocks, break_before, pieces, spans,
+    ABOUT_HEADING, Block, CompileSettings, GLOSSARY_HEADING, Entry, Manuscript, Matter, Paper, Piece, Span, blocks, break_before, pieces, spans,
 };
 
 /// The four faces of a font family. A face the family hasn't got is
@@ -630,6 +630,23 @@ fn layout(m: &Manuscript, settings: &CompileSettings, faces: &Faces) -> Book {
             body.y += g.size * 0.3;
         }
     }
+    if !m.glossary.is_empty() {
+        body.opening(GLOSSARY_HEADING);
+        starts.push((GLOSSARY_HEADING.into(), Entry::Glossary, body.pages.len() - 1, false));
+        for entry in &m.glossary {
+            body.gap(0.4);
+            // A term kept with the start of its definition.
+            body.ensure(2, g.leading);
+            let mut term = body.body_para(&[Span { text: entry.term.clone(), italic: false, bold: true }], false);
+            term.align = Align::Left;
+            body.para(&term);
+            for line in entry.definition.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                let mut p = body.body_para(&spans(line), false);
+                p.left = g.size * 1.5;
+                body.para(&p);
+            }
+        }
+    }
     if !m.bio.is_empty() {
         body.opening(ABOUT_HEADING);
         starts.push((ABOUT_HEADING.into(), Entry::About, body.pages.len() - 1, false));
@@ -762,6 +779,7 @@ mod tests {
             chapters: (0..chapters).map(|c| Chapter { heading: format!("Chapter {}", c + 1), scenes: vec![scene.clone(), "After.".into()] }).collect(),
             notes: Vec::new(),
             works_cited: Vec::new(),
+            glossary: Vec::new(),
         }
     }
 
@@ -797,6 +815,21 @@ mod tests {
         // Bookmarks for the same.
         assert_eq!(book.bookmarks.first(), Some(&("Chapter 1".to_owned(), 4)));
         assert_eq!(book.bookmarks.len(), 5);
+    }
+
+    #[test]
+    fn a_glossary_gets_a_page_and_a_place_in_the_contents() {
+        let Some(faces) = faces() else { return };
+        let mut m = manuscript(1, 3);
+        m.glossary = vec![
+            crate::glossary::Entry { term: "Ansible".into(), definition: "Sends at once.".into() },
+            crate::glossary::Entry { term: "Zephyr".into(), definition: "A west wind.".into() },
+        ];
+        let book = layout(&m, &CompileSettings::default(), &faces);
+        let titles: Vec<&str> = book.bookmarks.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(titles, ["Chapter 1", "Acknowledgements", "Glossary", ABOUT_HEADING], "before About the Author");
+        let page = &book.pages[book.bookmarks[2].1];
+        assert!(words(page).starts_with("Glossary Ansible Sends at once. Zephyr A west wind."), "{}", words(page));
     }
 
     #[test]

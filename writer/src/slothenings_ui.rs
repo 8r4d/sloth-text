@@ -81,6 +81,9 @@ impl WriterApp {
                 let info = editor::show(ui, *tab_id, &mut tab.doc.text, &settings, Highlights::default(), reveal, None);
                 let (hovered, clicked) = super::references_ui::reported(&tab.doc.text, &info);
                 self.reference_events(ui, hovered, clicked);
+                if let Some(words) = info.add_to_glossary.clone() {
+                    self.start_glossary_add(words);
+                }
             }
             ui.add_space(ui.available_height().max(120.0) * 0.5);
         });

@@ -178,6 +178,7 @@ impl WriterSettings {
             copy_formatted: self.copy_formatted,
             spell_check: self.spell_check,
             split_menu: true,
+            glossary_menu: true,
             comments: true,
             typewriter: self.typewriter == Typewriter::Always,
             ..EditorSettings::default()

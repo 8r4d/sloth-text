@@ -196,6 +196,8 @@ pub struct CompileSettings {
     pub back_matter: Option<String>,
     /// About the Author, from the profile's bio, at the end.
     pub about_author: bool,
+    /// The glossary, every term in it, near the end.
+    pub glossary: bool,
     /// The PDF's font; `None` for the default reading face.
     pub pdf_font: Option<String>,
     /// Saved setups ("Agent submission", "Beta readers"…).
@@ -221,6 +223,7 @@ impl Default for CompileSettings {
             front_matter: None,
             back_matter: None,
             about_author: false,
+            glossary: false,
             pdf_font: None,
             presets: Vec::new(),
         }
@@ -246,6 +249,7 @@ pub struct Preset {
     pub front_matter: Option<String>,
     pub back_matter: Option<String>,
     pub about_author: bool,
+    pub glossary: bool,
     pub pdf_font: Option<String>,
 }
 
@@ -273,6 +277,7 @@ impl Preset {
             front_matter: s.front_matter.clone(),
             back_matter: s.back_matter.clone(),
             about_author: s.about_author,
+            glossary: s.glossary,
             pdf_font: s.pdf_font.clone(),
         }
     }
@@ -293,6 +298,7 @@ impl Preset {
         s.front_matter = self.front_matter.clone();
         s.back_matter = self.back_matter.clone();
         s.about_author = self.about_author;
+        s.glossary = self.glossary;
         s.pdf_font = self.pdf_font.clone();
     }
 
@@ -315,6 +321,8 @@ pub struct Manuscript {
     pub website: String,
     /// About the Author (empty if not asked for).
     pub bio: String,
+    /// The glossary's terms, A to Z (empty if not asked for).
+    pub glossary: Vec<crate::glossary::Entry>,
     /// The copyright page's lines (empty if not asked for).
     pub copyright: Vec<String>,
     /// Whether to have a title page and a contents page.
@@ -451,6 +459,7 @@ impl Manuscript {
 }
 
 pub const ABOUT_HEADING: &str = "About the Author";
+pub const GLOSSARY_HEADING: &str = "Glossary";
 
 /// Where an item of the contents is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -459,6 +468,7 @@ pub enum Entry {
     Chapter(usize),
     Back(usize),
     WorksCited,
+    Glossary,
     About,
 }
 
@@ -529,6 +539,16 @@ pub fn gather(project: &Project, settings: &CompileSettings, profile: &AuthorPro
         own => own.to_owned(),
     };
     let website = profile.website.trim().to_owned();
+    // The glossary, sorted, with its notes and references out as elsewhere.
+    let glossary = match project.glossary().filter(|_| settings.glossary) {
+        Some(node) => {
+            let text = strip_notes(&sloth_core::markdown::strip_references(&sloth_core::markdown::strip_comments(&text(node))));
+            let mut g = crate::glossary::Glossary::parse(&text);
+            g.sort();
+            g.entries
+        }
+        None => Vec::new(),
+    };
     let copyright = if settings.copyright_page {
         let year = chrono::Local::now().format("%Y");
         let mut lines = vec![if author.is_empty() { format!("Copyright \u{a9} {year}") } else { format!("Copyright \u{a9} {year} {author}") }];
@@ -547,6 +567,7 @@ pub fn gather(project: &Project, settings: &CompileSettings, profile: &AuthorPro
         contact,
         website,
         bio: if settings.about_author { profile.bio.trim().to_owned() } else { String::new() },
+        glossary,
         copyright,
         title_page: settings.title_page,
         contents: settings.contents,
@@ -768,6 +789,15 @@ pub fn to_markdown(m: &Manuscript, settings: &CompileSettings) -> String {
             out.push_str(&format!("\n{entry}\n"));
         }
     }
+    if !m.glossary.is_empty() {
+        out.push_str(&format!("\n# {GLOSSARY_HEADING}\n"));
+        for entry in &m.glossary {
+            out.push_str(&format!("\n**{}**\n", entry.term));
+            for line in entry.definition.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                out.push_str(&format!("\n{line}\n"));
+            }
+        }
+    }
     if !m.bio.is_empty() {
         matter_md(&mut out, &Matter { heading: Some(ABOUT_HEADING.to_owned()), text: m.bio.clone() });
     }
@@ -936,6 +966,17 @@ pub fn to_docx(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
             doc = doc.add_paragraph(runs(hanging, spans(entry), face, &[]));
         }
     }
+    // The glossary: each term in bold, its definition indented under it.
+    if !m.glossary.is_empty() {
+        doc = doc.add_paragraph(new_page(GLOSSARY_HEADING));
+        for entry in &m.glossary {
+            let term = vec![Span { text: entry.term.clone(), italic: false, bold: true }];
+            doc = doc.add_paragraph(runs(body().keep_next(true), term, face, &[]));
+            for line in entry.definition.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                doc = doc.add_paragraph(runs(body().indent(Some(INCH / 2), None, None, None), spans(line), face, &[]));
+            }
+        }
+    }
     if !m.bio.is_empty() {
         doc = doc.add_paragraph(new_page(ABOUT_HEADING));
         doc = add_blocks(doc, &m.bio);
@@ -1065,6 +1106,9 @@ blockquote { margin: 0.5em 2em; font-style: italic; }\n\
 .copyright { margin-top: 60%; font-size: 0.85em; }\n\
 .contents ol { list-style: none; padding: 0; }\n\
 .contents li { margin: 0.4em 0; }\n\
+.glossary dt { font-weight: bold; margin-top: 0.8em; }\n\
+.glossary dd { margin: 0 0 0 1.5em; }\n\
+.glossary dd p { text-indent: 0; }\n\
 .notes { margin-top: 2em; border-top: 1px solid #999; font-size: 0.85em; }\n\
 .notes p, .cited p { text-indent: 0; margin: 0.3em 0; }\n\
 .cited p { padding-left: 2em; text-indent: -2em; }\n\
@@ -1151,6 +1195,18 @@ pub fn to_epub(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
         let entries: String = m.works_cited.iter().map(|e| format!("<p>{}</p>\n", xhtml_spans(&spans(e)))).collect();
         let body = format!("<h1>Works Cited</h1>\n<div class=\"cited\">\n{entries}</div>");
         pages.push(("works-cited.xhtml".into(), "Works Cited".into(), xhtml_page("Works Cited", &body), Some(Entry::WorksCited)));
+    }
+    if !m.glossary.is_empty() {
+        let entries: String = m
+            .glossary
+            .iter()
+            .map(|e| {
+                let definition: String = e.definition.lines().map(str::trim).filter(|l| !l.is_empty()).map(|l| format!("<p>{}</p>", xhtml_spans(&spans(l)))).collect();
+                format!("<dt>{}</dt><dd>{definition}</dd>\n", xml(&e.term))
+            })
+            .collect();
+        let body = format!("<h1>{GLOSSARY_HEADING}</h1>\n<dl class=\"glossary\">\n{entries}</dl>");
+        pages.push(("glossary.xhtml".into(), GLOSSARY_HEADING.into(), xhtml_page(GLOSSARY_HEADING, &body), Some(Entry::Glossary)));
     }
     if !m.bio.is_empty() {
         let body = format!("<h1>{ABOUT_HEADING}</h1>\n{}", blocks_html(&m.bio));
@@ -1359,6 +1415,31 @@ mod tests {
         for text in ["Ann Smith", "1 Quay Street", "annellison.example", "by Ann Ellison", "All rights reserved.", "For M.", "Foreword", "Acknowledgements", "About the Author", "Ann lives by the sea."] {
             assert!(json.contains(text), "missing {text}");
         }
+    }
+
+    #[test]
+    fn the_glossary_compiles_a_to_z_in_every_format() {
+        use std::io::Read;
+        let dir = TempDir::new("glossary");
+        let mut p = book(&dir);
+        let id = p.make_glossary().unwrap();
+        fs::write(p.file_path(&id).unwrap(), "# Zephyr\nA west wind.<!-- check -->\n\n# Ansible\nSends *instantly*.").unwrap();
+        let off = gather(&p, &CompileSettings::default(), &AuthorProfile::default(), read(&p));
+        assert!(off.glossary.is_empty(), "only if asked for");
+        let settings = CompileSettings { glossary: true, ..Default::default() };
+        let m = gather(&p, &settings, &AuthorProfile::default(), read(&p));
+        let terms: Vec<&str> = m.glossary.iter().map(|e| e.term.as_str()).collect();
+        assert_eq!(terms, ["Ansible", "Zephyr"], "A to Z");
+        assert_eq!(m.glossary[1].definition, "A west wind.", "notes out");
+
+        let md = to_markdown(&m, &settings);
+        assert!(md.contains("\n# Glossary\n\n**Ansible**\n\nSends *instantly*.\n\n**Zephyr**\n"), "{md}");
+        let json = docx_rs::read_docx(&to_docx(&m, &settings).unwrap()).unwrap().json();
+        assert!(json.contains("Glossary") && json.contains("Ansible") && json.contains("A west wind."));
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(to_epub(&m, &settings).unwrap())).unwrap();
+        let mut page = String::new();
+        zip.by_name("OEBPS/glossary.xhtml").unwrap().read_to_string(&mut page).unwrap();
+        assert!(page.contains("<dt>Ansible</dt><dd><p>Sends <em>instantly</em>.</p></dd>"), "{page}");
     }
 
     #[test]

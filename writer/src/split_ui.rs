@@ -137,6 +137,9 @@ impl WriterApp {
         let info = editor::show(ui, tab.id, &mut tab.doc.text, &settings, Highlights::default(), None, None);
         let (hovered, clicked) = super::references_ui::reported(&tab.doc.text, &info);
         self.reference_events(ui, hovered, clicked);
+        if let Some(words) = info.add_to_glossary.clone() {
+            self.start_glossary_add(words);
+        }
         self.suggestions_ui(ui, &id, &info);
     }
 }

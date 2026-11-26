@@ -392,6 +392,41 @@ impl WriterApp {
             let now = ui.input(|i| i.time);
             self.copy_document(ui.ctx(), &id, now);
         }
+        // The glossary: how many terms, and putting them in order. Any other
+        // document: its glossary terms marked, while it's the one open.
+        let glossary_id = self.project.as_ref().and_then(|p| p.glossary()).map(|n| n.id.clone());
+        if is_document && glossary_id.is_some() {
+            if glossary_id.as_deref() == Some(id.as_str()) {
+                if let Some((_, glossary)) = self.read_glossary() {
+                    let mut sort = false;
+                    ui.horizontal(|ui| {
+                        let n = glossary.entries.len();
+                        ui.weak(format!("The glossary: {n} {}", if n == 1 { "term" } else { "terms" }));
+                        let sorted = glossary.is_sorted();
+                        if ui
+                            .add_enabled(!sorted, egui::Button::new("Sort A\u{2013}Z").small())
+                            .on_hover_text("Put the terms in alphabetical order (Add to Glossary keeps them so)")
+                            .on_disabled_hover_text("In order already")
+                            .clicked()
+                        {
+                            sort = true;
+                        }
+                    });
+                    if sort {
+                        self.sort_glossary();
+                    }
+                }
+            } else {
+                let mut on = self.glossary_terms_in.as_deref() == Some(id.as_str());
+                if ui
+                    .toggle_value(&mut on, "Glossary Terms")
+                    .on_hover_text("Underline this document's words that are in the glossary, with their definitions on hover. Off again when you go to another document.")
+                    .changed()
+                {
+                    self.glossary_terms_in = on.then(|| id.clone());
+                }
+            }
+        }
         if let Some(target) = meta.target_words.or(targets_inside).filter(|&t| t > 0) {
             let fraction = (words as f32 / target as f32).min(1.0);
             ui.add(egui::ProgressBar::new(fraction).desired_height(6.0));
