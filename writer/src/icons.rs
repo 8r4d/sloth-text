@@ -30,6 +30,10 @@ pub const PROFILES: &str = "\u{e33f}";
 pub const LIBRARY: &str = "\u{e54e}";
 /// A profile (Lucide: contact).
 pub const CARD: &str = "\u{e09c}";
+/// A research file that's a picture (Lucide: image).
+pub const PICTURE: &str = "\u{e0f6}";
+/// A research file: a PDF or any other (Lucide: paperclip).
+pub const ATTACHMENT: &str = "\u{e12d}";
 /// On the web (Lucide: globe).
 pub const WEB: &str = "\u{e0e8}";
 /// App settings (Lucide: settings).
@@ -119,6 +123,8 @@ pub const ALL: &[(&str, &str)] = &[
     ("PROFILES", PROFILES),
     ("LIBRARY", LIBRARY),
     ("CARD", CARD),
+    ("PICTURE", PICTURE),
+    ("ATTACHMENT", ATTACHMENT),
     ("WEB", WEB),
     ("SETTINGS", SETTINGS),
     ("ABOUT", ABOUT),

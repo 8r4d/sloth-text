@@ -716,7 +716,7 @@ impl WriterApp {
     pub(super) fn show_folder_as(&mut self, ctx: &egui::Context, view: FolderView) {
         let Some(selected) = self.selected.clone() else { return };
         let Some(project) = &self.project else { return };
-        let is_folder = project.node(&selected).is_some_and(|n| !n.is_document());
+        let is_folder = project.node(&selected).is_some_and(|n| n.is_folder());
         let folder = if is_folder { Some(selected.clone()) } else { parent_of(&project.manifest.binder, &selected) };
         let Some(folder) = folder else { return };
         if !is_folder && view == FolderView::Slothenings

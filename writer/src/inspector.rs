@@ -297,6 +297,22 @@ impl WriterApp {
         let Some(node) = project.node(&id) else { return };
         let (title, role, mut meta) = (node.title.clone(), node.role, node.meta.clone());
         let is_document = node.is_document();
+        // A research file: what it is and how big, not words.
+        let file = node.file.as_ref().map(|rel| {
+            let path = project.root.join(rel);
+            let kind = match crate::app::files_ui::kind_of(rel) {
+                crate::app::files_ui::FileKind::Pdf => "PDF".to_owned(),
+                crate::app::files_ui::FileKind::Picture => "Picture".to_owned(),
+                crate::app::files_ui::FileKind::Other => {
+                    let ext = std::path::Path::new(rel).extension().map(|x| x.to_string_lossy().to_uppercase()).unwrap_or_default();
+                    if ext.is_empty() { "File".to_owned() } else { format!("{ext} file") }
+                }
+            };
+            match std::fs::metadata(&path) {
+                Ok(m) => format!("{kind} \u{b7} {}", file_size(m.len())),
+                Err(_) => format!("{kind} \u{b7} not on this computer"),
+            }
+        });
         let in_manuscript = project.role_of(&id) == Some(Role::Manuscript);
         // Ticking Target on a document starts it at the project's default.
         let default_target = project.new_document_target(&id);
@@ -338,6 +354,9 @@ impl WriterApp {
         let words = self.words_under(&id);
         ui.add_space(4.0);
         let mut copy = false;
+        if let Some(file) = &file {
+            ui.label(file);
+        } else {
         ui.horizontal(|ui| {
             let what = if role == Some(Role::Manuscript) { "in the manuscript" } else { "" };
             let count = format!("{} {}", crate::stats::thousands(words as u32), if words == 1 { "word" } else { "words" });
@@ -368,6 +387,7 @@ impl WriterApp {
                 }
             });
         });
+        }
         if copy {
             let now = ui.input(|i| i.time);
             self.copy_document(ui.ctx(), &id, now);
@@ -468,7 +488,7 @@ impl WriterApp {
                     ui.end_row();
                 });
                 ui.add_space(4.0);
-                if in_manuscript {
+                if in_manuscript && file.is_none() {
                     let mut include = !meta.exclude_from_compile;
                     if ui.checkbox(&mut include, "Include when compiling").changed() {
                         meta.exclude_from_compile = !include;
@@ -476,7 +496,9 @@ impl WriterApp {
                 }
             });
             // (Outside the closure above: it needs the whole app.)
-            ui.indent("ipad", |ui| self.ipad_checkbox(ui, &id, &mut meta));
+            if file.is_none() {
+                ui.indent("ipad", |ui| self.ipad_checkbox(ui, &id, &mut meta));
+            }
             if is_document && !is_profile {
                 ui.indent("notepad", |ui| self.notepad_checkbox(ui, &id));
             }
@@ -494,7 +516,7 @@ impl WriterApp {
             }
 
             // Who and what appears here (not for the profiles themselves).
-            if !is_profile && self.project.as_ref().is_some_and(|p| !p.manifest.profiles.is_empty()) {
+            if !is_profile && file.is_none() && self.project.as_ref().is_some_and(|p| !p.manifest.profiles.is_empty()) {
                 ui.add_space(4.0);
                 let referenced = self.referenced_by(&id);
                 let open = egui::CollapsingHeader::new(RichText::new("In This Scene").strong())
@@ -735,6 +757,16 @@ impl WriterApp {
 fn section(ui: &mut egui::Ui, title: &str, id: &str, open: bool, add: impl FnOnce(&mut egui::Ui)) {
     ui.add_space(4.0);
     egui::CollapsingHeader::new(RichText::new(title).strong()).id_salt(id).default_open(open).show(ui, add);
+}
+
+/// A file's size as people say it: "840 KB", "2.3 MB".
+fn file_size(bytes: u64) -> String {
+    match bytes {
+        b if b < 1_000 => format!("{b} bytes"),
+        b if b < 1_000_000 => format!("{} KB", b / 1_000),
+        b if b < 1_000_000_000 => format!("{:.1} MB", b as f64 / 1e6),
+        b => format!("{:.1} GB", b as f64 / 1e9),
+    }
 }
 
 #[cfg(test)]

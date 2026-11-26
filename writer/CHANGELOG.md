@@ -2,6 +2,18 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.10.0
+
+Research files: PDFs and pictures in the project.
+
+- Add File… in the binder's right-click menu, or drop files from Finder (or Explorer) onto the window: a PDF, a picture or any other file becomes an item in the binder, with a copy kept in the project's Research Files folder. Nothing selected, it goes in Research.
+- Select one to see it where the editor is: a PDF's pages one under another, a picture fitted to the space. Anything else (a sound file, a spreadsheet) has a button to open it in its own app, and every file has Show in Finder.
+- File items have a synopsis, notes, a label, a status and keywords like anything else, and the inspector says what the file is and how big. They can go on the corkboard and the Canvas and into the Trash; emptying the Trash keeps the file in its zip.
+- Research files stay on the computer they were added on: syncing brings the item to your other computers, not the file (your helper doesn't have to hold them). Until it's there, the item says so, and Find the File… puts a copy in its place.
+- Import from Scrivener brings PDFs, pictures and sound files in as file items, where they were in Scrivener's binder, rather than as notes saying where they went.
+
+If you sync one project between computers, update Writer on each of them, so file items aren't taken for folders.
+
 ## 2.9.0
 
 Compile: who you are, front and back matter, and PDF.

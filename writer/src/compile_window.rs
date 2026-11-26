@@ -299,7 +299,7 @@ pub(super) fn write_compiled(manuscript: &Manuscript, settings: &CompileSettings
 /// any outside the Manuscript and the Trash.
 fn matter_folders(binder: &[Node]) -> Vec<(String, String)> {
     fn walk(nodes: &[Node], path: &str, out: &mut Vec<(String, String)>) {
-        for node in nodes.iter().filter(|n| !n.is_document()) {
+        for node in nodes.iter().filter(|n| n.is_folder()) {
             if matches!(node.role, Some(Role::Manuscript | Role::Trash)) {
                 continue;
             }

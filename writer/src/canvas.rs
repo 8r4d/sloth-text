@@ -107,11 +107,11 @@ pub fn shown(top: &Node, depth: Option<usize>) -> Shown<'_> {
             }
             if !node.children.is_empty() {
                 let at = out.folders.len();
-                if !node.is_document() {
+                if node.is_folder() {
                     out.folders.push((node, Vec::new(), 0));
                 }
                 let (inside, inner_nesting) = walk(&node.children, level + 1, depth, out);
-                if !node.is_document() {
+                if node.is_folder() {
                     out.folders[at].1 = inside.clone();
                     out.folders[at].2 = inner_nesting;
                     nesting = nesting.max(inner_nesting + 1);

@@ -86,6 +86,12 @@ pub struct Node {
     /// separators: `manuscript/the-arrival.md`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// A research file's place (a PDF, a picture…), relative to the
+    /// project folder: `Research Files/Ferry Timetable.pdf`. Such an item
+    /// isn't a document: Writer shows the file. The file stays on each
+    /// computer; syncing carries only the item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Node>,
     /// Synopsis, status, label and the rest, edited in the inspector.
@@ -227,12 +233,23 @@ impl Node {
         self.path.is_some()
     }
 
+    /// A research file (a PDF, a picture…), shown rather than edited.
+    pub fn is_file(&self) -> bool {
+        self.file.is_some()
+    }
+
+    /// A folder: neither a document nor a file.
+    pub fn is_folder(&self) -> bool {
+        self.path.is_none() && self.file.is_none()
+    }
+
     fn role_folder(role: Role) -> Self {
         Self {
             id: role.folder().to_owned(),
             title: role.title().to_owned(),
             role: Some(role),
             path: None,
+            file: None,
             children: Vec::new(),
             meta: Meta::default(),
         }
@@ -535,6 +552,7 @@ impl Project {
                     title: kind.name.clone(),
                     role: Some(Role::Profile),
                     path: None,
+                    file: None,
                     children: Vec::new(),
                     meta: Meta::default(),
                 });
@@ -824,11 +842,53 @@ impl Project {
         };
         let target_words = if document { self.new_document_target(place.target()) } else { None };
         let meta = Meta { target_words, ..Meta::default() };
-        let node = Node { id: self.new_id(), title, role: None, path, children: Vec::new(), meta };
+        let node = Node { id: self.new_id(), title, role: None, path, file: None, children: Vec::new(), meta };
         let id = node.id.clone();
         insert(&mut self.manifest.binder, place, node).expect("checked above");
         self.save()?;
         Ok(id)
+    }
+
+    /// Add a research file (a PDF, a picture…): a copy of `source` goes in
+    /// the project's Research Files folder, and an item for it at `place`,
+    /// titled `title` (the file's name if empty). Returns its id.
+    pub fn add_file(&mut self, place: &Place, source: &Path, title: &str) -> io::Result<String> {
+        self.check_place(None, place)?;
+        let stem = source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let title = clean_title(if title.trim().is_empty() { &stem } else { title })?;
+        let ext = source.extension().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
+        let folder = self.root.join(RESEARCH_FILES);
+        fs::create_dir_all(&folder)?;
+        let safe = match portable_name(&title) {
+            name if name.is_empty() => "Untitled".to_owned(),
+            name => name,
+        };
+        let dot = if ext.is_empty() { String::new() } else { format!(".{ext}") };
+        // Free on disk, and not taken by an item whose file isn't here.
+        let taken: HashSet<String> = self.all_nodes().into_iter().filter_map(|n| n.file.as_deref()).map(str::to_lowercase).collect();
+        let name = (1..)
+            .map(|n| if n == 1 { format!("{safe}{dot}") } else { format!("{safe} ({n}){dot}") })
+            .find(|n| !folder.join(n).exists() && !taken.contains(&format!("{RESEARCH_FILES}/{n}").to_lowercase()))
+            .expect("a free name");
+        fs::copy(source, folder.join(&name))?;
+        let node = Node {
+            id: self.new_id(),
+            title,
+            role: None,
+            path: None,
+            file: Some(format!("{RESEARCH_FILES}/{name}")),
+            children: Vec::new(),
+            meta: Meta::default(),
+        };
+        let id = node.id.clone();
+        insert(&mut self.manifest.binder, place, node).expect("checked above");
+        self.save()?;
+        Ok(id)
+    }
+
+    /// Where a research file item's file is (whether or not it's there).
+    pub fn research_file(&self, id: &str) -> Option<PathBuf> {
+        self.node(id)?.file.as_ref().map(|rel| self.root.join(rel))
     }
 
     /// A project fetched from the helper, as another computer has it (see
@@ -940,7 +1000,7 @@ impl Project {
         if !self.root.join(rel).is_file() {
             return Err(invalid("That file isn't in the project any more."));
         }
-        let node = Node { id: self.new_id(), title, role: None, path: Some(rel.to_owned()), children: Vec::new(), meta: Meta::default() };
+        let node = Node { id: self.new_id(), title, role: None, path: Some(rel.to_owned()), file: None, children: Vec::new(), meta: Meta::default() };
         let id = node.id.clone();
         insert(&mut self.manifest.binder, place, node).expect("checked above");
         self.save()?;
@@ -1046,7 +1106,7 @@ impl Project {
         for item in &items {
             for node in item.subtree() {
                 crate::snapshots::delete_all(&self.root, &node.id)?;
-                if let Some(rel) = &node.path {
+                for rel in node.path.iter().chain(&node.file) {
                     let path = self.root.join(rel);
                     match fs::remove_file(&path) {
                         Ok(()) => removed.push(path),
@@ -1077,6 +1137,13 @@ impl Project {
                 let path = project.root.join(rel);
                 if path.is_file() {
                     files.push((format!("{name}.md"), path));
+                }
+            }
+            if let Some(rel) = &node.file {
+                let path = project.root.join(rel);
+                let ext = path.extension().map(|x| format!(".{}", x.to_string_lossy())).unwrap_or_default();
+                if path.is_file() {
+                    files.push((format!("{name}{ext}"), path));
                 }
             }
             for snapshot in crate::snapshots::list(&project.root, &node.id) {
@@ -1400,6 +1467,9 @@ fn reserved_on_windows(name: &str) -> bool {
 
 /// A file-name stem from a title: lower case, letters and digits, words
 /// joined by `-`. "Mara's Arrival!" becomes `maras-arrival`.
+/// Where research files go, in the project folder.
+pub const RESEARCH_FILES: &str = "Research Files";
+
 pub fn slug(title: &str) -> String {
     let mut out = String::new();
     let mut gap = false;
@@ -2050,6 +2120,46 @@ mod tests {
         assert!(p.profile_kind("locations").is_none());
         assert!(!titles(&p.manifest.binder).contains(&"Locations") || p.profile_kind("locations-2").is_some());
         assert_eq!(Project::open(&dir.0).unwrap().manifest, p.manifest);
+    }
+
+    #[test]
+    fn research_files_are_copied_in_and_go_with_the_trash() {
+        let dir = TempDir::new("files");
+        let outside = TempDir::new("files-outside");
+        fs::create_dir_all(&outside.0).unwrap();
+        let source = outside.0.join("Ferry: Timetable.pdf");
+        fs::write(&source, "%PDF-1.4 pretend").unwrap();
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        let research = Place::Into(Role::Research.folder().into());
+
+        // Copied in under a name any computer can have, titled by its name.
+        let id = p.add_file(&research, &source, "").unwrap();
+        let node = p.node(&id).unwrap();
+        assert_eq!(node.title, "Ferry: Timetable");
+        assert_eq!(node.file.as_deref(), Some("Research Files/Ferry- Timetable.pdf"));
+        assert!(node.is_file() && !node.is_document() && !node.is_folder());
+        assert_eq!(fs::read_to_string(p.research_file(&id).unwrap()).unwrap(), "%PDF-1.4 pretend");
+        assert!(source.exists(), "the original stays where it was");
+        // Again: a name of its own.
+        let again = p.add_file(&research, &source, "").unwrap();
+        assert_eq!(p.node(&again).unwrap().file.as_deref(), Some("Research Files/Ferry- Timetable (2).pdf"));
+        // Not a document: no text to count, compile or sync.
+        assert!(!p.documents().iter().any(|n| n.id == id));
+        // Kept with the project.
+        assert_eq!(Project::open(&dir.0).unwrap().manifest, p.manifest);
+
+        // To the Trash, then emptied: the file goes, kept in the zip.
+        p.trash(&id).unwrap();
+        let mut names = Vec::new();
+        p.empty_trash(&mut |zip| {
+            let archive = zip::ZipArchive::new(fs::File::open(zip)?).map_err(io::Error::other)?;
+            names = archive.file_names().map(String::from).collect();
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(names, ["Ferry: Timetable.pdf".replace(':', "-")]);
+        assert!(!dir.0.join("Research Files/Ferry- Timetable.pdf").exists());
+        assert!(dir.0.join("Research Files/Ferry- Timetable (2).pdf").exists(), "the other stays");
     }
 
     #[test]

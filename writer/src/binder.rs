@@ -14,6 +14,8 @@ pub enum BinderAction {
     /// New items go next to (or inside) the given item; see `WriterApp::place_near`.
     NewDocument(String),
     NewFolder(String),
+    /// Add File…: research files (PDFs, pictures…) beside it.
+    AddFile(String),
     Trash(String),
     EmptyTrash,
     /// Dropped by dragging.
@@ -155,6 +157,7 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
         None if node.is_document() && top == Some(Role::Characters) => crate::icons::PERSON,
         None if node.is_document() && top == Some(Role::Profile) => crate::icons::CARD,
         None if node.is_document() => crate::icons::DOCUMENT,
+        None if node.is_file() => crate::app::files_ui::icon(node.file.as_deref().unwrap_or_default()),
         None => crate::icons::FOLDER,
     };
     let label = format!("{icon} {}", node.title);
@@ -253,6 +256,10 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
         }
         if ui.button("New Folder").clicked() {
             actions.push(BinderAction::NewFolder(node.id.clone()));
+            ui.close();
+        }
+        if ui.button("Add File\u{2026}").on_hover_text("A PDF, a picture or any other file, kept in the project to look at while you write. Or drop files on the window.").clicked() {
+            actions.push(BinderAction::AddFile(node.id.clone()));
             ui.close();
         }
         if node.role.is_none() {

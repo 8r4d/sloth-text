@@ -257,7 +257,7 @@ impl WriterApp {
                 // Each folder's documents a block, and folder cards (when
                 // their contents have no places either) one more.
                 let mut blocks = canvas::blocks(top);
-                blocks.push(shown.cards.iter().filter(|n| !n.is_document()).map(|n| n.id.clone()).collect());
+                blocks.push(shown.cards.iter().filter(|n| n.is_folder()).map(|n| n.id.clone()).collect());
                 blocks
             })
             .collect();
@@ -295,7 +295,7 @@ impl WriterApp {
                 let inside = node.subtree().iter().skip(1).filter(|n| n.is_document()).count();
                 let label = node.meta.label.and_then(|i| labels.get(i)).map(|l| label_color(l.color));
                 let (kind, size) = match project.profile_of(&node.id) {
-                    _ if !node.is_document() => (Kind::Folder { synopsis: node.meta.synopsis.clone(), label, inside }, DOC_SIZE),
+                    _ if node.is_folder() => (Kind::Folder { synopsis: node.meta.synopsis.clone(), label, inside }, DOC_SIZE),
                     Some(k) => {
                         let index = kinds.iter().position(|o| o.id == k.id).unwrap_or(0);
                         (Kind::Profile { kind: k.item.clone(), color: label_color(index as u8 + 1) }, PROFILE_SIZE)

@@ -36,6 +36,8 @@ ICONS = [
     ("PROFILES", "folders", "A folder of profiles"),
     ("LIBRARY", "library-big", "The Manuscript, Research and Notes folders"),
     ("CARD", "contact", "A profile"),
+    ("PICTURE", "image", "A research file that's a picture"),
+    ("ATTACHMENT", "paperclip", "A research file: a PDF or any other"),
     ("WEB", "globe", "On the web"),
     ("SETTINGS", "settings", "App settings"),
     ("ABOUT", "info", "About Sloth Writer"),

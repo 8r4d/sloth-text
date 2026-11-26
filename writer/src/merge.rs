@@ -47,6 +47,7 @@ struct Item {
     title: String,
     role: Option<Role>,
     path: Option<String>,
+    file: Option<String>,
     meta: Meta,
 }
 
@@ -60,7 +61,7 @@ fn flatten(binder: &[Node]) -> Flat {
     fn walk(nodes: &[Node], parent: Option<&str>, flat: &mut Flat) {
         flat.order.insert(parent.unwrap_or("").to_owned(), nodes.iter().map(|n| n.id.clone()).collect());
         for n in nodes {
-            let item = Item { parent: parent.map(str::to_owned), title: n.title.clone(), role: n.role, path: n.path.clone(), meta: n.meta.clone() };
+            let item = Item { parent: parent.map(str::to_owned), title: n.title.clone(), role: n.role, path: n.path.clone(), file: n.file.clone(), meta: n.meta.clone() };
             flat.items.insert(n.id.clone(), item);
             walk(&n.children, Some(&n.id), flat);
         }
@@ -256,7 +257,7 @@ pub fn merge(base: &Manifest, ours: &Manifest, theirs: &Manifest, edited_here: &
                 ids.iter()
                     .map(|id| {
                         let i = &items[id];
-                        Node { id: id.clone(), title: i.title.clone(), role: i.role, path: i.path.clone(), children: build(id, items, order), meta: i.meta.clone() }
+                        Node { id: id.clone(), title: i.title.clone(), role: i.role, path: i.path.clone(), file: i.file.clone(), children: build(id, items, order), meta: i.meta.clone() }
                     })
                     .collect()
             })

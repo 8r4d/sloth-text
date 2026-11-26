@@ -112,8 +112,12 @@ impl WriterApp {
             }
             return;
         }
-        let is_folder = self.project.as_ref().and_then(|p| p.node(&id)).is_some_and(|n| !n.is_document());
-        if is_folder {
+        let node = self.project.as_ref().and_then(|p| p.node(&id));
+        if node.is_some_and(|n| n.is_file()) {
+            self.file_view(ui, &id);
+            return;
+        }
+        if node.is_some_and(|n| n.is_folder()) {
             self.folder_view(ui, &id);
             return;
         }

@@ -289,16 +289,17 @@ impl Importer<'_> {
                 self.report.documents += 1;
             }
             id
+        } else if let Some(file) = content.as_ref().filter(|_| !is_text) {
+            // A PDF, picture or sound file: a research file item.
+            let id = self.project.add_file(&place, file, &item.title)?;
+            if let Some(rel) = self.project.node(&id).and_then(|n| n.file.clone()) {
+                self.report.files.push(rel);
+            }
+            id
         } else {
             let id = self.project.add_document(&place, &item.title)?;
             self.report.documents += 1;
-            match &content {
-                Some(file) if !is_text => {
-                    let note = self.copy_file(file, &item.title)?;
-                    self.write(&id, &note)?;
-                }
-                _ => self.write(&id, &text)?,
-            }
+            self.write(&id, &text)?;
             self.snapshots(&item.id, &id)?;
             id
         };
@@ -353,35 +354,6 @@ impl Importer<'_> {
     fn write(&mut self, id: &str, text: &str) -> io::Result<()> {
         let path = self.project.file_path(id).ok_or_else(|| invalid("A new document has no file."))?;
         sloth_core::document::write_atomically(&path, text.as_bytes())
-    }
-
-    /// A PDF, picture or sound file: copied into the project's "Research
-    /// Files" folder; the document says where it is.
-    fn copy_file(&mut self, file: &Path, title: &str) -> io::Result<String> {
-        let folder = self.project.root.join("Research Files");
-        fs::create_dir_all(&folder)?;
-        let ext = file.extension().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
-        let safe = match crate::project::portable_name(title) {
-            name if name.is_empty() => "Untitled".to_owned(),
-            name => name,
-        };
-        let name = (1..)
-            .map(|n| if n == 1 { format!("{safe}.{ext}") } else { format!("{safe} ({n}).{ext}") })
-            .find(|n| !folder.join(n).exists())
-            .expect("a free name");
-        fs::copy(file, folder.join(&name))?;
-        let kind = match ext.to_lowercase().as_str() {
-            "pdf" => "a PDF",
-            "jpg" | "jpeg" | "png" | "gif" | "tiff" | "tif" | "heic" => "a picture",
-            "wav" | "mp3" | "m4a" | "aiff" | "aif" => "a sound file",
-            "mov" | "mp4" | "m4v" => "a video",
-            "webarchive" | "html" => "a web page",
-            _ => "a file",
-        };
-        self.report.files.push(format!("Research Files/{name}"));
-        Ok(format!(
-            "<!-- This was {kind} in Scrivener. It's in the project folder, as \"Research Files/{name}\"; Writer can't show it yet. -->"
-        ))
     }
 
     /// Snapshots, with the dates and names Scrivener gave them.
@@ -462,11 +434,9 @@ impl Importer<'_> {
         }
         if !r.files.is_empty() {
             said(format!(
-                "{} (PDFs, pictures, sound…) {} copied into the project's \u{201c}Research Files\u{201d} folder; {} where. Writer can't show {} yet:",
+                "{} (PDFs, pictures, sound…) {} copied into the project's \u{201c}Research Files\u{201d} folder, each an item in the binder where it was:",
                 n(r.files.len(), "file that isn't text", "files that aren't text"),
                 if r.files.len() == 1 { "was" } else { "were" },
-                if r.files.len() == 1 { "its document says" } else { "their documents say" },
-                if r.files.len() == 1 { "it" } else { "them" }
             ));
             for file in &r.files {
                 lines.push(format!("    - {file}"));
@@ -625,10 +595,11 @@ pub(crate) mod tests {
         assert_eq!(p.role_of(&find("Mara").id), Some(Role::Characters));
         assert_eq!(p.profile_of(&find("The Harbour").id).map(|k| k.id.as_str()), Some("locations"));
         assert_eq!(p.role_of(&find("Ideas").id), Some(Role::Notes));
-        // A PDF: copied, and its document says where.
+        // A PDF: copied, as a research file item.
         let timetable = find("Ferry Timetable");
         assert_eq!(p.role_of(&timetable.id), Some(Role::Research));
-        assert!(read(&timetable.id).contains("Research Files/Ferry Timetable.pdf"));
+        assert_eq!(timetable.file.as_deref(), Some("Research Files/Ferry Timetable.pdf"));
+        assert!(!timetable.is_document());
         assert_eq!(fs::read_to_string(p.root.join("Research Files/Ferry Timetable.pdf")).unwrap(), "%PDF-1.4 pretend");
 
         // Goals.
@@ -637,7 +608,7 @@ pub(crate) mod tests {
         assert_eq!(p.manifest.goals.deadline.as_deref(), Some("2027-03-01"));
 
         // The report.
-        assert_eq!((report.documents, report.comments, report.snapshots, report.folder_texts), (7, 1, 1, 1));
+        assert_eq!((report.documents, report.comments, report.snapshots, report.folder_texts), (6, 1, 1, 1));
         let report_doc = find("Imported from Scrivener");
         assert!(read(&report_doc.id).contains("Research Files/Ferry Timetable.pdf"));
         // And it opens as any project does.

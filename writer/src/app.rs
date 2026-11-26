@@ -33,6 +33,8 @@ mod comments_ui;
 mod compile_window;
 #[path = "elevator_ui.rs"]
 mod elevator_ui;
+#[path = "files_ui.rs"]
+pub(crate) mod files_ui;
 #[path = "get_project_ui.rs"]
 mod get_project_ui;
 #[path = "goal_ui.rs"]
@@ -259,6 +261,8 @@ pub struct WriterApp {
     project_settings_open: bool,
     /// The About and Help window, open at this page (see about_ui.rs).
     help: Option<about_ui::HelpPage>,
+    /// Research files being shown, by item (see files_ui.rs).
+    shown_files: std::collections::HashMap<String, files_ui::Shown>,
     about_icon: Option<egui::TextureHandle>,
     /// The text filtering the Settings window's font list.
     font_filter: String,
@@ -304,6 +308,7 @@ impl WriterApp {
             settings_page_you: false,
             project_settings_open: false,
             help: None,
+            shown_files: HashMap::new(),
             about_icon: None,
             font_filter: String::new(),
             // Tests never touch the real Keychain.
@@ -462,8 +467,13 @@ impl WriterApp {
                 self.set_project(project);
                 self.set_status(
                     format!(
-                        "Imported {} documents from Scrivener. What came across (and what didn't) is in Notes \u{2192} Imported from Scrivener.",
-                        report.documents
+                        "Imported {} documents{} from Scrivener. What came across (and what didn't) is in Notes \u{2192} Imported from Scrivener.",
+                        report.documents,
+                        match report.files.len() {
+                            0 => String::new(),
+                            1 => " and 1 file".to_owned(),
+                            n => format!(" and {n} files"),
+                        }
                     ),
                     now,
                 );
@@ -788,7 +798,7 @@ impl WriterApp {
         let top = project.new_at_top();
         let folder = match near {
             None => project.node(manuscript),
-            Some(node) if node.role.is_some() || !node.is_document() => Some(node),
+            Some(node) if node.role.is_some() || node.is_folder() => Some(node),
             Some(node) if top => project.parent_of(&node.id),
             Some(node) => return Place::After(node.id.clone()),
         };
@@ -1028,6 +1038,7 @@ impl WriterApp {
             }
             BinderAction::NewDocument(near) => self.new_item(Some(near), true),
             BinderAction::NewFolder(near) => self.new_item(Some(near), false),
+            BinderAction::AddFile(near) => self.pick_research_files(Some(near)),
             BinderAction::Trash(id) => self.trash(&id),
             BinderAction::EmptyTrash => self.confirm_empty_trash = true,
             BinderAction::Move { id, place } => self.move_item(&id, &place),
@@ -1526,7 +1537,7 @@ impl WriterApp {
         });
         // A folder (as Slothenings, a corkboard or an outline): all its words.
         let words = match (words, self.selected.clone()) {
-            (None, Some(id)) if self.project.as_ref().and_then(|p| p.node(&id)).is_some_and(|n| !n.is_document()) => {
+            (None, Some(id)) if self.project.as_ref().and_then(|p| p.node(&id)).is_some_and(|n| n.is_folder()) => {
                 Some((None, self.words_under(&id)))
             }
             (words, _) => words,
@@ -1575,9 +1586,16 @@ impl WriterApp {
         let settings = self.editor.clone();
         // A folder shows its items (corkboard or outline) instead of text.
         let folder = match self.selected.as_deref().and_then(|id| self.project.as_ref()?.node(id)) {
-            Some(node) if !node.is_document() => Some(node.id.clone()),
+            Some(node) if node.is_folder() => Some(node.id.clone()),
             _ => None,
         };
+        // A research file (a PDF, a picture…) is shown, not edited.
+        if let Some(id) = self.selected.clone().filter(|id| self.project.as_ref().and_then(|p| p.node(id)).is_some_and(|n| n.is_file())) {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(ui.visuals().extreme_bg_color).inner_margin(egui::Margin::symmetric(8, 8)))
+                .show(ui, |ui| self.file_view(ui, &id));
+            return;
+        }
         // A profile (a character, a location…) shows its form.
         let profile = self.selected.clone().and_then(|id| self.profile_kind_of(&id).map(|kind| (id, kind)));
         // Not in a frame with a mouse press or release (such as the click in
@@ -1853,6 +1871,12 @@ impl eframe::App for WriterApp {
             self.screen_glow_ui(&ctx);
             self.elevator_ui(&ctx);
             return;
+        }
+
+        // Files dropped on the window: research files, beside what's selected.
+        let dropped: Vec<std::path::PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
+        if !dropped.is_empty() {
+            self.add_research_files(self.selected.clone(), dropped);
         }
 
         if self.focus_mode && self.current().is_some() {

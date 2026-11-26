@@ -2229,7 +2229,7 @@ fn a_scrivener_project_is_imported_and_opened() {
     let project = harness.state().project.as_ref().unwrap();
     assert_eq!(project.node(&selected).unwrap().title, "Chapter One");
     assert_eq!(current_text(&mut harness).as_deref(), Some("Words in the chapter folder itself."));
-    assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m.starts_with("Imported 7 documents")));
+    assert!(harness.state().status.as_ref().is_some_and(|(m, _)| m.starts_with("Imported 6 documents and 1 file")));
 
     // A failed import leaves nothing behind.
     let bad = src.0.join("Empty.scriv");
@@ -3416,4 +3416,60 @@ fn a_folder_without_a_target_shows_its_documents_added_up() {
     if let Ok(dir) = std::env::var("SHOT_DIR") {
         harness.render().unwrap().save(format!("{dir}/summed-target.png")).unwrap();
     }
+}
+
+// ----- research files ----------------------------------------------------------
+
+#[test]
+fn research_files_show_where_the_editor_is() {
+    let dir = TempDir::new("research-files");
+    let outside = TempDir::new("research-files-outside");
+    fs::create_dir_all(&outside.0).unwrap();
+    // A picture: a small gradient.
+    let png = outside.0.join("Harbour.png");
+    image::RgbaImage::from_fn(120, 80, |x, y| image::Rgba([(x * 2) as u8, (y * 3) as u8, 160, 255])).save(&png).unwrap();
+    // A PDF, made by compile (if there's a font to make one with).
+    let pdf = outside.0.join("Timetable.pdf");
+    let manuscript = crate::compile::Manuscript {
+        title: "Timetable".into(),
+        chapters: vec![crate::compile::Chapter { heading: "Sailings".into(), scenes: vec!["The ferry leaves at nine.".into()] }],
+        ..Default::default()
+    };
+    let have_pdf = crate::compile_pdf::to_pdf(&manuscript, &Default::default()).map(|(b, _)| fs::write(&pdf, b).unwrap()).is_ok();
+
+    let mut p = project(&dir, "words");
+    let research = Place::Into("research".into());
+    let picture = p.add_file(&research, &png, "").unwrap();
+    let paper = have_pdf.then(|| p.add_file(&research, &pdf, "").unwrap());
+    let mut harness = harness(p);
+
+    // The picture, and the inspector says what it is.
+    harness.state_mut().select(picture.clone());
+    harness.run_steps(4);
+    harness.get_by_label("Open in Its Own App");
+    harness.get_by_label_contains("Picture \u{b7} ");
+    assert!(harness.state_mut().current().is_none(), "nothing to edit");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/picture.png")).unwrap();
+    }
+
+    // The PDF: its pages, drawn as they come.
+    if let Some(paper) = paper {
+        harness.state_mut().select(paper);
+        for _ in 0..40 {
+            harness.run_steps(2);
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        harness.get_by_label_contains("PDF \u{b7} ");
+        if let Ok(dir) = std::env::var("SHOT_DIR") {
+            harness.render().unwrap().save(format!("{dir}/pdf.png")).unwrap();
+        }
+    }
+
+    // Not on this computer (synced from another): it says so.
+    fs::remove_file(dir.0.join("Research Files/Harbour.png")).unwrap();
+    harness.state_mut().select(picture);
+    harness.run_steps(3);
+    harness.get_by_label("Not on this computer");
+    harness.get_by_label("Find the File\u{2026}");
 }
