@@ -1,6 +1,6 @@
 [package]
 name = "sloth-writer"
-version = "2.8.0"
+version = "2.9.0"
 edition = "2024"
 description = "Sloth Writer: a long-form writing app built on sloth-core"
 
@@ -20,6 +20,10 @@ encoding_rs = "0.8"
 roxmltree = "0.21"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 opener = "0.9.0"
+# Compile to PDF: krilla writes the file; rustybuzz (the version krilla
+# shapes with) measures words for laying out lines.
+krilla = { version = "0.8.2", default-features = false, features = ["simple-text"] }
+rustybuzz = "0.20.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Same major version eframe uses; needed to turn off winit's default menu.

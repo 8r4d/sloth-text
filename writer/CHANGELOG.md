@@ -2,6 +2,17 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.9.0
+
+Compile: who you are, front and back matter, and PDF.
+
+- PDF, set like a book, straight from Compile: justified text in a font of your choice (any installed; the reading face unless you pick), on US Letter, A4 or a 6 × 9 inch paperback page. Each chapter opens a new page, notes come at the end of their chapter, pages are numbered from the first chapter, and the PDF has bookmarks for each chapter. No other program needed, on any computer.
+- You, in App Settings: your name, the name you write under, contact details, website and a few lines about yourself. Every project's compile uses them, unless a project gives its own author or contact in Compile (Edit Profile… there goes straight to them).
+- Front and back matter, under Compile's new Front and Back Matter: a title page, a copyright page (© this year, the author, All rights reserved, and your website), a contents page (in a PDF with page numbers and links; in an e-book, linking to each chapter; in Markdown, pandoc's), and About the Author from your profile, at the end.
+- Pick a folder of front matter and one of back matter: each document in it becomes a page before or after the chapters. Start one with a # heading (# Foreword) to give it a title and a place in the contents; without one, it's set on its own a third of the way down, as a dedication or epigraph is. Notes and references are left out, as in the chapters, and so is anything not to be included.
+- The Compile window stays put when you change the format, rather than jumping under the pointer.
+- Restore Defaults in App Settings keeps who you are, and this computer's name for syncing.
+
 ## 2.8.0
 
 Fixes from the list, and a key for notes.

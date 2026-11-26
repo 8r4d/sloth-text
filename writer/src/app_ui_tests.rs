@@ -1423,7 +1423,9 @@ fn settings_change_the_editor_and_are_remembered() {
     // Restore Defaults puts them back.
     harness.get_by_label("Restore Defaults").click();
     harness.run_steps(2);
-    assert_eq!(harness.state().settings, crate::app::settings_ui::WriterSettings::default());
+    // (All but who you are and this computer's name for syncing.)
+    let device_id = harness.state().settings.device_id.clone();
+    assert_eq!(harness.state().settings, crate::app::settings_ui::WriterSettings { device_id, ..Default::default() });
     assert!(harness.state().editor.smart_dashes);
 }
 
@@ -1775,6 +1777,9 @@ fn compile_presets_in_the_window() {
     let mut harness = harness(project(&dir, "words"));
     harness.state_mut().compile_open = true;
     harness.run_steps(6);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/compile.png")).unwrap();
+    }
 
     // E-book, saved as "Beta readers".
     harness.get_by_label("E-book (.epub)").click();

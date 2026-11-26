@@ -108,6 +108,8 @@ pub struct WriterSettings {
     /// This computer's own name for itself, for its sync records (see
     /// sync.rs). Made on first use.
     pub device_id: String,
+    /// Who you are, for compiling (see compile.rs).
+    pub profile: crate::compile::AuthorProfile,
 }
 
 impl Default for WriterSettings {
@@ -144,6 +146,7 @@ impl Default for WriterSettings {
             elevator: !cfg!(test),
             screen_glow: false,
             device_id: String::new(),
+            profile: Default::default(),
             theme: ThemeChoice::default(),
         }
     }
@@ -218,6 +221,7 @@ impl WriterApp {
         let mut token_changed = false;
         let mut show_about = false;
         let mut open = true;
+        let mut show_you = std::mem::take(&mut self.settings_page_you);
         egui::Window::new("App Settings")
             .open(&mut open)
             .collapsible(false)
@@ -421,12 +425,47 @@ impl WriterApp {
                         ui.weak("Make one on the helper's Account page.");
                     });
 
+                    group(ui, "You");
+                    let you = ui.weak("For compiling: on title pages, the copyright page and About the Author, in every project (a project can give its own author in Compile).");
+                    if std::mem::take(&mut show_you) {
+                        you.scroll_to_me(Some(egui::Align::TOP));
+                    }
+                    let profile = &mut settings.profile;
+                    row(ui, "Name", &mut |ui| {
+                        ui.add(egui::TextEdit::singleline(&mut profile.name).hint_text("Your own name").desired_width(260.0));
+                    });
+                    row(ui, "Byline", &mut |ui| {
+                        ui.add(egui::TextEdit::singleline(&mut profile.byline).hint_text("The name you write under, if not your own").desired_width(260.0));
+                    });
+                    row(ui, "Contact", &mut |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut profile.contact)
+                                .hint_text("Address, email, phone, agent\u{2026} (one per line)")
+                                .desired_rows(3)
+                                .desired_width(260.0),
+                        )
+                        .on_hover_text("On a manuscript's title page, under your name.");
+                    });
+                    row(ui, "Website", &mut |ui| {
+                        ui.add(egui::TextEdit::singleline(&mut profile.website).hint_text("example.com").desired_width(260.0));
+                    });
+                    row(ui, "About you", &mut |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut profile.bio)
+                                .hint_text("A few lines for About the Author, at the end of a book")
+                                .desired_rows(3)
+                                .desired_width(260.0),
+                        );
+                    });
+
                 });
                 ui.add_space(6.0);
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("Restore Defaults").clicked() {
-                        *settings = WriterSettings::default();
+                    if ui.button("Restore Defaults").on_hover_text("Everything but who you are").clicked() {
+                        // Not who you are, nor this computer's name for syncing.
+                        let (profile, device) = (settings.profile.clone(), settings.device_id.clone());
+                        *settings = WriterSettings { profile, device_id: device, ..WriterSettings::default() };
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.link(format!("Sloth Writer {}", crate::version::VERSION)).on_hover_text("About Sloth Writer").clicked() {

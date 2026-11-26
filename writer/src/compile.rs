@@ -37,6 +37,8 @@ pub enum Format {
     Markdown,
     /// An e-book, for reading in a web browser or e-reader.
     Epub,
+    /// Pages ready to read or print, set like a book.
+    Pdf,
 }
 
 impl Format {
@@ -45,16 +47,19 @@ impl Format {
             Format::Manuscript => "docx",
             Format::Markdown => "md",
             Format::Epub => "epub",
+            Format::Pdf => "pdf",
         }
     }
 }
 
-/// The Word manuscript's paper.
+/// The paper, for a Word manuscript or a PDF.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Paper {
     #[default]
     Letter,
     A4,
+    /// A trade paperback's page, 6 × 9 inches.
+    Trade,
 }
 
 impl Paper {
@@ -63,7 +68,14 @@ impl Paper {
         match self {
             Paper::Letter => (12_240, 15_840),
             Paper::A4 => (11_906, 16_838),
+            Paper::Trade => (8_640, 12_960),
         }
+    }
+
+    /// Width and height in points.
+    pub fn points(self) -> (f32, f32) {
+        let (w, h) = self.size();
+        (w as f32 / 20.0, h as f32 / 20.0)
     }
 }
 
@@ -126,13 +138,38 @@ pub enum Citations {
     Notes,
 }
 
-/// Compile choices, kept in the project so they're there next time.
+/// Who you are, for every project: kept in App Settings, used when
+/// compiling unless a project gives its own author or contact details.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct AuthorProfile {
+    /// Your name, for the contact details on a manuscript's title page.
+    pub name: String,
+    /// The name you write under, if it isn't your own: "by …".
+    pub byline: String,
+    /// Address, email, phone, agent…: one per line.
+    pub contact: String,
+    pub website: String,
+    /// A few lines about you, for About the Author at the end of a book.
+    pub bio: String,
+}
+
+impl AuthorProfile {
+    /// The name on the cover: the byline, else your name.
+    pub fn shown_name(&self) -> &str {
+        if self.byline.trim().is_empty() { self.name.trim() } else { self.byline.trim() }
+    }
+}
+
+/// Compile choices, kept in the project so they're there next time.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CompileSettings {
-    /// The author's name as it should appear: "Mara Ellison".
+    /// The author's name as it should appear: "Mara Ellison". Empty to use
+    /// the profile's (in App Settings).
     pub author: String,
     /// Address, email, phone, agent…: one per line, on the title page.
+    /// Empty to use the profile's.
     pub contact: String,
     pub format: Format,
     pub chapter_headings: ChapterHeadings,
@@ -146,8 +183,48 @@ pub struct CompileSettings {
     pub citations: Citations,
     /// List the sources cited, at the end.
     pub works_cited: bool,
+    /// A page with the title and byline (a Word manuscript always has one).
+    pub title_page: bool,
+    /// A copyright page: © year, the author, All rights reserved.
+    pub copyright_page: bool,
+    /// A contents page (not for a Word manuscript).
+    pub contents: bool,
+    /// A folder whose documents come before the manuscript, a page each
+    /// (a dedication, an epigraph, a foreword…): its binder id.
+    pub front_matter: Option<String>,
+    /// A folder whose documents come after it (acknowledgements…).
+    pub back_matter: Option<String>,
+    /// About the Author, from the profile's bio, at the end.
+    pub about_author: bool,
+    /// The PDF's font; `None` for the default reading face.
+    pub pdf_font: Option<String>,
     /// Saved setups ("Agent submission", "Beta readers"…).
     pub presets: Vec<Preset>,
+}
+
+impl Default for CompileSettings {
+    fn default() -> Self {
+        CompileSettings {
+            author: String::new(),
+            contact: String::new(),
+            format: Format::default(),
+            chapter_headings: ChapterHeadings::default(),
+            document_titles: false,
+            paper: Paper::default(),
+            typeface: Typeface::default(),
+            scene_break: SceneBreak::default(),
+            citations: Citations::default(),
+            works_cited: false,
+            title_page: true,
+            copyright_page: false,
+            contents: false,
+            front_matter: None,
+            back_matter: None,
+            about_author: false,
+            pdf_font: None,
+            presets: Vec::new(),
+        }
+    }
 }
 
 /// A saved compile setup: everything but who you are.
@@ -163,6 +240,13 @@ pub struct Preset {
     pub scene_break: SceneBreak,
     pub citations: Citations,
     pub works_cited: bool,
+    pub title_page: bool,
+    pub copyright_page: bool,
+    pub contents: bool,
+    pub front_matter: Option<String>,
+    pub back_matter: Option<String>,
+    pub about_author: bool,
+    pub pdf_font: Option<String>,
 }
 
 impl Default for Preset {
@@ -183,6 +267,13 @@ impl Preset {
             scene_break: s.scene_break,
             citations: s.citations,
             works_cited: s.works_cited,
+            title_page: s.title_page,
+            copyright_page: s.copyright_page,
+            contents: s.contents,
+            front_matter: s.front_matter.clone(),
+            back_matter: s.back_matter.clone(),
+            about_author: s.about_author,
+            pdf_font: s.pdf_font.clone(),
         }
     }
 
@@ -196,6 +287,13 @@ impl Preset {
         s.scene_break = self.scene_break;
         s.citations = self.citations;
         s.works_cited = self.works_cited;
+        s.title_page = self.title_page;
+        s.copyright_page = self.copyright_page;
+        s.contents = self.contents;
+        s.front_matter = self.front_matter.clone();
+        s.back_matter = self.back_matter.clone();
+        s.about_author = self.about_author;
+        s.pdf_font = self.pdf_font.clone();
     }
 
     /// Whether the settings are as this setup has them.
@@ -205,10 +303,26 @@ impl Preset {
 }
 
 /// The gathered manuscript.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Manuscript {
     pub title: String,
+    /// The name it's by, as it should appear.
     pub author: String,
+    /// Your own name, for the contact details (the author's, if not given).
+    pub name: String,
+    /// Contact details, one per line.
+    pub contact: String,
+    pub website: String,
+    /// About the Author (empty if not asked for).
+    pub bio: String,
+    /// The copyright page's lines (empty if not asked for).
+    pub copyright: Vec<String>,
+    /// Whether to have a title page and a contents page.
+    pub title_page: bool,
+    pub contents: bool,
+    /// Pages before and after the chapters.
+    pub front: Vec<Matter>,
+    pub back: Vec<Matter>,
     pub chapters: Vec<Chapter>,
     /// The notes, in order: note 1 first. Where each goes in the text is
     /// marked by `note_mark`.
@@ -222,19 +336,19 @@ pub struct Manuscript {
 const NOTE_OPEN: char = '\u{e000}';
 const NOTE_CLOSE: char = '\u{e001}';
 
-fn note_mark(n: usize) -> String {
+pub(crate) fn note_mark(n: usize) -> String {
     format!("{NOTE_OPEN}{n}{NOTE_CLOSE}")
 }
 
 /// A piece of text: words, or where a note goes.
 #[derive(Debug, PartialEq)]
-enum Piece<'a> {
+pub(crate) enum Piece<'a> {
     Text(&'a str),
     Note(usize),
 }
 
 /// Text split at its note marks.
-fn pieces(text: &str) -> Vec<Piece<'_>> {
+pub(crate) fn pieces(text: &str) -> Vec<Piece<'_>> {
     let mut out = Vec::new();
     let mut rest = text;
     while let Some(open) = rest.find(NOTE_OPEN) {
@@ -299,6 +413,29 @@ fn mark_citations(scene: &str, notes: &mut Vec<String>, cite: &mut impl FnMut(&s
     out
 }
 
+/// A page of front or back matter: a document as written. If it starts
+/// with a `# heading`, that's its heading (and its place in the contents);
+/// if not, it's set as a dedication or epigraph is, on its own.
+#[derive(Debug, PartialEq)]
+pub struct Matter {
+    pub heading: Option<String>,
+    pub text: String,
+}
+
+/// A document's text as a page of matter: its opening heading taken off.
+fn matter(text: &str) -> Matter {
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty());
+    let heading = first
+        .filter(|l| l.starts_with('#') && !is_scene_break(l))
+        .map(|l| l.trim_start_matches('#').trim().to_owned())
+        .filter(|h| !h.is_empty());
+    let body = match &heading {
+        Some(_) => text.trim_start().split_once('\n').map_or("", |(_, rest)| rest).trim().to_owned(),
+        None => text.trim().to_owned(),
+    };
+    Matter { heading, text: body }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Chapter {
     pub heading: String,
@@ -307,14 +444,27 @@ pub struct Chapter {
 }
 
 impl Manuscript {
+    /// The chapters' words (front and back matter aren't counted).
     pub fn words(&self) -> usize {
         self.chapters.iter().flat_map(|c| &c.scenes).map(|s| without_marks(s).split_whitespace().count()).sum()
     }
 }
 
+pub const ABOUT_HEADING: &str = "About the Author";
+
+/// Where an item of the contents is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Entry {
+    Front(usize),
+    Chapter(usize),
+    Back(usize),
+    WorksCited,
+    About,
+}
+
 /// Gather the Manuscript folder. `text` gives each document's text: from
 /// the editor if it's open, else from its file.
-pub fn gather(project: &Project, settings: &CompileSettings, text: impl Fn(&Node) -> String) -> Manuscript {
+pub fn gather(project: &Project, settings: &CompileSettings, profile: &AuthorProfile, text: impl Fn(&Node) -> String) -> Manuscript {
     let manuscript = project
         .manifest
         .binder
@@ -353,8 +503,59 @@ pub fn gather(project: &Project, settings: &CompileSettings, text: impl Fn(&Node
         };
         chapters.push(Chapter { heading, scenes });
     }
+    // Front and back matter: each document in the chosen folder, as written
+    // (inline notes and references taken out, but no citations made).
+    let matter_in = |id: &Option<String>| -> Vec<Matter> {
+        let Some(folder) = id.as_deref().and_then(|id| project.node(id)) else { return Vec::new() };
+        let mut texts = Vec::new();
+        let mut plain = |raw: &str| strip_notes(&sloth_core::markdown::strip_references(&sloth_core::markdown::strip_comments(raw)));
+        for child in &folder.children {
+            collect_scenes(child, &text, &mut plain, None, &mut texts);
+        }
+        texts.iter().map(|t| matter(t)).collect()
+    };
+    let (front, back) = (matter_in(&settings.front_matter), matter_in(&settings.back_matter));
     cited.sort_by_key(|c| c.to_lowercase());
-    Manuscript { title: project.title().to_owned(), author: settings.author.trim().to_owned(), chapters, notes, works_cited: cited }
+    let author = match settings.author.trim() {
+        "" => profile.shown_name().to_owned(),
+        own => own.to_owned(),
+    };
+    let name = match profile.name.trim() {
+        "" => author.clone(),
+        own => own.to_owned(),
+    };
+    let contact = match settings.contact.trim() {
+        "" => profile.contact.trim().to_owned(),
+        own => own.to_owned(),
+    };
+    let website = profile.website.trim().to_owned();
+    let copyright = if settings.copyright_page {
+        let year = chrono::Local::now().format("%Y");
+        let mut lines = vec![if author.is_empty() { format!("Copyright \u{a9} {year}") } else { format!("Copyright \u{a9} {year} {author}") }];
+        lines.push("All rights reserved.".to_owned());
+        if !website.is_empty() {
+            lines.push(website.clone());
+        }
+        lines
+    } else {
+        Vec::new()
+    };
+    Manuscript {
+        title: project.title().to_owned(),
+        author,
+        name,
+        contact,
+        website,
+        bio: if settings.about_author { profile.bio.trim().to_owned() } else { String::new() },
+        copyright,
+        title_page: settings.title_page,
+        contents: settings.contents,
+        front,
+        back,
+        chapters,
+        notes,
+        works_cited: cited,
+    }
 }
 
 /// The scenes in an item, in order, skipping anything not included.
@@ -386,7 +587,7 @@ fn collect_scenes(
 }
 
 /// A scene that opens with a heading needs no break mark before it.
-fn break_before(i: usize, scene: &str) -> bool {
+pub(crate) fn break_before(i: usize, scene: &str) -> bool {
     i > 0 && !scene.lines().map(str::trim).find(|l| !l.is_empty()).is_some_and(|l| l.starts_with('#') && !is_scene_break(l))
 }
 
@@ -410,7 +611,7 @@ pub fn strip_notes(text: &str) -> String {
 
 /// A block of a scene, as compile sees it.
 #[derive(Debug, PartialEq)]
-enum Block {
+pub(crate) enum Block {
     Paragraph(Vec<Span>),
     /// A heading inside a scene.
     Heading(Vec<Span>),
@@ -421,13 +622,13 @@ enum Block {
 
 /// A run of text with its emphasis.
 #[derive(Debug, PartialEq)]
-struct Span {
-    text: String,
-    italic: bool,
-    bold: bool,
+pub(crate) struct Span {
+    pub text: String,
+    pub italic: bool,
+    pub bold: bool,
 }
 
-fn blocks(scene: &str) -> Vec<Block> {
+pub(crate) fn blocks(scene: &str) -> Vec<Block> {
     scene
         .lines()
         .map(str::trim)
@@ -446,14 +647,14 @@ fn blocks(scene: &str) -> Vec<Block> {
         .collect()
 }
 
-fn is_scene_break(line: &str) -> bool {
+pub(crate) fn is_scene_break(line: &str) -> bool {
     let marks: String = line.chars().filter(|c| !c.is_whitespace()).collect();
     marks == "#" || (marks.len() >= 3 && (marks.chars().all(|c| c == '*') || marks.chars().all(|c| c == '-')))
 }
 
 /// One line's text and emphasis. Markdown's block syntax (lists and so on)
 /// is switched off by escaping, so a line like "1. She ran" stays as typed.
-fn spans(line: &str) -> Vec<Span> {
+pub(crate) fn spans(line: &str) -> Vec<Span> {
     let escaped = escape_block_markers(line);
     let (mut italic, mut bold) = (0, 0);
     let mut out: Vec<Span> = Vec::new();
@@ -510,7 +711,24 @@ pub fn to_markdown(m: &Manuscript, settings: &CompileSettings) -> String {
     if !m.author.is_empty() {
         out.push_str(&format!("author: \"{}\"\n", m.author.replace('"', "\\\"")));
     }
+    if let Some(rights) = m.copyright.first() {
+        out.push_str(&format!("rights: \"{}\"\n", rights.replace('"', "\\\"")));
+    }
+    if m.contents {
+        out.push_str("toc: true\n");
+    }
     out.push_str("---\n");
+    let matter_md = |out: &mut String, matter: &Matter| {
+        if let Some(h) = &matter.heading {
+            out.push_str(&format!("\n# {h}\n"));
+        }
+        for line in matter.text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            out.push_str(&format!("\n{}\n", if is_scene_break(line) { separator } else { line }));
+        }
+    };
+    for matter in &m.front {
+        matter_md(&mut out, matter);
+    }
     for chapter in &m.chapters {
         out.push_str(&format!("\n# {}\n", chapter.heading));
         for (i, scene) in chapter.scenes.iter().enumerate() {
@@ -541,11 +759,17 @@ pub fn to_markdown(m: &Manuscript, settings: &CompileSettings) -> String {
             out.push_str(&format!("[^{}]: {note}\n", i + 1));
         }
     }
+    for matter in &m.back {
+        matter_md(&mut out, matter);
+    }
     if !m.works_cited.is_empty() {
         out.push_str("\n# Works Cited\n");
         for entry in &m.works_cited {
             out.push_str(&format!("\n{entry}\n"));
         }
+    }
+    if !m.bio.is_empty() {
+        matter_md(&mut out, &Matter { heading: Some(ABOUT_HEADING.to_owned()), text: m.bio.clone() });
     }
     out
 }
@@ -609,10 +833,10 @@ pub fn to_docx(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
         Paragraph::new()
             .line_spacing(single())
             .add_tab(Tab::new().val(TabValueType::Right).pos(text_width))
-            .add_run(run(face).add_text(&m.author).add_tab().add_text(rounded_words(m.words()))),
+            .add_run(run(face).add_text(&m.name).add_tab().add_text(rounded_words(m.words()))),
     );
     // Contact details under the name, single spaced.
-    for line in settings.contact.lines().map(str::trim).filter(|l| !l.is_empty()) {
+    for line in m.contact.lines().chain(std::iter::once(m.website.as_str())).map(str::trim).filter(|l| !l.is_empty()) {
         doc = doc.add_paragraph(Paragraph::new().line_spacing(single()).add_run(run(face).add_text(line)));
     }
     doc = doc.add_paragraph(
@@ -627,27 +851,75 @@ pub fn to_docx(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
 
     // Spacing and page breaks are set on each paragraph rather than left to
     // document defaults: some readers (Quick Look, TextEdit) ignore those.
+    let new_page = |heading: &str| {
+        Paragraph::new()
+            .align(AlignmentType::Center)
+            .line_spacing(LineSpacing::new().before(2 * INCH as u32).after(480).line(480))
+            .add_run(page_break())
+            .add_run(run(face).add_text(heading))
+    };
+    let add_blocks = |mut doc: Docx, scene: &str| {
+        for block in blocks(scene) {
+            doc = doc.add_paragraph(match block {
+                Block::Paragraph(spans) => runs(body().indent(None, Some(SpecialIndentType::FirstLine(INCH / 2)), None, None), spans, face, &m.notes),
+                Block::Quote(spans) => runs(body().indent(Some(INCH / 2), None, Some(INCH / 2), None), spans, face, &m.notes),
+                Block::Heading(spans) => runs(body().align(AlignmentType::Center), spans, face, &m.notes),
+                Block::SceneBreak => scene_break(mark, face),
+            });
+        }
+        doc
+    };
+    // A page of front or back matter: headed like a chapter, or, without a
+    // heading, centred a third of the way down, as a dedication is.
+    let add_matter = |mut doc: Docx, matter: &Matter| {
+        match &matter.heading {
+            Some(heading) => {
+                doc = doc.add_paragraph(new_page(heading));
+                add_blocks(doc, &matter.text)
+            }
+            None => {
+                let mut first = true;
+                for block in blocks(&matter.text) {
+                    let spans = match block {
+                        Block::Paragraph(s) | Block::Quote(s) | Block::Heading(s) => s,
+                        Block::SceneBreak => vec![Span { text: mark.to_owned(), italic: false, bold: false }],
+                    };
+                    let mut p = body().align(AlignmentType::Center);
+                    if first {
+                        p = p.line_spacing(LineSpacing::new().line_rule(LineSpacingType::Auto).before(3 * INCH as u32).line(480).after(0)).add_run(page_break());
+                        first = false;
+                    }
+                    doc = doc.add_paragraph(runs(p, spans, face, &m.notes));
+                }
+                doc
+            }
+        }
+    };
+    if !m.copyright.is_empty() {
+        let mut first = true;
+        for line in &m.copyright {
+            let mut p = Paragraph::new().line_spacing(single());
+            if first {
+                p = p.line_spacing(LineSpacing::new().line_rule(LineSpacingType::Auto).before(6 * INCH as u32).line(240).after(0)).add_run(page_break());
+                first = false;
+            }
+            doc = doc.add_paragraph(p.add_run(run(face).add_text(line)));
+        }
+    }
+    for matter in &m.front {
+        doc = add_matter(doc, matter);
+    }
     for chapter in &m.chapters {
-        doc = doc.add_paragraph(
-            Paragraph::new()
-                .align(AlignmentType::Center)
-                .line_spacing(LineSpacing::new().before(2 * INCH as u32).after(480).line(480))
-                .add_run(page_break())
-                .add_run(run(face).add_text(&chapter.heading)),
-        );
+        doc = doc.add_paragraph(new_page(&chapter.heading));
         for (i, scene) in chapter.scenes.iter().enumerate() {
             if break_before(i, scene) {
                 doc = doc.add_paragraph(scene_break(mark, face));
             }
-            for block in blocks(scene) {
-                doc = doc.add_paragraph(match block {
-                    Block::Paragraph(spans) => runs(body().indent(None, Some(SpecialIndentType::FirstLine(INCH / 2)), None, None), spans, face, &m.notes),
-                    Block::Quote(spans) => runs(body().indent(Some(INCH / 2), None, Some(INCH / 2), None), spans, face, &m.notes),
-                    Block::Heading(spans) => runs(body().align(AlignmentType::Center), spans, face, &m.notes),
-                    Block::SceneBreak => scene_break(mark, face),
-                });
-            }
+            doc = add_blocks(doc, scene);
         }
+    }
+    for matter in &m.back {
+        doc = add_matter(doc, matter);
     }
 
     // Works Cited: on a page of its own, each entry with a hanging indent.
@@ -663,6 +935,10 @@ pub fn to_docx(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
             let hanging = body().indent(Some(INCH / 2), Some(SpecialIndentType::Hanging(INCH / 2)), None, None);
             doc = doc.add_paragraph(runs(hanging, spans(entry), face, &[]));
         }
+    }
+    if !m.bio.is_empty() {
+        doc = doc.add_paragraph(new_page(ABOUT_HEADING));
+        doc = add_blocks(doc, &m.bio);
     }
 
     let mut bytes = std::io::Cursor::new(Vec::new());
@@ -784,6 +1060,11 @@ h1 + p, .break + p, h2 + p, blockquote + p { text-indent: 0; }\n\
 blockquote { margin: 0.5em 2em; font-style: italic; }\n\
 .title { text-align: center; margin-top: 30%; }\n\
 .title h1 { margin: 0 0 0.5em; font-size: 2em; }\n\
+.dedication { text-align: center; margin-top: 30%; }\n\
+.dedication p, .copyright p, .contents p { text-indent: 0; }\n\
+.copyright { margin-top: 60%; font-size: 0.85em; }\n\
+.contents ol { list-style: none; padding: 0; }\n\
+.contents li { margin: 0.4em 0; }\n\
 .notes { margin-top: 2em; border-top: 1px solid #999; font-size: 0.85em; }\n\
 .notes p, .cited p { text-indent: 0; margin: 0.3em 0; }\n\
 .cited p { padding-left: 2em; text-indent: -2em; }\n\
@@ -796,27 +1077,54 @@ pub fn to_epub(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
     use zip::write::SimpleFileOptions;
 
     let mark = settings.scene_break.text();
-    let mut pages: Vec<(String, String, String)> = Vec::new(); // file, title, xhtml
-    let byline = if m.author.is_empty() { String::new() } else { format!("<p>{}</p>", xml(&m.author)) };
-    pages.push((
-        "title.xhtml".into(),
-        m.title.clone(),
-        xhtml_page(&m.title, &format!("<div class=\"title\"><h1>{}</h1>{byline}</div>", xml(&m.title))),
-    ));
+    let blocks_html = |scene: &str| -> String {
+        blocks(scene)
+            .into_iter()
+            .map(|block| match block {
+                Block::Paragraph(spans) => format!("<p>{}</p>\n", xhtml_spans(&spans)),
+                Block::Quote(spans) => format!("<blockquote><p>{}</p></blockquote>\n", xhtml_spans(&spans)),
+                Block::Heading(spans) => format!("<h2>{}</h2>\n", xhtml_spans(&spans)),
+                Block::SceneBreak => format!("<p class=\"break\">{}</p>\n", xml(mark)),
+            })
+            .collect()
+    };
+    // A page of front or back matter: headed, or set on its own as a
+    // dedication is.
+    let matter_page = |file: String, matter: &Matter| -> (String, String, String, Option<Entry>) {
+        match &matter.heading {
+            Some(h) => (file, h.clone(), xhtml_page(h, &format!("<h1>{}</h1>\n{}", xml(h), blocks_html(&matter.text))), None),
+            None => (file, String::new(), xhtml_page(&m.title, &format!("<div class=\"dedication\">\n{}</div>", blocks_html(&matter.text))), None),
+        }
+    };
+    // file, title (empty to leave it out of the contents), xhtml, and
+    // which item of the contents it is.
+    let mut pages: Vec<(String, String, String, Option<Entry>)> = Vec::new();
+    if m.title_page {
+        let byline = if m.author.is_empty() { String::new() } else { format!("<p>{}</p>", xml(&m.author)) };
+        pages.push((
+            "title.xhtml".into(),
+            String::new(),
+            xhtml_page(&m.title, &format!("<div class=\"title\"><h1>{}</h1>{byline}</div>", xml(&m.title))),
+            None,
+        ));
+    }
+    if !m.copyright.is_empty() {
+        let lines: String = m.copyright.iter().map(|l| format!("<p>{}</p>", xml(l))).collect();
+        pages.push(("copyright.xhtml".into(), String::new(), xhtml_page("Copyright", &format!("<div class=\"copyright\">{lines}</div>")), None));
+    }
+    for (i, matter) in m.front.iter().enumerate() {
+        let mut page = matter_page(format!("front-{}.xhtml", i + 1), matter);
+        page.3 = Some(Entry::Front(i));
+        pages.push(page);
+    }
+    let contents_at = pages.len();
     for (n, chapter) in m.chapters.iter().enumerate() {
         let mut body = format!("<h1>{}</h1>\n", xml(&chapter.heading));
         for (i, scene) in chapter.scenes.iter().enumerate() {
             if break_before(i, scene) {
                 body.push_str(&format!("<p class=\"break\">{}</p>\n", xml(mark)));
             }
-            for block in blocks(scene) {
-                body.push_str(&match block {
-                    Block::Paragraph(spans) => format!("<p>{}</p>\n", xhtml_spans(&spans)),
-                    Block::Quote(spans) => format!("<blockquote><p>{}</p></blockquote>\n", xhtml_spans(&spans)),
-                    Block::Heading(spans) => format!("<h2>{}</h2>\n", xhtml_spans(&spans)),
-                    Block::SceneBreak => format!("<p class=\"break\">{}</p>\n", xml(mark)),
-                });
-            }
+            body.push_str(&blocks_html(scene));
         }
         // The chapter's notes, at its end, each linked back to its number.
         let numbers: Vec<usize> = chapter
@@ -832,19 +1140,38 @@ pub fn to_epub(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
             }
             body.push_str("</section>\n");
         }
-        pages.push((format!("chapter-{}.xhtml", n + 1), chapter.heading.clone(), xhtml_page(&chapter.heading, &body)));
+        pages.push((format!("chapter-{}.xhtml", n + 1), chapter.heading.clone(), xhtml_page(&chapter.heading, &body), Some(Entry::Chapter(n))));
+    }
+    for (i, matter) in m.back.iter().enumerate() {
+        let mut page = matter_page(format!("back-{}.xhtml", i + 1), matter);
+        page.3 = Some(Entry::Back(i));
+        pages.push(page);
     }
     if !m.works_cited.is_empty() {
         let entries: String = m.works_cited.iter().map(|e| format!("<p>{}</p>\n", xhtml_spans(&spans(e)))).collect();
         let body = format!("<h1>Works Cited</h1>\n<div class=\"cited\">\n{entries}</div>");
-        pages.push(("works-cited.xhtml".into(), "Works Cited".into(), xhtml_page("Works Cited", &body)));
+        pages.push(("works-cited.xhtml".into(), "Works Cited".into(), xhtml_page("Works Cited", &body), Some(Entry::WorksCited)));
+    }
+    if !m.bio.is_empty() {
+        let body = format!("<h1>{ABOUT_HEADING}</h1>\n{}", blocks_html(&m.bio));
+        pages.push(("about.xhtml".into(), ABOUT_HEADING.into(), xhtml_page(ABOUT_HEADING, &body), Some(Entry::About)));
+    }
+    // A contents page in the book itself, after the front matter, linking
+    // to each item (the reader's own contents is the nav, below).
+    let links = |pages: &[(String, String, String, Option<Entry>)]| -> String {
+        pages
+            .iter()
+            .filter(|(_, title, _, _)| !title.is_empty())
+            .map(|(file, title, _, _)| format!("<li><a href=\"{file}\">{}</a></li>", xml(title)))
+            .collect()
+    };
+    if m.contents {
+        let list = links(&pages);
+        let page = xhtml_page("Contents", &format!("<div class=\"contents\"><h1>Contents</h1>\n<ol>{list}</ol></div>"));
+        pages.insert(contents_at, ("contents.xhtml".into(), String::new(), page, None));
     }
 
-    let toc: String = pages
-        .iter()
-        .skip(1)
-        .map(|(file, title, _)| format!("<li><a href=\"{file}\">{}</a></li>", xml(title)))
-        .collect();
+    let toc = links(&pages);
     let nav = xhtml_page(
         "Contents",
         &format!("<nav epub:type=\"toc\" id=\"toc\"><h1>Contents</h1><ol>{toc}</ol></nav>"),
@@ -852,7 +1179,7 @@ pub fn to_epub(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
     let manifest: String = pages
         .iter()
         .enumerate()
-        .map(|(i, (file, _, _))| format!("<item id=\"p{i}\" href=\"{file}\" media-type=\"application/xhtml+xml\"/>"))
+        .map(|(i, (file, _, _, _))| format!("<item id=\"p{i}\" href=\"{file}\" media-type=\"application/xhtml+xml\"/>"))
         .collect();
     let spine: String = (0..pages.len()).map(|i| format!("<itemref idref=\"p{i}\"/>")).collect();
     let id = format!("urn:sloth-writer:{}", crate::project::random_id(16));
@@ -888,7 +1215,7 @@ pub fn to_epub(m: &Manuscript, settings: &CompileSettings) -> Result<Vec<u8>, St
     add("OEBPS/content.opf", &opf)?;
     add("OEBPS/nav.xhtml", &nav)?;
     add("OEBPS/style.css", EPUB_CSS)?;
-    for (file, _, page) in &pages {
+    for (file, _, page, _) in &pages {
         add(&format!("OEBPS/{file}"), page)?;
     }
     Ok(zip.finish().map_err(err)?.into_inner())
@@ -943,12 +1270,135 @@ mod tests {
         |n: &Node| fs::read_to_string(p.file_path(&n.id).unwrap()).unwrap()
     }
 
+    /// The book with front matter (a dedication and a foreword) and back
+    /// matter (acknowledgements) in folders under Notes.
+    fn book_with_matter(dir: &TempDir) -> (Project, CompileSettings, AuthorProfile) {
+        let mut p = book(dir);
+        let notes = Place::Into("notes".into());
+        let front = p.add_folder(&notes, "Front").unwrap();
+        let back = p.add_folder(&notes, "Back").unwrap();
+        for (folder, title, text) in [
+            (&front, "Dedication", "For M.<!-- who knows -->"),
+            (&front, "Foreword", "# Foreword\n\nA word *first*."),
+            (&front, "Draft", "Not this one."),
+            (&back, "Thanks", "# Acknowledgements\n\nThanks to the ferry."),
+        ] {
+            let id = p.add_document(&Place::Into(folder.clone()), title).unwrap();
+            fs::write(p.file_path(&id).unwrap(), text).unwrap();
+            if title == "Draft" {
+                p.set_meta(&id, Meta { exclude_from_compile: true, ..Meta::default() });
+            }
+        }
+        let settings = CompileSettings {
+            copyright_page: true,
+            contents: true,
+            about_author: true,
+            front_matter: Some(front),
+            back_matter: Some(back),
+            ..Default::default()
+        };
+        let profile = AuthorProfile {
+            name: "Ann Smith".into(),
+            byline: "Ann Ellison".into(),
+            contact: "1 Quay Street\nann@example.com".into(),
+            website: "annellison.example".into(),
+            bio: "Ann lives by the sea.".into(),
+        };
+        (p, settings, profile)
+    }
+
+    #[test]
+    fn the_profile_fills_in_who_you_are_unless_the_project_says() {
+        let dir = TempDir::new("profile");
+        let (p, settings, profile) = book_with_matter(&dir);
+        let m = gather(&p, &settings, &profile, read(&p));
+        assert_eq!((m.author.as_str(), m.name.as_str()), ("Ann Ellison", "Ann Smith"), "the byline, and your own name");
+        assert_eq!(m.contact, "1 Quay Street\nann@example.com");
+        assert_eq!(m.bio, "Ann lives by the sea.");
+        assert_eq!(m.copyright.len(), 3);
+        assert!(m.copyright[0].starts_with("Copyright \u{a9} 20") && m.copyright[0].ends_with(" Ann Ellison"));
+        assert_eq!(m.copyright[2], "annellison.example");
+        // A project's own author and contact win.
+        let own = CompileSettings { author: "A. E. Smith".into(), contact: "Agent: J. Bloggs".into(), ..settings.clone() };
+        let m = gather(&p, &own, &profile, read(&p));
+        assert_eq!((m.author.as_str(), m.contact.as_str()), ("A. E. Smith", "Agent: J. Bloggs"));
+        // No byline: your name. Not asked for: no bio, no copyright.
+        let plain = AuthorProfile { byline: String::new(), ..profile.clone() };
+        let m = gather(&p, &CompileSettings::default(), &plain, read(&p));
+        assert_eq!(m.author, "Ann Smith");
+        assert!(m.bio.is_empty() && m.copyright.is_empty() && m.front.is_empty());
+    }
+
+    #[test]
+    fn front_and_back_matter_come_from_their_folders() {
+        let dir = TempDir::new("matter");
+        let (p, settings, profile) = book_with_matter(&dir);
+        let m = gather(&p, &settings, &profile, read(&p));
+        assert_eq!(
+            m.front,
+            vec![
+                Matter { heading: None, text: "For M.".into() },
+                Matter { heading: Some("Foreword".into()), text: "A word *first*.".into() },
+            ],
+            "notes out, the heading taken off, what's not included left out"
+        );
+        assert_eq!(m.back, vec![Matter { heading: Some("Acknowledgements".into()), text: "Thanks to the ferry.".into() }]);
+        assert_eq!(m.chapters.len(), 2, "the manuscript as ever");
+        assert_eq!(m.words(), gather(&p, &CompileSettings::default(), &profile, read(&p)).words(), "matter isn't counted");
+
+        // Markdown: pandoc's contents, the matter around the chapters.
+        let md = to_markdown(&m, &settings);
+        assert!(md.contains("toc: true\n") && md.contains("rights: \"Copyright"));
+        let at = |t: &str| md.find(t).unwrap_or_else(|| panic!("no {t} in {md}"));
+        assert!(at("For M.") < at("# Foreword") && at("# Foreword") < at("# Arrival"));
+        assert!(at("# The Harbour") < at("# Acknowledgements") && at("# Acknowledgements") < at("# About the Author"));
+
+        // Word: the copyright page, the matter, About the Author; your own
+        // name and contact on the title page.
+        let json = docx_rs::read_docx(&to_docx(&m, &settings).unwrap()).unwrap().json();
+        for text in ["Ann Smith", "1 Quay Street", "annellison.example", "by Ann Ellison", "All rights reserved.", "For M.", "Foreword", "Acknowledgements", "About the Author", "Ann lives by the sea."] {
+            assert!(json.contains(text), "missing {text}");
+        }
+    }
+
+    #[test]
+    fn an_ebook_has_its_contents_and_matter_as_pages() {
+        use std::io::Read;
+        let dir = TempDir::new("epub-matter");
+        let (p, settings, profile) = book_with_matter(&dir);
+        let m = gather(&p, &settings, &profile, read(&p));
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(to_epub(&m, &settings).unwrap())).unwrap();
+        let mut file = |name: &str| {
+            let mut text = String::new();
+            zip.by_name(name).unwrap_or_else(|_| panic!("no {name}")).read_to_string(&mut text).unwrap();
+            text
+        };
+        let opf = file("OEBPS/content.opf");
+        let order: Vec<&str> = ["title", "copyright", "front-1", "front-2", "contents", "chapter-1", "chapter-2", "back-1", "about"]
+            .into_iter()
+            .collect();
+        let spots: Vec<usize> = order.iter().map(|f| opf.find(&format!("href=\"{f}.xhtml\"")).unwrap_or_else(|| panic!("no {f}"))).collect();
+        assert!(spots.windows(2).all(|w| w[0] < w[1]), "in order: {order:?}");
+        assert!(file("OEBPS/front-1.xhtml").contains("class=\"dedication\""), "set on its own");
+        let contents = file("OEBPS/contents.xhtml");
+        for item in ["front-2.xhtml\">Foreword", "chapter-1.xhtml\">Arrival", "back-1.xhtml\">Acknowledgements", "about.xhtml\">About the Author"] {
+            assert!(contents.contains(item), "{item} in {contents}");
+        }
+        assert!(!contents.contains("front-1.xhtml"), "a dedication has no place in the contents");
+        assert!(file("OEBPS/copyright.xhtml").contains("All rights reserved."));
+        // No title page if not asked for.
+        let untitled = CompileSettings { title_page: false, ..settings };
+        let m = gather(&p, &untitled, &profile, read(&p));
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(to_epub(&m, &untitled).unwrap())).unwrap();
+        assert!(zip.by_name("OEBPS/title.xhtml").is_err());
+    }
+
     #[test]
     fn gathers_chapters_in_order_without_notes_or_excluded_items() {
         let dir = TempDir::new("gather");
         let p = book(&dir);
         let settings = CompileSettings { author: " Ann Ellison ".into(), ..Default::default() };
-        let m = gather(&p, &settings, read(&p));
+        let m = gather(&p, &settings, &AuthorProfile::default(), read(&p));
         assert_eq!(m.author, "Ann Ellison");
         assert_eq!(
             m.chapters,
@@ -963,7 +1413,7 @@ mod tests {
         assert_eq!(m.words(), 14);
 
         let numbered = CompileSettings { chapter_headings: ChapterHeadings::NumbersAndTitles, ..Default::default() };
-        let m = gather(&p, &numbered, read(&p));
+        let m = gather(&p, &numbered, &AuthorProfile::default(), read(&p));
         assert_eq!(m.chapters[1].heading, "Chapter 2: The Harbour");
     }
 
@@ -972,7 +1422,7 @@ mod tests {
         let dir = TempDir::new("doc-titles");
         let p = book(&dir);
         let settings = CompileSettings { document_titles: true, ..Default::default() };
-        let m = gather(&p, &settings, read(&p));
+        let m = gather(&p, &settings, &AuthorProfile::default(), read(&p));
         assert_eq!(m.chapters[0].scenes, ["## Quay\n\nMara was *late*.\nThe ferry had gone.", "## Letter\n\nDear Mara,\n\n**Come home.**"]);
         // A chapter that's one document: its title is the chapter's heading.
         assert_eq!(m.chapters[1].scenes, ["The harbour froze."]);
@@ -1010,7 +1460,7 @@ mod tests {
     fn markdown_has_a_title_block_chapters_and_scene_breaks() {
         let dir = TempDir::new("markdown");
         let p = book(&dir);
-        let m = gather(&p, &CompileSettings { author: "Ann Ellison".into(), ..Default::default() }, read(&p));
+        let m = gather(&p, &CompileSettings { author: "Ann Ellison".into(), ..Default::default() }, &AuthorProfile::default(), read(&p));
         let md = to_markdown(&m, &CompileSettings::default());
         assert!(md.starts_with("---\ntitle: \"The Long Winter\"\nauthor: \"Ann Ellison\"\n---\n"), "{md}");
         assert!(md.contains("\n# Arrival\n\nMara was *late*.\n\nThe ferry had gone.\n\n* * *\n\nDear Mara,\n"), "{md}");
@@ -1021,8 +1471,7 @@ mod tests {
             title: "T".into(),
             author: String::new(),
             chapters: vec![Chapter { heading: "One".into(), scenes: vec!["a\n#\nb".into()] }],
-            notes: Vec::new(),
-            works_cited: Vec::new(),
+            ..Default::default()
         };
         assert!(to_markdown(&m, &CompileSettings::default()).contains("\na\n\n* * *\n\nb\n"));
         let asterism = CompileSettings { scene_break: SceneBreak::Asterism, ..Default::default() };
@@ -1041,7 +1490,7 @@ mod tests {
     fn makes_a_word_file_with_the_text_and_italics() {
         let dir = TempDir::new("docx");
         let p = book(&dir);
-        let m = gather(&p, &CompileSettings { author: "Ann Ellison".into(), ..Default::default() }, read(&p));
+        let m = gather(&p, &CompileSettings { author: "Ann Ellison".into(), ..Default::default() }, &AuthorProfile::default(), read(&p));
         let bytes = to_docx(&m, &CompileSettings::default()).unwrap();
         // Read it back and look at what's inside.
         let json = docx_rs::read_docx(&bytes).unwrap().json();
@@ -1064,7 +1513,7 @@ mod tests {
             scene_break: SceneBreak::Stars,
             ..Default::default()
         };
-        let m = gather(&p, &settings, read(&p));
+        let m = gather(&p, &settings, &AuthorProfile::default(), read(&p));
         let json = docx_rs::read_docx(&to_docx(&m, &settings).unwrap()).unwrap().json();
         for text in ["12 Harbour Road", "ann@example.com", "Courier New", "* * *"] {
             assert!(json.contains(text), "missing {text}");
@@ -1080,7 +1529,7 @@ mod tests {
         let dir = TempDir::new("epub");
         let p = book(&dir);
         let settings = CompileSettings { author: "Ann Ellison".into(), ..Default::default() };
-        let m = gather(&p, &settings, read(&p));
+        let m = gather(&p, &settings, &AuthorProfile::default(), read(&p));
         let bytes = to_epub(&m, &settings).unwrap();
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
 
@@ -1170,19 +1619,19 @@ mod tests {
         let p = essays(&dir);
 
         // Left out (the default): no notes, and no words from references.
-        let plain = gather(&p, &CompileSettings::default(), read(&p));
+        let plain = gather(&p, &CompileSettings::default(), &AuthorProfile::default(), read(&p));
         assert_eq!(plain.chapters[1].scenes, ["The harbour froze and stayed.\nSo it goes.\nAgain."]);
         assert!(plain.notes.is_empty() && plain.works_cited.is_empty());
 
         let settings = CompileSettings { citations: Citations::Notes, works_cited: true, ..Default::default() };
-        let m = gather(&p, &settings, read(&p));
+        let m = gather(&p, &settings, &AuthorProfile::default(), read(&p));
         assert_eq!(m.chapters[1].scenes, ["The harbour froze\u{e000}1\u{e001} and stayed.\nSo it goes\u{e000}2\u{e001}.\nAgain\u{e000}3\u{e001}."]);
         assert_eq!(m.notes, ["Berger, John. *Ways of Seeing*. Penguin, 1972, p. 8.", "Debord", "Berger, John. *Ways of Seeing*. Penguin, 1972."]);
         assert_eq!(m.works_cited, ["Berger, John. *Ways of Seeing*. Penguin, 1972.", "Debord"], "each once, alphabetically");
         assert_eq!(m.words(), plain.words(), "notes aren't words");
 
         // Works Cited alone, without notes.
-        let cited_only = gather(&p, &CompileSettings { works_cited: true, ..Default::default() }, read(&p));
+        let cited_only = gather(&p, &CompileSettings { works_cited: true, ..Default::default() }, &AuthorProfile::default(), read(&p));
         assert!(cited_only.notes.is_empty() && cited_only.works_cited.len() == 2);
 
         // Markdown: pandoc footnotes, and the list.

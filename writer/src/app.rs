@@ -253,6 +253,8 @@ pub struct WriterApp {
     // Settings (see settings_ui.rs).
     settings: settings_ui::WriterSettings,
     settings_open: bool,
+    /// Scroll App Settings to who you are (from Compile's Edit Profile…).
+    settings_page_you: bool,
     /// The Project Settings window is open.
     project_settings_open: bool,
     /// The About and Help window, open at this page (see about_ui.rs).
@@ -299,6 +301,7 @@ impl WriterApp {
             editor: settings.editor(),
             settings,
             settings_open: false,
+            settings_page_you: false,
             project_settings_open: false,
             help: None,
             about_icon: None,

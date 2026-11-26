@@ -175,6 +175,14 @@ pub fn apply(ctx: &egui::Context, family: Option<&str>, prose: Option<&str>, tab
     ctx.set_fonts(fonts);
 }
 
+/// A face's font file and its index in it (for a collection), to embed in
+/// a document such as a PDF: the regular face, or a true bold and/or
+/// italic one (`None` if the family hasn't one).
+pub fn face_data(family: &str, bold: bool, italic: bool) -> Option<(Vec<u8>, u32)> {
+    let (blob, index) = if bold || italic { load_face(family, bold, italic)? } else { load_regular(family)? };
+    Some((blob.as_ref().to_vec(), index))
+}
+
 /// A family's bold and/or italic face, only if it truly is one (a family
 /// without an italic would otherwise hand back its upright face).
 fn load_face(family: &str, bold: bool, italic: bool) -> Option<(fontique::Blob<u8>, u32)> {
