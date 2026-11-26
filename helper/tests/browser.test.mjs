@@ -108,6 +108,18 @@ test('two hyphens make an em dash', { skip }, async () => {
   await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
 });
 
+test('⇧⌘A makes the selection a note, and again takes it back', { skip }, async () => {
+  await typeAtEnd(' aside');
+  const press = `document.getElementById('text').dispatchEvent(new KeyboardEvent('keydown',
+    { key: 'A', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }))`;
+  await page.eval(`(() => { const t = document.getElementById('text'); const n = t.value.length; t.setSelectionRange(n - 5, n); })()`);
+  await page.eval(press);
+  await page.waitFor(`document.getElementById('text').value.endsWith(' <!-- aside -->')`, { what: 'the note' });
+  await page.eval(press);
+  await page.waitFor(`document.getElementById('text').value.endsWith(' aside')`, { what: 'the note taken off' });
+  await page.waitFor(`document.getElementById('state').textContent === 'Saved'`, { timeout: 8000 });
+});
+
 test('the preview shows the formatting, without notes', { skip }, async () => {
   await typeAtEnd(' She was *very* late.');
   await page.eval(`document.getElementById('toggle').click()`);

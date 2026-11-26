@@ -31,6 +31,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
     ("Writing", &[
         ("Bold", "\u{2318}B"),
         ("Italic", "\u{2318}I"),
+        ("Note (not compiled): <!-- … -->", "\u{21e7}\u{2318}A"),
         ("Em dash", "- -"),
         ("Split at Cursor", "\u{2318}K"),
         ("Remove Blank Lines", "\u{21e7}\u{2318}L"),

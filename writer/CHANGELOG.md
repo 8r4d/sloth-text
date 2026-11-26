@@ -2,6 +2,17 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.8.0
+
+Fixes from the list, and a key for notes.
+
+- ⇧⌘A makes the selection a note, `<!-- like this -->`, left out when compiling, and pressed again takes it back. With nothing selected, it starts an empty note at the cursor. It's in the right-click menu beside Note, and works in the web editor too.
+- Fixed: a misspelled word that wrapped onto the next line could keep its red underline at the end of the line above. Lines under highlighted words, and comment cards beside their words, had the same slip.
+- Fixed: with typewriter scrolling, selecting with Shift and the arrows, or pressing a shortcut such as ⌘C, brought the text back to the middle, away from what you were selecting. Only typing and plain moving keys do that now.
+- The inspector's Links lists what a document links to by title, as Linked from does, without the [[brackets]].
+
+Upload the helper's new app.js to your host for ⇧⌘A on the web.
+
 ## 2.7.0
 
 Word targets for a project of many short pieces.

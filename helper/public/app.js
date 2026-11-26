@@ -391,11 +391,33 @@ function emphasis(el, mark) {
   if (el.tagName === 'TEXTAREA') el.dispatchEvent(new Event('input'));
 }
 
+/// Make the selection a note (`<!-- … -->`, left out when compiling), or
+/// take the note marks off if they're around it already.
+function note(el) {
+  const [open, close] = ['<!-- ', ' -->'];
+  const value = el.value;
+  const [start, end] = [el.selectionStart, el.selectionEnd];
+  if (value.slice(start - open.length, start) === open && value.slice(end, end + close.length) === close) {
+    el.setRangeText(value.slice(start, end), start - open.length, end + close.length);
+    el.setSelectionRange(start - open.length, end - open.length);
+  } else {
+    el.setRangeText(`${open}${value.slice(start, end)}${close}`, start, end);
+    el.setSelectionRange(start + open.length, end + open.length);
+  }
+  if (el.tagName === 'TEXTAREA') el.dispatchEvent(new Event('input'));
+}
+
 /// ⌘B and ⌘I (and an iPad keyboard's B and I) write Markdown's ** and *.
 /// The paragraph editor hears them as the browser's own "format bold"
 /// edit (as the iPad's B and I buttons are); a text area, as the keys.
+/// ⇧⌘A makes a note, in either.
 function markdownKeys(el) {
   el.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      note(el);
+      return;
+    }
     if (el.tagName !== 'TEXTAREA' || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
     const mark = { b: '**', i: '*' }[e.key.toLowerCase()];
     if (!mark) return;

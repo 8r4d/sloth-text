@@ -409,7 +409,7 @@ impl WriterApp {
             ui.horizontal_wrapped(|ui| {
                 for (id, title) in to {
                     // A link, as Linked from's are below: the same size and look.
-                    if ui.link(format!("[[{title}]]")).on_hover_text("Open it beside this one").clicked() {
+                    if ui.link(title.as_str()).on_hover_text("Open it beside this one").clicked() {
                         picked = Some(LinkPick::Open(id.clone()));
                     }
                 }

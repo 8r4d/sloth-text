@@ -585,6 +585,14 @@ fn the_right_click_menu_and_shortcuts_format_the_selection() {
     harness.run_steps(2);
     assert_eq!(current_text(&mut harness).as_deref(), Some("a word here"));
 
+    // ⇧⌘A makes it a note, and again takes it back.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::A);
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a <!-- word --> here"));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::A);
+    harness.run_steps(2);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("a word here"));
+
     harness.get_by_label("Document text").click_secondary();
     harness.run_steps(2);
     harness.get_by_label("Heading").click();
@@ -2527,7 +2535,7 @@ fn a_documents_links_show_both_ways_in_the_inspector() {
     let mut harness = harness(p);
     harness.run_steps(2);
     harness.get_by_label("Links");
-    harness.get_by_label("[[The Letter]]").click();
+    harness.get_all_by_label("The Letter").last().unwrap().click();
     harness.run_steps(3);
     assert_eq!(harness.state().split.as_deref(), Some(letter.as_str()), "opened beside");
 

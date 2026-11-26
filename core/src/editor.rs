@@ -299,10 +299,11 @@ fn handle_editing_keys(ui: &egui::Ui, tab: TabId, text: &mut String, settings: &
         apply_edit(ctx, tab, text, editing::newline);
     }
     if settings.markdown {
-        let (bold, italic, blank_lines) = ui.input_mut(|i| {
+        let (bold, italic, note, blank_lines) = ui.input_mut(|i| {
             (
                 i.consume_key(Modifiers::COMMAND, Key::B),
                 i.consume_key(Modifiers::COMMAND, Key::I),
+                i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::A),
                 i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::L),
             )
         });
@@ -311,6 +312,9 @@ fn handle_editing_keys(ui: &egui::Ui, tab: TabId, text: &mut String, settings: &
         }
         if italic {
             apply_format(ctx, tab, text, Format::Italic);
+        }
+        if note {
+            apply_format(ctx, tab, text, Format::Note);
         }
         if blank_lines {
             apply_edit(ctx, tab, text, editing::remove_blank_lines);
@@ -347,6 +351,7 @@ impl Format {
         match self {
             Format::Bold => Some("\u{2318}B"),
             Format::Italic => Some("\u{2318}I"),
+            Format::Note => Some("\u{21e7}\u{2318}A"),
             _ => None,
         }
     }
@@ -422,6 +427,26 @@ fn indent_paragraphs(mut job: LayoutJob, indent: f32) -> LayoutJob {
     job
 }
 
+/// Where something starts, at a character index. A word or passage that
+/// begins right where a line wraps begins on the next row; egui's default
+/// is the end of the row above (as for the End key), which would put an
+/// underline or a card on the wrong line.
+fn start_cursor(index: usize) -> CCursor {
+    CCursor { prefer_next_row: true, ..CCursor::new(index) }
+}
+
+/// Whether a key brings typewriter scrolling back to the middle: a plain
+/// key (moving with the arrows, by word with ⌥, Return, Delete), not one
+/// held with Shift (selecting) or with ⌘ or Ctrl (a shortcut, such as Copy).
+fn recentres_typewriter(event: &egui::Event) -> bool {
+    match event {
+        egui::Event::Key { pressed: true, modifiers, .. } => {
+            !(modifiers.shift || modifiers.command || modifiers.ctrl || modifiers.mac_cmd)
+        }
+        _ => false,
+    }
+}
+
 /// The lines under marks that have one, just below the text's baseline
 /// (egui's own underline sits at the bottom of the row, which with wider
 /// line spacing is in the gap, and off the end on the last line).
@@ -429,8 +454,8 @@ fn paint_mark_lines(ui: &egui::Ui, output: &egui::text_edit::TextEditOutput, tex
     let painter = ui.painter();
     let to_char = |b: usize| text.get(..b).map_or(0, |s| s.chars().count());
     for mark in marks.iter().filter(|m| m.underline != Color32::TRANSPARENT && m.range.end <= text.len()) {
-        let at = |i| output.galley.pos_from_cursor(CCursor::new(i)).translate(output.galley_pos.to_vec2());
-        let (a, b) = (at(to_char(mark.range.start)), at(to_char(mark.range.end)));
+        let at = |c| output.galley.pos_from_cursor(c).translate(output.galley_pos.to_vec2());
+        let (a, b) = (at(start_cursor(to_char(mark.range.start))), at(CCursor::new(to_char(mark.range.end))));
         // A phrase across rows is marked to the end of its first.
         let right = if (a.top() - b.top()).abs() < 1.0 { b.left() } else { output.galley_pos.x + output.galley.rect.right() };
         // Just under the baseline of the row the mark starts on.
@@ -468,8 +493,8 @@ fn paint_misspellings(ui: &egui::Ui, output: &egui::text_edit::TextEditOutput, t
     };
     for word in words {
         let (start, end) = (to_char(word.start), to_char(word.end));
-        let at = |i| output.galley.pos_from_cursor(CCursor::new(i)).translate(output.galley_pos.to_vec2());
-        let (a, b) = (at(start), at(end));
+        let at = |c| output.galley.pos_from_cursor(c).translate(output.galley_pos.to_vec2());
+        let (a, b) = (at(start_cursor(start)), at(CCursor::new(end)));
         // A word split across rows (very long ones) is marked on its first.
         let right = if (a.top() - b.top()).abs() < 1.0 { b.left() } else { output.galley_pos.x + output.galley.rect.right() };
         let y = a.bottom() - 2.0;
@@ -869,8 +894,9 @@ pub fn show(
                     && output.response.has_focus()
                     && let Some(cursor) = output.cursor_range
                 {
-                    let typed = output.response.changed()
-                        || ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. })));
+                    // Not selecting with Shift, nor a shortcut such as ⌘C:
+                    // those would scroll away from what's being selected.
+                    let typed = output.response.changed() || ui.input(|i| i.events.iter().any(recentres_typewriter));
                     if typed {
                         let rect = output.galley.pos_from_cursor(cursor.primary).translate(output.galley_pos.to_vec2());
                         ui.scroll_to_rect(rect, Some(Align::Center));
@@ -890,7 +916,7 @@ pub fn show(
                     .iter()
                     .map(|&b| {
                         let chars = text.get(..b.min(text.len())).map_or(0, |s| s.chars().count());
-                        output.galley.pos_from_cursor(CCursor::new(chars)).top() + output.galley_pos.y
+                        output.galley.pos_from_cursor(start_cursor(chars)).top() + output.galley_pos.y
                     })
                     .collect();
                 if let Some(gutter) = gutter_rect {
@@ -1073,7 +1099,7 @@ fn reference_at(output: &egui::text_edit::TextEditOutput, text: &str, pos: egui:
     let at = text.char_indices().nth(index).map_or(text.len(), |(b, _)| b);
     let (range, _) = markdown::references(text).into_iter().find(|(r, _)| r.start <= at && at <= r.end)?;
     let chars = |b: usize| text[..b].chars().count();
-    let (a, b) = (output.galley.pos_from_cursor(CCursor::new(chars(range.start))), output.galley.pos_from_cursor(CCursor::new(chars(range.end))));
+    let (a, b) = (output.galley.pos_from_cursor(start_cursor(chars(range.start))), output.galley.pos_from_cursor(CCursor::new(chars(range.end))));
     let on_it = if (a.top() - b.top()).abs() < 1.0 {
         (a.left()..=b.left()).contains(&local.x) && (a.top()..=a.bottom()).contains(&local.y)
     } else {
@@ -1724,6 +1750,41 @@ mod tests {
         let eleven = indented.text().find("Eleven").unwrap();
         let at = indented.pos_from_cursor(CCursor::new(eleven));
         assert!((at.left() - plain.pos_from_cursor(CCursor::new(eleven)).left() - 20.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn a_word_that_wraps_is_placed_on_the_row_it_starts() {
+        let ctx = egui::Context::default();
+        let mut galley = None;
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let job = LayoutJob::simple(
+                "One two three four five six seven eight nine ten".into(),
+                FontId::proportional(14.0),
+                Color32::WHITE,
+                100.0,
+            );
+            galley = Some(ui.fonts_mut(|f| f.layout_job(job)));
+        });
+        output.textures_delta.clear();
+        let galley = galley.unwrap();
+        assert!(galley.rows.len() > 1, "the text should wrap");
+        // The first word of the second row starts where the first row ends.
+        let at = galley.rows[0].char_count_including_newline().0;
+        let start = galley.pos_from_cursor(start_cursor(at));
+        assert!((start.top() - galley.rows[1].pos.y).abs() < 0.5, "marked on its own row");
+        assert!(start.left() < 1.0, "at the margin, not the end of the row above");
+        // Without preferring the next row, it's the end of the row above.
+        assert!(galley.pos_from_cursor(CCursor::new(at)).top() < galley.rows[1].pos.y);
+    }
+
+    #[test]
+    fn typewriter_recentres_on_plain_keys_but_not_selecting_or_shortcuts() {
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        assert!(recentres_typewriter(&key(Key::ArrowDown, Modifiers::NONE)));
+        assert!(recentres_typewriter(&key(Key::ArrowRight, Modifiers::ALT)));
+        assert!(!recentres_typewriter(&key(Key::ArrowDown, Modifiers::SHIFT)));
+        assert!(!recentres_typewriter(&key(Key::C, Modifiers::COMMAND)));
+        assert!(!recentres_typewriter(&key(Key::C, Modifiers::CTRL)));
     }
 
     #[test]
