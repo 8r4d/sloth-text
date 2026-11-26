@@ -4,9 +4,9 @@ Two Mac apps written in Rust, sharing one editor, and a small web service:
 
 - **Sloth** (1.0): a small plain-text editor.
 - **Sloth Writer** (2.9): an app for writing long projects such as novels,
-  in the spirit of Scrivener. A project is a folder of plain Markdown files.
+  in the spirit of Scrivener. A project is a binder of plain Markdown files organized in a binder structure with robust metadata systems. Multi-platform.
 - **The Writer helper** (`helper/`): a PHP service on ordinary web hosting
-  that lets you write chosen scenes in a web browser, synced with Writer.
+  that lets you write chosen scenes in a web browser, synced with Writer. A versatile web "helper" app (see below) that can be "added to home" or used in a browser to act as a mobile writing tool (tablet or phone) and cross-syncing system for connected desktops/laptops running the sloth software (requires PHP/MySQL hosting)
 
 ## Installing
 
