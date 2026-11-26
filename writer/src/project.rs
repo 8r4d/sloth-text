@@ -2127,13 +2127,17 @@ mod tests {
         let dir = TempDir::new("files");
         let outside = TempDir::new("files-outside");
         fs::create_dir_all(&outside.0).unwrap();
-        let source = outside.0.join("Ferry: Timetable.pdf");
+        let source = outside.0.join("Timetable.pdf");
         fs::write(&source, "%PDF-1.4 pretend").unwrap();
         let mut p = Project::create(&dir.0, "Book").unwrap();
         let research = Place::Into(Role::Research.folder().into());
 
-        // Copied in under a name any computer can have, titled by its name.
-        let id = p.add_file(&research, &source, "").unwrap();
+        // Titled by its name unless given one; copied in under a name any
+        // computer can have (no colon, for Windows).
+        let plain = p.add_file(&research, &source, "").unwrap();
+        assert_eq!(p.node(&plain).unwrap().title, "Timetable");
+        assert_eq!(p.node(&plain).unwrap().file.as_deref(), Some("Research Files/Timetable.pdf"));
+        let id = p.add_file(&research, &source, "Ferry: Timetable").unwrap();
         let node = p.node(&id).unwrap();
         assert_eq!(node.title, "Ferry: Timetable");
         assert_eq!(node.file.as_deref(), Some("Research Files/Ferry- Timetable.pdf"));
@@ -2141,7 +2145,7 @@ mod tests {
         assert_eq!(fs::read_to_string(p.research_file(&id).unwrap()).unwrap(), "%PDF-1.4 pretend");
         assert!(source.exists(), "the original stays where it was");
         // Again: a name of its own.
-        let again = p.add_file(&research, &source, "").unwrap();
+        let again = p.add_file(&research, &source, "Ferry: Timetable").unwrap();
         assert_eq!(p.node(&again).unwrap().file.as_deref(), Some("Research Files/Ferry- Timetable (2).pdf"));
         // Not a document: no text to count, compile or sync.
         assert!(!p.documents().iter().any(|n| n.id == id));
