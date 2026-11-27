@@ -2,6 +2,18 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.15.0
+
+Build a Character and Build an Essay, walked through like Build a Plot.
+
+- Build a Character… (right-click the Characters folder, or Build This Character… on a character) walks you through a character a question at a time. Five guides: Quick Sketch (what they want and need, their flaw, voice and a telling detail), the Positive Change Arc (the Lie they believe, the wound behind it, glimpsing and choosing the Truth), the Flat Arc, the Negative Arc and the Antagonist.
+- Each answer goes in the profile section it belongs to (wants and needs in Motivations, the wound in Backstory, the arc's steps in Arc) as a paragraph starting with the question's name in bold, **The Lie:** … Anything you wrote in the profile yourself stays as it is, and a section the profile hasn't got is added.
+- Build it again and your answers come back to revise; saving changes only those paragraphs. Guides share answers where they ask the same thing, so a Quick Sketch's Wants is there in the Positive Change Arc.
+- Build an Essay… (More, or right-click anything in the Manuscript) walks through an essay's shape: Argument, They Say / I Say, Explainer, How-To, Problem and Solution, or Personal Essay. The essay is a new document beside what you clicked.
+- Every shape starts with the piece in a sentence, which becomes its synopsis (a ready excerpt for posting), and ends with its title (write a few, pick one), length (its target) and tags (its keywords).
+- The draft reads as a post: each part is your answer, with its guidance as a note above it, which Copy and Compile leave out. Tick Section headings for a ## heading over each part, which you can name yourself, to Break Up a longer piece (each part's note becomes its synopsis, as with a plot).
+- Build a Plot works as before. Starting one builder keeps another's answers, so you can come back to it.
+
 ## 2.14.0
 
 Build a Plot.

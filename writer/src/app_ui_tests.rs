@@ -3596,30 +3596,30 @@ fn build_a_plot_walks_the_beats_into_a_document_in_notes() {
     // Story Circle is picked to begin with.
     harness.get_by_label("Begin").click();
     harness.run_steps(3);
-    assert_eq!(harness.state().plot.as_ref().unwrap().step, 0);
+    assert_eq!(harness.state_mut().open_walk().unwrap().step, 0);
     harness.event(egui::Event::Text("Mara, who has never crossed the river.".into()));
     harness.run_steps(1);
     harness.get_by_label("Next").click();
     harness.run_steps(3);
-    assert_eq!(harness.state().plot.as_ref().unwrap().step, 1);
+    assert_eq!(harness.state_mut().open_walk().unwrap().step, 1);
     if let Ok(dir) = std::env::var("SHOT_DIR") {
         harness.render().unwrap().save(format!("{dir}/plot-beat.png")).unwrap();
     }
 
     // Closed part way: open again where it was, the answer kept.
-    harness.state_mut().plot.as_mut().unwrap().open = false;
+    harness.state_mut().open_walk().unwrap().open = false;
     harness.run_steps(2);
     harness.state_mut().start_plot();
     harness.run_steps(3);
-    assert_eq!(harness.state().plot.as_ref().unwrap().step, 1);
+    assert_eq!(harness.state_mut().open_walk().unwrap().step, 1);
     harness.get_by_label("Back").click();
     harness.run_steps(3);
-    assert_eq!(harness.state().plot.as_ref().unwrap().answers[0], "Mara, who has never crossed the river.");
+    assert_eq!(harness.state_mut().open_walk().unwrap().answers[0], "Mara, who has never crossed the river.");
 
     // Make It Now: a document in Notes, opened, the rest headings to fill.
     harness.get_by_label("Make It Now").click();
     harness.run_steps(3);
-    assert!(harness.state().plot.is_none());
+    assert!(harness.state().walks.is_empty());
     let id = harness.state().selected.clone().unwrap();
     let project = harness.state().project.as_ref().unwrap();
     assert_eq!(project.role_of(&id), Some(crate::project::Role::Notes));
@@ -3641,16 +3641,16 @@ fn snowflake_characters_become_profiles_and_break_up_gives_synopses() {
     };
     harness.state_mut().start_plot();
     harness.run_steps(2);
-    let snowflake = crate::plot::STRUCTURES.iter().position(|s| s.name == "The Snowflake Method").unwrap();
+    let snowflake = crate::plot::GUIDES.iter().position(|s| s.name == "The Snowflake Method").unwrap();
     {
-        let plot = harness.state_mut().plot.as_mut().unwrap();
+        let plot = harness.state_mut().open_walk().unwrap();
         plot.picked = snowflake;
     }
     harness.run_steps(3);
     harness.get_by_label("Begin").click();
     harness.run_steps(3);
     {
-        let plot = harness.state_mut().plot.as_mut().unwrap();
+        let plot = harness.state_mut().open_walk().unwrap();
         plot.answers[0] = "A ferryman's daughter crosses the river her family won't.".into();
         plot.headings[0] = "The Crossing".into();
         plot.step = 2;
@@ -3687,4 +3687,97 @@ fn snowflake_characters_become_profiles_and_break_up_gives_synopses() {
     assert!(pieces[0].meta.synopsis.starts_with("One Sentence \u{2014} The whole novel in a sentence"), "{}", pieces[0].meta.synopsis);
     let first = fs::read_to_string(project.file_path(&pieces[0].id).unwrap()).unwrap();
     assert_eq!(first.trim_end(), "A ferryman's daughter crosses the river her family won't.");
+}
+
+#[test]
+fn build_a_character_fills_their_profile_and_comes_back_to_revise() {
+    let dir = TempDir::new("character-walk");
+    let mut harness = harness(project(&dir, "Chapter one."));
+    // A new character, from the Characters folder's menu.
+    harness.state_mut().start_character(None);
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/character-choose.png")).unwrap();
+    }
+    harness.state_mut().open_walk().unwrap().title = "Mara".into();
+    harness.run_steps(2);
+    harness.get_by_label("Begin").click();
+    harness.run_steps(3);
+    {
+        let walk = harness.state_mut().open_walk().unwrap();
+        assert_eq!(walk.answers.len(), 5, "Quick Sketch");
+        walk.answers[0] = "To cross the river".into();
+        walk.answers[3] = "Short words; never says sorry.".into();
+        walk.step = 4;
+    }
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/character-step.png")).unwrap();
+    }
+    harness.get_by_label("Save to Profile").click();
+    harness.run_steps(3);
+    assert!(harness.state().walks.is_empty());
+    let id = harness.state().selected.clone().unwrap();
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.node(&id).unwrap().title, "Mara");
+    assert_eq!(project.profile_of(&id).map(|k| k.id.as_str()), Some(crate::project::CHARACTERS));
+    let text = fs::read_to_string(project.file_path(&id).unwrap()).unwrap();
+    assert!(text.contains("## Motivations\n\n**Wants:** To cross the river"), "{text}");
+    assert!(text.contains("## Voice\n\n**Voice:** Short words; never says sorry."), "{text}");
+
+    // Again, from her own menu: a new walk, her answers back.
+    harness.state_mut().start_character(Some(id.clone()));
+    harness.run_steps(2);
+    harness.get_by_label("For Mara");
+    harness.get_by_label("Begin").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state_mut().open_walk().unwrap().answers[0], "To cross the river");
+}
+
+#[test]
+fn build_an_essay_makes_a_draft_beside_the_selection() {
+    let dir = TempDir::new("essay-walk");
+    let mut harness = harness(project(&dir, "An older essay."));
+    let first = harness.state().selected.clone().unwrap();
+    harness.state_mut().start_essay(Some(first.clone()));
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/essay-choose.png")).unwrap();
+    }
+    harness.get_by_label("Begin").click();
+    harness.run_steps(3);
+    let n = {
+        let walk = harness.state_mut().open_walk().unwrap();
+        let n = walk.answers.len();
+        walk.answers[0] = "Timetables are promises nobody keeps.".into();
+        walk.answers[1] = "Every ferry timetable lies.".into();
+        walk.answers[n - 3] = "The Timetable Lies\nNobody Keeps Time".into();
+        walk.answers[n - 2] = "900".into();
+        walk.answers[n - 1] = "ferries, time".into();
+        walk.step = n - 3;
+        n
+    };
+    harness.run_steps(3);
+    // The titles to pick from.
+    harness.get_by_label("Nobody Keeps Time").click();
+    harness.run_steps(2);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/essay-title.png")).unwrap();
+    }
+    harness.state_mut().open_walk().unwrap().step = n - 1;
+    harness.run_steps(2);
+    harness.get_by_label("Make the Essay").click();
+    harness.run_steps(3);
+
+    let id = harness.state().selected.clone().unwrap();
+    let project = harness.state().project.as_ref().unwrap();
+    let node = project.node(&id).unwrap();
+    assert_eq!(node.title, "Nobody Keeps Time");
+    assert_eq!(node.meta.synopsis, "Timetables are promises nobody keeps.");
+    assert_eq!(node.meta.target_words, Some(900));
+    assert_eq!(node.meta.keywords, ["ferries", "time"]);
+    assert_eq!(project.parent_of(&id).map(|p| p.id.clone()), project.parent_of(&first).map(|p| p.id.clone()));
+    let text = current_text(&mut harness).unwrap();
+    assert!(text.starts_with("<!-- Part: Hook \u{2014} "), "{text}");
+    assert!(text.contains("-->\nEvery ferry timetable lies.\n"));
 }

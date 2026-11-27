@@ -27,6 +27,10 @@ pub enum BinderAction {
     RemoveProfileFolder(String),
     /// Build a Plot…: a story structure's beats as a document in Notes.
     BuildPlot,
+    /// Build a Character…: this profile's, or (`None`) a new one's.
+    BuildCharacter(Option<String>),
+    /// Build an Essay…: a new essay beside (or in) this item.
+    BuildEssay(String),
     /// Break Up…: a document's parts (at headings or scene breaks) as documents of their own.
     BreakUp(String),
     /// Combine into One Document…: a folder's documents as one.
@@ -251,6 +255,20 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
             }
             ui.separator();
         }
+        if node.role == Some(Role::Characters) {
+            if ui.button("Build a Character\u{2026}").on_hover_text("Walk through a new character question by question, into their profile").clicked() {
+                actions.push(BinderAction::BuildCharacter(None));
+                ui.close();
+            }
+            ui.separator();
+        }
+        if node.role.is_none() && top == Some(Role::Characters) && node.is_document() {
+            if ui.button("Build This Character\u{2026}").on_hover_text("Walk through them question by question; answers go in their profile, and ones you've given already come back to revise").clicked() {
+                actions.push(BinderAction::BuildCharacter(Some(node.id.clone())));
+                ui.close();
+            }
+            ui.separator();
+        }
         if node.role == Some(Role::Trash) {
             let empty = !node.children.is_empty();
             if ui.add_enabled(empty, egui::Button::new("Empty Trash…")).clicked() {
@@ -265,6 +283,12 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
         }
         if ui.button("New Folder").clicked() {
             actions.push(BinderAction::NewFolder(node.id.clone()));
+            ui.close();
+        }
+        if top == Some(Role::Manuscript)
+            && ui.button("Build an Essay\u{2026}").on_hover_text("Walk through an essay's shape part by part; your answers become a draft here").clicked()
+        {
+            actions.push(BinderAction::BuildEssay(node.id.clone()));
             ui.close();
         }
         if ui.button("Add File\u{2026}").on_hover_text("A PDF, a picture or any other file, kept in the project to look at while you write. Or drop files on the window.").clicked() {

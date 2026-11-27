@@ -41,8 +41,8 @@ mod glossary_ui;
 mod get_project_ui;
 #[path = "goal_ui.rs"]
 mod goal_ui;
-#[path = "plot_ui.rs"]
-mod plot_ui;
+#[path = "guide_ui.rs"]
+mod guide_ui;
 #[path = "inspector.rs"]
 pub(crate) mod inspector;
 #[path = "project_settings_ui.rs"]
@@ -273,8 +273,9 @@ pub struct WriterApp {
     /// Glossary Terms), until another is selected.
     glossary_terms_in: Option<String>,
     glossary_marks: glossary_ui::GlossaryMarks,
-    /// Build a Plot…, while there's one under way (see plot_ui.rs).
-    plot: Option<plot_ui::PlotBuilder>,
+    /// Build a Plot, a Character or an Essay: the walks under way (see
+    /// guide_ui.rs), at most one of them shown.
+    walks: Vec<guide_ui::Walk>,
     about_icon: Option<egui::TextureHandle>,
     /// The text filtering the Settings window's font list.
     font_filter: String,
@@ -324,7 +325,7 @@ impl WriterApp {
             glossary_edit: None,
             glossary_terms_in: None,
             glossary_marks: Default::default(),
-            plot: None,
+            walks: Vec::new(),
             about_icon: None,
             font_filter: String::new(),
             // Tests never touch the real Keychain.
@@ -1067,6 +1068,8 @@ impl WriterApp {
             BinderAction::AddProfileFolder(None) => self.new_profile_folder = Some((String::new(), String::new())),
             BinderAction::OpenInSplit(id) => self.open_in_split(id),
             BinderAction::BuildPlot => self.start_plot(),
+            BinderAction::BuildCharacter(profile) => self.start_character(profile),
+            BinderAction::BuildEssay(near) => self.start_essay(Some(near)),
             BinderAction::BreakUp(id) => self.start_break_up(&id),
             BinderAction::Combine(id) => self.start_combine(&id, false),
             BinderAction::CombineWithNext(id) => self.start_combine(&id, true),
@@ -1485,6 +1488,10 @@ impl WriterApp {
                 self.start_plot();
                 ui.close();
             }
+            if ui.button("Build an Essay\u{2026}").on_hover_text("Walk through an essay's shape part by part; your answers become a draft beside what's selected").clicked() {
+                self.start_essay(self.selected.clone());
+                ui.close();
+            }
             ui.separator();
             if ui.button("Back Up\u{2026}").on_hover_text("Save a dated zip of the whole project somewhere else").clicked() {
                 let now = ui.input(|i| i.time);
@@ -1510,7 +1517,7 @@ impl WriterApp {
                 ui.close();
             }
         });
-        tool_named(more.response, "More\u{2026}", None, "Mobile Notes, Build a Plot, Back Up, Settings, Help, Close Project", compact);
+        tool_named(more.response, "More\u{2026}", None, "Mobile Notes, Build a Plot or an Essay, Back Up, Settings, Help, Close Project", compact);
         let inspector = ui.toggle_value(&mut self.show_inspector, tool_label(crate::icons::INSPECTOR, "Inspector", compact));
         tool_named(inspector, "Inspector", Some(self.show_inspector), &sloth_core::keys::shown("\u{2325}\u{2318}I"), compact);
         let split = ui.toggle_value(&mut self.split_open, tool_label(crate::icons::SPLIT, "Split", compact));
@@ -1940,7 +1947,7 @@ impl eframe::App for WriterApp {
         self.statuses_window(&ctx);
         self.compile_window(&ctx);
         self.glossary_window(&ctx);
-        self.plot_window(&ctx);
+        self.walk_window(&ctx);
         self.compare_window(&ctx);
         self.rename_project_window(&ctx);
         self.sections_window(&ctx);

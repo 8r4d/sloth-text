@@ -286,7 +286,7 @@ impl WriterApp {
         let mut made = Vec::new();
         for piece in &broken.pieces {
             // A beat from Build a Plot: its note becomes the synopsis.
-            let (synopsis, text) = crate::plot::beat_note(&piece.text).unwrap_or_else(|| (String::new(), piece.text.clone()));
+            let (synopsis, text) = crate::guide::step_note(&piece.text).unwrap_or_else(|| (String::new(), piece.text.clone()));
             let result = project.add_document(&place, &piece.title).and_then(|new| {
                 let path = project.file_path(&new).ok_or_else(|| std::io::Error::other("no file"))?;
                 sloth_core::document::write_atomically(&path, text.as_bytes())?;
