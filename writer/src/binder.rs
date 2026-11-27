@@ -25,6 +25,8 @@ pub enum BinderAction {
     /// Show this in the split view (⌥-click, or the menu).
     OpenInSplit(String),
     RemoveProfileFolder(String),
+    /// Build a Plot…: a story structure's beats as a document in Notes.
+    BuildPlot,
     /// Break Up…: a document's parts (at headings or scene breaks) as documents of their own.
     BreakUp(String),
     /// Combine into One Document…: a folder's documents as one.
@@ -239,6 +241,13 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
                     actions.push(BinderAction::RemoveProfileFolder(node.id.clone()));
                     ui.close();
                 }
+            }
+            ui.separator();
+        }
+        if node.role == Some(Role::Notes) {
+            if ui.button("Build a Plot\u{2026}").on_hover_text("Walk through a story structure beat by beat; your answers become a document here").clicked() {
+                actions.push(BinderAction::BuildPlot);
+                ui.close();
             }
             ui.separator();
         }

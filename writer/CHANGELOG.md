@@ -2,6 +2,19 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.14.0
+
+Build a Plot.
+
+- Build a Plot… (in More, or the Notes folder's right-click menu) walks you through a story structure a beat at a time. Each beat explains what happens there and asks a question or two, with a box for your answer.
+- Thirteen structures, in groups. Short stories: Story Spine, Story Circle, Kishōtenketsu, Freytag's Pyramid and the MICE Quotient. Novels: Three Acts, Seven Points, the Fichtean Curve, Michael Hauge's Six Stages, The Hero's Journey and Save the Cat!. By genre: Romancing the Beat. And a way of working: the Snowflake Method, from one sentence to a list of scenes.
+- The dots along the top are the beats, filled once answered: click one to go there. Leave a beat empty to come back to. Close the window part way and it opens again where you were, until Writer quits.
+- Each beat has a Heading: call it what it is in your story (The Ferry Leaves rather than Go). Left empty, it's the beat's name.
+- The Snowflake Method's Characters step takes one character to a line, Mara: what she's after. Each one becomes a character profile, that line its description (unless there's a profile by that name already), and the plot refers to them as [[Mara]].
+- Make the Document (or Make It Now, part way) puts it in Notes, titled "Plot: Story Circle" or your own title. Each beat is a heading with your answer under it, and its guidance as a note, which compiling and word counts leave out. Structures in acts have a # heading per act and a ## per beat.
+- Where a structure paces by length, each beat's note says how far into the book it falls, and near which word, if the Manuscript has a target.
+- When it's ready, move it to the Manuscript and Break Up… at headings to make each beat (or act) a document of its own. Each beat's note becomes its document's synopsis, so the corkboard shows the plot, and the text keeps just what you wrote.
+
 ## 2.13.0
 
 A glossary.

@@ -285,16 +285,18 @@ impl WriterApp {
         // The new documents first: if one fails, the text is still all here.
         let mut made = Vec::new();
         for piece in &broken.pieces {
+            // A beat from Build a Plot: its note becomes the synopsis.
+            let (synopsis, text) = crate::plot::beat_note(&piece.text).unwrap_or_else(|| (String::new(), piece.text.clone()));
             let result = project.add_document(&place, &piece.title).and_then(|new| {
                 let path = project.file_path(&new).ok_or_else(|| std::io::Error::other("no file"))?;
-                sloth_core::document::write_atomically(&path, piece.text.as_bytes())?;
-                project.set_meta(&new, meta.clone());
+                sloth_core::document::write_atomically(&path, text.as_bytes())?;
+                project.set_meta(&new, Meta { synopsis: synopsis.clone(), ..meta.clone() });
                 Ok(new)
             });
             match result {
                 Ok(new) => {
                     place = Place::After(new.clone());
-                    made.push((new, piece.text.clone()));
+                    made.push((new, text));
                 }
                 Err(e) => {
                     self.error = Some(format!("Couldn't make \u{201c}{}\u{201d}, so \u{201c}{title}\u{201d} still has all its text: {e}", piece.title));

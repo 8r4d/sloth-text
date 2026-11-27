@@ -3581,3 +3581,110 @@ fn add_to_glossary_then_see_the_terms_in_the_text() {
     // The glossary itself: its count, sorted already.
     harness.get_by_label("The glossary: 1 term");
 }
+
+// ----- build a plot ----------------------------------------------------------------
+
+#[test]
+fn build_a_plot_walks_the_beats_into_a_document_in_notes() {
+    let dir = TempDir::new("plot-ui");
+    let mut harness = harness(project(&dir, "Chapter one."));
+    harness.state_mut().start_plot();
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/plot-choose.png")).unwrap();
+    }
+    // Story Circle is picked to begin with.
+    harness.get_by_label("Begin").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().plot.as_ref().unwrap().step, 0);
+    harness.event(egui::Event::Text("Mara, who has never crossed the river.".into()));
+    harness.run_steps(1);
+    harness.get_by_label("Next").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().plot.as_ref().unwrap().step, 1);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/plot-beat.png")).unwrap();
+    }
+
+    // Closed part way: open again where it was, the answer kept.
+    harness.state_mut().plot.as_mut().unwrap().open = false;
+    harness.run_steps(2);
+    harness.state_mut().start_plot();
+    harness.run_steps(3);
+    assert_eq!(harness.state().plot.as_ref().unwrap().step, 1);
+    harness.get_by_label("Back").click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().plot.as_ref().unwrap().answers[0], "Mara, who has never crossed the river.");
+
+    // Make It Now: a document in Notes, opened, the rest headings to fill.
+    harness.get_by_label("Make It Now").click();
+    harness.run_steps(3);
+    assert!(harness.state().plot.is_none());
+    let id = harness.state().selected.clone().unwrap();
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.role_of(&id), Some(crate::project::Role::Notes));
+    assert_eq!(project.node(&id).unwrap().title, "Plot: Story Circle");
+    let text = current_text(&mut harness).unwrap();
+    assert!(text.contains("# You\n<!-- "), "{text}");
+    assert!(text.contains("-->\nMara, who has never crossed the river.\n"));
+    assert!(text.contains("\n# Change\n"));
+}
+
+#[test]
+fn snowflake_characters_become_profiles_and_break_up_gives_synopses() {
+    let dir = TempDir::new("plot-snowflake");
+    let mut harness = harness(project(&dir, "Chapter one."));
+    // Mara has a profile already; Old Tam doesn't.
+    let mara = {
+        let project = harness.state_mut().project.as_mut().unwrap();
+        project.add_document(&Place::Into(crate::project::CHARACTERS.into()), "Mara").unwrap()
+    };
+    harness.state_mut().start_plot();
+    harness.run_steps(2);
+    let snowflake = crate::plot::STRUCTURES.iter().position(|s| s.name == "The Snowflake Method").unwrap();
+    {
+        let plot = harness.state_mut().plot.as_mut().unwrap();
+        plot.picked = snowflake;
+    }
+    harness.run_steps(3);
+    harness.get_by_label("Begin").click();
+    harness.run_steps(3);
+    {
+        let plot = harness.state_mut().plot.as_mut().unwrap();
+        plot.answers[0] = "A ferryman's daughter crosses the river her family won't.".into();
+        plot.headings[0] = "The Crossing".into();
+        plot.step = 2;
+    }
+    harness.run_steps(2);
+    harness.get_by_label("Each becomes a character profile (unless there's one already), linked from the plot.");
+    harness.event(egui::Event::Text("Mara: wants to cross\nOld Tam: the ferryman who won't".into()));
+    harness.run_steps(1);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/plot-characters.png")).unwrap();
+    }
+    harness.get_by_label("Make It Now").click();
+    harness.run_steps(3);
+
+    // One new profile (Old Tam, with his line); Mara's was there already.
+    let id = harness.state().selected.clone().unwrap();
+    let project = harness.state().project.as_ref().unwrap();
+    let names: Vec<&str> = project.profile_items(crate::project::CHARACTERS).iter().map(|n| n.title.as_str()).collect();
+    assert_eq!(names, ["Mara", "Old Tam"]);
+    let tam = project.profile_items(crate::project::CHARACTERS)[1].id.clone();
+    assert_eq!(fs::read_to_string(project.file_path(&tam).unwrap()).unwrap(), "the ferryman who won't\n");
+    assert!(project.file_path(&mara).is_some());
+    let text = current_text(&mut harness).unwrap();
+    assert!(text.contains("\n# The Crossing\n<!-- Beat: One Sentence \u{2014} "), "{text}");
+    assert!(text.contains("-->\n[[Mara]]: wants to cross\n[[Old Tam]]: the ferryman who won't\n"), "{text}");
+
+    // Break Up: each beat a document, its note the synopsis.
+    let ctx = harness.ctx.clone();
+    harness.state_mut().break_up(&ctx, &id, crate::breakup::BreakAt::Headings(1), false, 0.0);
+    harness.run_steps(3);
+    let project = harness.state().project.as_ref().unwrap();
+    let pieces = &project.node(&id).unwrap().children;
+    assert_eq!(pieces[0].title, "The Crossing");
+    assert!(pieces[0].meta.synopsis.starts_with("One Sentence \u{2014} The whole novel in a sentence"), "{}", pieces[0].meta.synopsis);
+    let first = fs::read_to_string(project.file_path(&pieces[0].id).unwrap()).unwrap();
+    assert_eq!(first.trim_end(), "A ferryman's daughter crosses the river her family won't.");
+}

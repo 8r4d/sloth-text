@@ -22,6 +22,7 @@ mod keychain;
 mod lock;
 mod merge;
 mod places;
+mod plot;
 mod project;
 mod references;
 mod rewards;

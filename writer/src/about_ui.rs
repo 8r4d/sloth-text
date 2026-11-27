@@ -61,6 +61,7 @@ const TIPS: &[&str] = &[
     "Right-click in the text for Bold, Italic, Heading, Quote, Note, Scene Break, Change Case, Remove Blank Lines and Split at Cursor.",
     "Write notes to yourself <!-- like this -->: they're left out of word counts and the compiled book.",
     "A line with only # on it is a scene break.",
+    "Build a Plot\u{2026} (in More, or Notes' right-click menu) walks through a story structure, from Story Circle to Save the Cat!, a beat at a time: your answers become a document in Notes with a heading per beat, ready for Break Up when it's time to draft.",
     "Select a word, right-click, Add to Glossary\u{2026}: the project's glossary is one document of # terms and their definitions, kept A to Z, and can go at the end of a compiled book.",
     "Keep PDFs and pictures in the project to look at as you write: Add File\u{2026} in the binder's right-click menu, or drop them on the window.",
     "Refer to a profile (a source, concept, theme or character) with [[its name]] where it comes up: typing [[ offers names (or makes a new one), hover to see it, \u{2318}-click to open it. Renaming a profile renames its references, and Compile can turn references to Sources into footnotes and a list of works cited. Like notes, references are left out of word counts and the compiled book, and each profile lists where it's referenced.",
