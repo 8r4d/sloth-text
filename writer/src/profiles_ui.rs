@@ -310,9 +310,15 @@ impl WriterApp {
             ui.label(RichText::new(&kind.name).small().weak());
             let mut remove = None;
             let mut add = None;
+            let threads = kind.id == crate::project::THREADS;
             ui.horizontal_wrapped(|ui| {
                 for (id, title) in all.iter().filter(|(id, _)| linked.contains(id)) {
-                    if ui.button(format!("{title}  \u{d7}")).on_hover_text("Remove from this scene").clicked() {
+                    // A thread: whether the scene opens it, moves it along or closes it.
+                    if threads {
+                        if WriterApp::thread_chip(ui, meta, id, title) {
+                            remove = Some(id.clone());
+                        }
+                    } else if ui.button(format!("{title}  \u{d7}")).on_hover_text("Remove from this scene").clicked() {
                         remove = Some(id.clone());
                     }
                 }

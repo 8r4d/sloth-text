@@ -3781,3 +3781,90 @@ fn build_an_essay_makes_a_draft_beside_the_selection() {
     assert!(text.starts_with("<!-- Part: Hook \u{2014} "), "{text}");
     assert!(text.contains("-->\nEvery ferry timetable lies.\n"));
 }
+
+// ----- tracker ---------------------------------------------------------------------
+
+#[test]
+fn the_tracker_shows_whos_where_and_how_threads_open_and_close() {
+    use crate::presence::{Cell, Issue};
+    use crate::project::{CHARACTERS, THREADS, ThreadMark};
+    let dir = TempDir::new("tracker");
+    let mut harness = harness(project(&dir, "Mara waits at the quay."));
+    let first = harness.state().selected.clone().unwrap();
+    let (mara, tam, ferry, letter, scenes) = {
+        let project = harness.state_mut().project.as_mut().unwrap();
+        let mara = project.add_document(&Place::Into(CHARACTERS.into()), "Mara Tellin").unwrap();
+        let tam = project.add_document(&Place::Into(CHARACTERS.into()), "Old Tam").unwrap();
+        fs::write(project.file_path(&tam).unwrap(), "The ferryman.\n\n## Also known as\n\nthe ferryman\n").unwrap();
+        let preset = crate::project::profile_presets().into_iter().map(|(k, _)| k).find(|k| k.id == THREADS).unwrap();
+        project.add_profile_folder(preset).unwrap();
+        let ferry = project.add_document(&Place::Into(THREADS.into()), "Who sank the ferry?").unwrap();
+        let letter = project.add_document(&Place::Into(THREADS.into()), "What's in the letter?").unwrap();
+        let chapter = project.add_folder(&Place::Into("manuscript".into()), "Chapter One").unwrap();
+        let mut scenes = vec![first.clone()];
+        project.move_node(&first, &Place::Into(chapter.clone())).unwrap();
+        for (i, text) in ["The quay was empty.", "Rain.", "Mara found the letter.", "The ferryman laughed."].iter().enumerate() {
+            let id = project.add_document(&Place::Into(chapter.clone()), &format!("Scene {}", i + 2)).unwrap();
+            fs::write(project.file_path(&id).unwrap(), text).unwrap();
+            scenes.push(id);
+        }
+        // Mara's in the first scene; the ferry opens there and closes in the last.
+        let mut meta = project.node(&scenes[0]).unwrap().meta.clone();
+        meta.links.insert(CHARACTERS.into(), vec![mara.clone()]);
+        meta.links.insert(THREADS.into(), vec![ferry.clone(), letter.clone()]);
+        meta.threads.insert(ferry.clone(), ThreadMark::Opens);
+        meta.threads.insert(letter.clone(), ThreadMark::Opens);
+        project.set_meta(&scenes[0], meta);
+        let mut meta = project.node(&scenes[4]).unwrap().meta.clone();
+        meta.links.insert(THREADS.into(), vec![ferry.clone()]);
+        meta.threads.insert(ferry.clone(), ThreadMark::Closes);
+        project.set_meta(&scenes[4], meta);
+        project.save().unwrap();
+        (mara, tam, ferry, letter, scenes)
+    };
+    let _ = (&ferry, &letter);
+
+    // The Manuscript, ⌘4.
+    harness.state_mut().select("manuscript".into());
+    harness.run_steps(2);
+    harness.state_mut().folder_views.insert("manuscript".into(), super::views::FolderView::Tracker);
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/tracker-characters.png")).unwrap();
+    }
+    let rows = harness.state().tracker_rows();
+    let (_, mara_cells, _) = rows.iter().find(|(t, ..)| t == "Mara Tellin").unwrap();
+    assert_eq!(mara_cells, &[Cell::In, Cell::Empty, Cell::Empty, Cell::Mentioned, Cell::Empty]);
+    let (_, tam_cells, _) = rows.iter().find(|(t, ..)| t == "Old Tam").unwrap();
+    assert_eq!(tam_cells, &[Cell::Empty, Cell::Empty, Cell::Empty, Cell::Empty, Cell::Mentioned], "by Also known as");
+
+    // ⌥-click Tam's square in the first scene: he's in it now.
+    harness.state_mut().toggle_in_scene_for_test(&scenes[0], CHARACTERS, &tam);
+    assert!(harness.state().project.as_ref().unwrap().node(&scenes[0]).unwrap().meta.links[CHARACTERS].contains(&tam));
+    let _ = mara;
+
+    // Threads: the letter's never closed.
+    harness.state_mut().tracker_kind = Some(THREADS.into());
+    harness.state_mut().tracker = None;
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/tracker-threads.png")).unwrap();
+    }
+    let rows = harness.state().tracker_rows();
+    let (_, cells, issues) = rows.iter().find(|(t, ..)| t == "Who sank the ferry?").unwrap();
+    assert_eq!(cells, &[Cell::Opens, Cell::Empty, Cell::Empty, Cell::Empty, Cell::Closes]);
+    assert!(issues.is_empty());
+    let (_, _, issues) = rows.iter().find(|(t, ..)| t == "What's in the letter?").unwrap();
+    assert_eq!(issues, &[Issue::NeverClosed]);
+
+    // In the first scene's inspector: the threads, with what the scene does to them.
+    harness.state_mut().show_inspector = true;
+    harness.state_mut().select(scenes[0].clone());
+    harness.run_steps(3);
+    harness.get_by_label("Opens: Who sank the ferry?").click();
+    harness.run_steps(2);
+    harness.get_by_label("Closes here").click();
+    harness.run_steps(3);
+    let project = harness.state().project.as_ref().unwrap();
+    assert_eq!(project.node(&scenes[0]).unwrap().meta.threads.get(&ferry), Some(&ThreadMark::Closes));
+}

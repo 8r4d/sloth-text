@@ -19,6 +19,8 @@ pub(super) enum FolderView {
     Outline,
     /// The folder's documents as one text (see slothenings_ui.rs).
     Slothenings,
+    /// Who and what is in each of its scenes (see tracker_ui.rs).
+    Tracker,
 }
 
 /// Which view each folder was last shown in, for this session.
@@ -81,15 +83,20 @@ impl WriterApp {
             ui.selectable_value(&mut chosen, FolderView::Slothenings, "Slothenings").on_hover_text(sloth_core::keys::shown("Its documents as one text (\u{2318}1)"));
             ui.selectable_value(&mut chosen, FolderView::Corkboard, "Corkboard").on_hover_text(sloth_core::keys::shown("\u{2318}2"));
             ui.selectable_value(&mut chosen, FolderView::Outline, "Outline").on_hover_text(sloth_core::keys::shown("\u{2318}3"));
+            ui.selectable_value(&mut chosen, FolderView::Tracker, "Tracker").on_hover_text(sloth_core::keys::shown("Who and what is in each scene, and the story's threads (\u{2318}4)"));
             if chosen != mode {
                 self.folder_views.insert(folder.to_owned(), chosen);
             }
-            // Only what has a keyword (not for Slothenings, a single text).
-            if mode != FolderView::Slothenings {
+            // Only what has a keyword (not for Slothenings, a single text, or the Tracker).
+            if !matches!(mode, FolderView::Slothenings | FolderView::Tracker) {
                 self.keyword_filter(ui, folder);
             }
         });
         ui.add_space(8.0);
+        if mode == FolderView::Tracker {
+            self.tracker_view(ui, folder);
+            return;
+        }
 
         let keyword = self.folder_keywords.get(folder).cloned().filter(|_| mode != FolderView::Slothenings);
         let items = match &keyword {
@@ -714,7 +721,7 @@ fn parent_of(nodes: &[Node], id: &str) -> Option<String> {
 }
 
 impl WriterApp {
-    /// ⌘1–3: show a folder (the selected one, or the one the selected
+    /// ⌘1–4: show a folder (the selected one, or the one the selected
     /// document is in) this way. Into Slothenings from a document, the
     /// cursor stays where it was.
     pub(super) fn show_folder_as(&mut self, ctx: &egui::Context, view: FolderView) {

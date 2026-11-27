@@ -43,6 +43,8 @@ mod get_project_ui;
 mod goal_ui;
 #[path = "guide_ui.rs"]
 mod guide_ui;
+#[path = "tracker_ui.rs"]
+mod tracker_ui;
 #[path = "inspector.rs"]
 pub(crate) mod inspector;
 #[path = "project_settings_ui.rs"]
@@ -276,6 +278,10 @@ pub struct WriterApp {
     /// Build a Plot, a Character or an Essay: the walks under way (see
     /// guide_ui.rs), at most one of them shown.
     walks: Vec<guide_ui::Walk>,
+    /// The Tracker's grid, as last worked out (see tracker_ui.rs).
+    tracker: Option<tracker_ui::Grid>,
+    /// The kind of profile the Tracker shows, as last chosen.
+    tracker_kind: Option<String>,
     about_icon: Option<egui::TextureHandle>,
     /// The text filtering the Settings window's font list.
     font_filter: String,
@@ -326,6 +332,8 @@ impl WriterApp {
             glossary_terms_in: None,
             glossary_marks: Default::default(),
             walks: Vec::new(),
+            tracker: None,
+            tracker_kind: None,
             about_icon: None,
             font_filter: String::new(),
             // Tests never touch the real Keychain.
@@ -1068,6 +1076,7 @@ impl WriterApp {
             BinderAction::AddProfileFolder(None) => self.new_profile_folder = Some((String::new(), String::new())),
             BinderAction::OpenInSplit(id) => self.open_in_split(id),
             BinderAction::BuildPlot => self.start_plot(),
+            BinderAction::Track(kind) => self.track(&kind),
             BinderAction::BuildCharacter(profile) => self.start_character(profile),
             BinderAction::BuildEssay(near) => self.start_essay(Some(near)),
             BinderAction::BreakUp(id) => self.start_break_up(&id),
@@ -1256,9 +1265,15 @@ impl WriterApp {
         if self.focus_mode && !esc_taken && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             self.set_focus_mode(ctx, false);
         }
-        // ⌘1, ⌘2, ⌘3: a folder as Slothenings, corkboard or outline. With
-        // a document selected, the folder it's in.
-        for (key, view) in [(Key::Num1, views::FolderView::Slothenings), (Key::Num2, views::FolderView::Corkboard), (Key::Num3, views::FolderView::Outline)] {
+        // ⌘1–⌘4: a folder as Slothenings, corkboard, outline or the
+        // Tracker. With a document selected, the folder it's in.
+        let shown = [
+            (Key::Num1, views::FolderView::Slothenings),
+            (Key::Num2, views::FolderView::Corkboard),
+            (Key::Num3, views::FolderView::Outline),
+            (Key::Num4, views::FolderView::Tracker),
+        ];
+        for (key, view) in shown {
             if self.project.is_some() && pressed(ctx, Modifiers::COMMAND, key) {
                 self.show_folder_as(ctx, view);
             }

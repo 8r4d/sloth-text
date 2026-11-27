@@ -27,6 +27,8 @@ pub enum BinderAction {
     RemoveProfileFolder(String),
     /// Build a Plot…: a story structure's beats as a document in Notes.
     BuildPlot,
+    /// Track in the Manuscript: the Tracker, showing this profile kind.
+    Track(String),
     /// Build a Character…: this profile's, or (`None`) a new one's.
     BuildCharacter(Option<String>),
     /// Build an Essay…: a new essay beside (or in) this item.
@@ -240,6 +242,11 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
                 }
             });
             if matches!(node.role, Some(Role::Profile | Role::Characters)) {
+                let hint = "The Manuscript's Tracker: which scenes each one is in, and how long they're away (threads: where they open and close)";
+                if ui.button("Track in the Manuscript").on_hover_text(hint).clicked() {
+                    actions.push(BinderAction::Track(node.id.clone()));
+                    ui.close();
+                }
                 let empty = node.children.is_empty();
                 if ui.add_enabled(empty, egui::Button::new("Remove Folder")).on_disabled_hover_text("Only an empty folder can be removed").clicked() {
                     actions.push(BinderAction::RemoveProfileFolder(node.id.clone()));

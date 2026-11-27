@@ -62,6 +62,7 @@ const TIPS: &[&str] = &[
     "Write notes to yourself <!-- like this -->: they're left out of word counts and the compiled book.",
     "A line with only # on it is a scene break.",
     "Build a Plot\u{2026} (in More, or Notes' right-click menu) walks through a story structure, from Story Circle to Save the Cat!, a beat at a time: your answers become a document in Notes with a heading per beat, ready for Break Up when it's time to draft.",
+    "The Tracker (\u{2318}4, beside Corkboard and Outline) is a grid of who's in which scene, and how long anyone's away. Pick Threads above it, after making a Threads folder, to see where each of the story's questions opens and closes.",
     "Build a Character\u{2026} (right-click Characters, or a character) asks about a character a question at a time, from a quick sketch to a full arc, and puts the answers in their profile. Build an Essay\u{2026} (More, or right-click in the Manuscript) walks an essay's shape, from Argument to Personal Essay, into a draft with its synopsis, target and tags.",
     "Select a word, right-click, Add to Glossary\u{2026}: the project's glossary is one document of # terms and their definitions, kept A to Z, and can go at the end of a compiled book.",
     "Keep PDFs and pictures in the project to look at as you write: Add File\u{2026} in the binder's right-click menu, or drop them on the window.",

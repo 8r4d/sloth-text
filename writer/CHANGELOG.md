@@ -2,6 +2,21 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.16.0
+
+The Tracker: who's in which scene, and the story's threads.
+
+- A fourth way to see a folder, beside Slothenings, Corkboard and Outline: the Tracker (⌘4). A row for each character, a column for each scene in order under its chapter, and a mark where they're in it. Or pick Locations, Objects, Threads or any other kind of profile from the menu above it.
+- A filled dot: in the scene's In This Scene. A half-filled dot: named in the text but not in In This Scene, a hint that you may have forgotten to add them, or that they're only talked about. The Tracker never adds anyone by itself.
+- Names are found as whole words: the full name, and each part of it four letters or longer (Mara and Tellin from Mara Tellin), with capitals as written. Character profiles have a new section, Also known as, for other names, separated by commas: a nickname, or "the ferryman", which is found however it's capitalised. New projects have it; in an existing one, add it in Project Settings → Profiles → Characters → Edit…, or with Edit Characteristics… on a character.
+- Beside each name: how many scenes they're in, and their longest time away (how many scenes, how many words, and after which scene), shaded on the row.
+- Hover a mark to see the scene, its synopsis and its words; click to open the scene; ⌥-click any square to put them in that scene's In This Scene, or take them out. Click a name to open the profile.
+- Threads, a new kind of profile folder (New Profile Folder → Threads): one for each question the story opens. In a scene's inspector, a thread under In This Scene is a menu: the scene opens it, moves it along, or closes it. In the Tracker, an open circle where it opens, a dot where it moves, a diamond where it closes.
+- The Tracker says when a thread needs a look: never closed, closed before it opens, no scene that opens it, quiet for eight scenes or more while open (shaded), or closing before a thread that opened inside it (threads usually close in the reverse of the order they opened).
+- Track in the Manuscript, in a profile folder's right-click menu, opens the Manuscript's Tracker on that kind.
+
+If you sync a project between computers, update Writer on each of them, so an older one doesn't drop the threads' marks.
+
 ## 2.15.0
 
 Build a Character and Build an Essay, walked through like Build a Plot.

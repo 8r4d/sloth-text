@@ -25,6 +25,7 @@ mod keychain;
 mod lock;
 mod merge;
 mod places;
+mod presence;
 mod plot;
 mod project;
 mod references;

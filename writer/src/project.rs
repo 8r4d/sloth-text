@@ -132,6 +132,10 @@ pub struct Meta {
     /// "locations"…), each a list of binder ids.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub links: BTreeMap<String, Vec<String>>,
+    /// The threads this scene opens or closes, by the thread's binder id.
+    /// A thread in the scene's links with no mark here moves along.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub threads: BTreeMap<String, ThreadMark>,
     /// A web address for it: where it's published, say. (Not `links`,
     /// which are to other documents.)
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -145,6 +149,14 @@ impl Meta {
     fn is_empty(&self) -> bool {
         *self == Meta::default()
     }
+}
+
+/// What a scene does to a thread it's in, beyond moving it along.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThreadMark {
+    Opens,
+    Closes,
 }
 
 /// A label: a name and a colour (an index into the app's label palette).
@@ -165,7 +177,7 @@ const STATUSES_BEFORE_ONGOING: [&str; 4] = ["To do", "First draft", "Revised", "
 /// Characteristics a character profile can have sections for; a project
 /// starts with these and can change them.
 pub fn default_characteristics() -> Vec<String> {
-    ["Physical appearance", "Personality", "Motivations", "Backstory", "Voice", "Relationships", "Arc"]
+    ["Also known as", "Physical appearance", "Personality", "Motivations", "Backstory", "Voice", "Relationships", "Arc"]
         .map(String::from)
         .to_vec()
 }
@@ -184,6 +196,9 @@ pub struct ProfileKind {
 }
 
 pub const CHARACTERS: &str = "characters";
+/// The profile kind for story threads: questions a scene opens, moves
+/// along and closes (see presence.rs).
+pub const THREADS: &str = "threads";
 
 fn kind(id: &str, name: &str, item: &str, sections: &[&str]) -> ProfileKind {
     ProfileKind { id: id.into(), name: name.into(), item: item.into(), sections: sections.iter().map(|s| s.to_string()).collect() }
@@ -264,6 +279,7 @@ fn fiction_presets() -> Vec<ProfileKind> {
         kind("factions", "Factions", "Faction", &["Members", "Goals", "Rivalries", "History"]),
         kind("worldbuilding", "Worldbuilding", "Entry", &["Rules", "History", "Limits", "Examples"]),
         kind("themes", "Themes", "Theme", &["What it means", "Where it appears", "How it changes"]),
+        kind(THREADS, "Threads", "Thread", &["The question", "Kind", "How it closes", "Notes"]),
     ]
 }
 
@@ -2025,6 +2041,7 @@ mod tests {
             notes: "Check the tide tables.".into(),
             characters: Vec::new(),
             links: [("characters".to_owned(), vec!["c0ffee".to_owned()])].into(),
+            threads: [("beef".to_owned(), ThreadMark::Closes)].into(),
             url: "https://example.com/the-harbour".into(),
             on_ipad: true,
         };
