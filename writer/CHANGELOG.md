@@ -2,6 +2,29 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.19.0
+
+Grammar, checked on this computer by Harper (no AI, nothing sent anywhere).
+
+- Grammar is the first kind in the Style window, and on with the rest when you mark style (⌥⌘Y): "should of", "their was", "its" for "it's", "buyed", a doubled "the the" and the like are marked in green. Hover one for what's wrong.
+- Right-click a marked word for Harper's fix ("should have", "There"); choosing one changes the text, and ⌘Z undoes it. Ignore Suggestions Like This stops looking for that kind of thing, in every project; Bring Back, in the Style window, starts again.
+- Choose your English in the Style window: Canadian (the first time), American, British, Australian or Indian.
+- Spelling is still the Mac's spell checker: Harper's own spelling check is off, so words aren't marked twice. Notes, comments, references, headings and scene breaks aren't checked.
+- Checked a paragraph at a time and remembered, so as you type only the paragraph you're in is checked again. Its dictionary loads in the background the first time it's needed; the Style window says "loading…" meanwhile.
+- Writer is about 11 MB bigger for it.
+- Help → Acknowledgements: who made Writer, and the open-source libraries, fonts and word lists it's built on, each with its licence and a link.
+
+## 2.18.0
+
+Style: what's worth a second look, found on this computer by word lists and rules (no AI).
+
+- Style… (More) and ⌥⌘Y. Switched on, the open document underlines clichés, wordy phrases (with the shorter way: "in order to" → "to"), redundancies ("nodded his head"), hedges ("sort of", "I think"), runs of sentences starting with the same word, and tense slips. Long sentences, over 30 words, are shaded. Hover a mark to see what it is and why. "Style shown" in the status bar says it's on; click it to hide them.
+- The tense check finds sentences in present tense where most of the text is past, or the other way. It only speaks up when the text mostly keeps to one, and leaves dialogue alone, as all the checks do (people talk in clichés).
+- Passive voice, adverbs and dialogue tags (hissed, exclaimed, said softly) are there too, off at first: they're the noisiest. Choose what to look for in the Style window.
+- The Style window, for the selected document or folder: its sentences (how many, the average, the longest), its reading level (Flesch–Kincaid grade, from 100 words), its tense, a bar for each sentence's length in order to see its rhythm (click one to go to that sentence), and how many of each kind it found.
+- They're hints, not mistakes. Some long sentences earn it, and so do some clichés.
+- Marks are easier to spot while scanning a page: each style mark has a light wash of its colour behind it as well as a line, and every underline in the text (the watch list's too) is thicker.
+
 ## 2.17.0
 
 Plan in the Tracker: notes in its squares, and scenes before they're written.

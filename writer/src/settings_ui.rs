@@ -92,6 +92,14 @@ pub struct WriterSettings {
     pub show_repetition: bool,
     /// Words and phrases to underline when they come up, commas between.
     pub watch_words: String,
+    /// Mark style findings in the open document (⌥⌘Y; see style.rs).
+    pub show_style: bool,
+    /// The kinds of style finding switched off, by id.
+    pub style_off: Vec<String>,
+    /// The English grammar is checked as (see grammar.rs).
+    pub grammar_dialect: String,
+    /// Grammar rules ignored (Ignore Suggestions Like This), by Harper's name.
+    pub grammar_ignored: Vec<String>,
     /// Your own common words, commas between: left out of the most used,
     /// and never echoes (as the built-in common words aren't).
     pub common_words: String,
@@ -138,6 +146,10 @@ impl Default for WriterSettings {
             focus_paragraph: true,
             show_repetition: false,
             watch_words: crate::repetition::default_watch_list().join(", "),
+            show_style: false,
+            grammar_dialect: crate::grammar::DIALECTS[0].to_owned(),
+            grammar_ignored: Vec::new(),
+            style_off: crate::style::Category::ALL.into_iter().filter(|c| !c.on_at_first()).map(|c| c.id().to_owned()).collect(),
             common_words: String::new(),
             start_view: StartView::Tiles,
             show_fact: true,

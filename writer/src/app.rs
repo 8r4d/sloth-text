@@ -47,6 +47,8 @@ mod guide_ui;
 mod tracker_ui;
 #[path = "bookends_ui.rs"]
 mod bookends_ui;
+#[path = "style_ui.rs"]
+mod style_ui;
 #[path = "inspector.rs"]
 pub(crate) mod inspector;
 #[path = "project_settings_ui.rs"]
@@ -291,6 +293,9 @@ pub struct WriterApp {
     /// The Bookends window: open, and what it last read.
     show_bookends: bool,
     bookends: Option<bookends_ui::Bookends>,
+    /// Style findings in the open document, and the Style window's figures.
+    style: style_ui::StyleCache,
+    show_style_window: bool,
     about_icon: Option<egui::TextureHandle>,
     /// The text filtering the Settings window's font list.
     font_filter: String,
@@ -347,6 +352,8 @@ impl WriterApp {
             tracker_edit: None,
             show_bookends: false,
             bookends: None,
+            style: Default::default(),
+            show_style_window: false,
             about_icon: None,
             font_filter: String::new(),
             // Tests never touch the real Keychain.
@@ -1311,6 +1318,9 @@ impl WriterApp {
         if self.project.is_some() && pressed(ctx, keys::OPT_CMD, Key::R) {
             self.toggle_repetition();
         }
+        if self.project.is_some() && pressed(ctx, keys::OPT_CMD, Key::Y) {
+            self.toggle_style();
+        }
         if self.project.is_some() && pressed(ctx, keys::OPT_CMD, Key::C) {
             self.toggle_canvas();
         }
@@ -1531,6 +1541,10 @@ impl WriterApp {
                 self.start_plot();
                 ui.close();
             }
+            if ui.button("Style\u{2026}").on_hover_text("Clich\u{e9}s, wordy phrases, long sentences, tense slips and more in what's selected, with its reading level and the rhythm of its sentences").clicked() {
+                self.show_style_window = true;
+                ui.close();
+            }
             if ui.button("Bookends").on_hover_text("The first and last paragraphs of what's selected, side by side: does the ending answer the opening?").clicked() {
                 self.show_bookends = true;
                 ui.close();
@@ -1650,6 +1664,13 @@ impl WriterApp {
                 self.goal_ring(ui, &today, written, goal);
                 ui.separator();
                 self.sprint_button(ui);
+                if self.settings.show_style {
+                    ui.separator();
+                    let chip = egui::Button::new(egui::RichText::new("Style shown").small()).frame(false);
+                    if ui.add(chip).on_hover_text(sloth_core::keys::shown("Clich\u{e9}s, wordy phrases, tense slips and more are underlined; hover one to see why. Click (or \u{2325}\u{2318}Y) to hide them. More \u{2192} Style\u{2026} chooses what to look for.")).clicked() {
+                        self.toggle_style();
+                    }
+                }
                 if self.settings.show_repetition {
                     ui.separator();
                     let chip = egui::Button::new(egui::RichText::new("Repeats shown").small()).frame(false);
@@ -1710,9 +1731,12 @@ impl WriterApp {
             marks.extend(terms);
             marks.sort_by_key(|m| m.range.start);
         }
+        let visuals = ui.visuals().clone();
+        let marks = self.with_style_marks(marks, &ui.ctx().clone(), &visuals);
+        let fixes = self.style_fixes();
         // Where each comment is, for its card in the margin.
         let anchors: Vec<usize> = self.current().map(|t| sloth_core::markdown::comments(&t.doc.text).iter().map(|c| c.passage.as_ref().map_or(c.words.start, |p| p.start)).collect()).unwrap_or_default();
-        let highlights = Highlights { all: &matches, current: self.find.current.clone(), marks: &marks, anchors: &anchors };
+        let highlights = Highlights { all: &matches, current: self.find.current.clone(), marks: &marks, anchors: &anchors, fixes: &fixes };
         let reveal = self.reveal.take();
         let mut split = None;
         egui::CentralPanel::default()
@@ -1754,6 +1778,10 @@ impl WriterApp {
                         };
                         split = info.split_at;
                         self.glossary_tooltip(ui, &info);
+                        self.style_tooltip(ui, &info);
+                        if let Some(rule) = info.ignore_fix.clone() {
+                            self.ignore_grammar_rule(rule);
+                        }
                         let Some(tab) = self.current() else { return };
                         let (hovered, clicked) = references_ui::reported(&tab.doc.text, &info);
                         self.reference_events(ui, hovered, clicked);
@@ -2014,6 +2042,7 @@ impl eframe::App for WriterApp {
         self.glossary_window(&ctx);
         self.walk_window(&ctx);
         self.bookends_window(&ctx);
+        self.style_window(&ctx);
         self.compare_window(&ctx);
         self.rename_project_window(&ctx);
         self.sections_window(&ctx);

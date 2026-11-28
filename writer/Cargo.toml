@@ -1,6 +1,6 @@
 [package]
 name = "sloth-writer"
-version = "2.17.0"
+version = "2.19.0"
 edition = "2024"
 description = "Sloth Writer: a long-form writing app built on sloth-core"
 
@@ -27,6 +27,9 @@ rustybuzz = "0.20.1"
 # Research files: pictures (image) and PDFs (hayro) shown in Writer.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
 hayro = "0.9.0"
+# Grammar checks (see grammar.rs): Harper, offline. "concurrent" so its
+# dictionary can load on a background thread.
+harper-core = { version = "3.2.0", default-features = false, features = ["concurrent"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Same major version eframe uses; needed to turn off winit's default menu.

@@ -139,6 +139,23 @@ pub struct Highlights<'a> {
     /// `CursorInfo::anchor_tops` (Sloth Writer's comments, beside their
     /// passages).
     pub anchors: &'a [usize],
+    /// Suggested changes for parts of the text (Sloth Writer's grammar
+    /// checks), offered first in the right-click menu over them.
+    pub fixes: &'a [Fix],
+}
+
+/// A suggested change to part of the text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fix {
+    /// Bytes in the text.
+    pub range: Range<usize>,
+    /// What's wrong, in a sentence.
+    pub message: String,
+    /// The text to put in its place, for each choice ("" removes it).
+    pub options: Vec<String>,
+    /// Handed back in `CursorInfo::ignore_fix` if the person chooses to
+    /// ignore suggestions like this.
+    pub key: String,
 }
 
 /// A mark over part of the text: a tint behind it, a line under it, or both
@@ -176,6 +193,8 @@ pub struct CursorInfo {
     /// The byte in the text under the pointer, if it's over a word (not
     /// past a line's end): for the app to explain what's there.
     pub hovered_byte: Option<usize>,
+    /// Ignore Suggestions Like This, in the right-click menu: the fix's key.
+    pub ignore_fix: Option<String>,
     /// Where the cursor is on screen, if the editor has one (for a popup
     /// beside it, such as the app's suggestions).
     pub cursor_rect: Option<Rect>,
@@ -481,8 +500,9 @@ fn paint_mark_lines(ui: &egui::Ui, output: &egui::text_edit::TextEditOutput, tex
         else {
             continue;
         };
-        let y = baseline + 2.5;
-        painter.hline(a.left()..=right, y, Stroke::new(1.5, mark.underline));
+        // Thick enough to spot while scanning a page.
+        let y = baseline + 3.0;
+        painter.hline(a.left()..=right, y, Stroke::new(2.5, mark.underline));
     }
 }
 
@@ -548,6 +568,9 @@ enum MenuChoice {
     Learn(String),
     Ignore(String),
     Case(editing::Case),
+    /// A fix's choice: the fix, the words it was on, and what replaces them.
+    Fix(Fix, String, String),
+    IgnoreFix(String),
     RemoveBlankLines,
     Split,
     Comment,
@@ -563,16 +586,25 @@ enum MenuChoice {
 struct MenuAsks {
     split_at: Option<usize>,
     glossary: Option<String>,
+    ignore_fix: Option<String>,
 }
 
-fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut String, settings: &EditorSettings) -> MenuAsks {
+fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut String, settings: &EditorSettings, fixes: &[Fix]) -> MenuAsks {
     let response = &output.response;
     // Clicking the menu takes focus from the text, which drops its
     // selection, so remember the selection the menu was opened on, and
     // the misspelled word that was clicked.
     let opened_on = editor_id(tab).with("format-menu-selection");
     let clicked_word = editor_id(tab).with("menu-misspelling");
+    let clicked_fix = editor_id(tab).with("menu-fix");
     if response.secondary_clicked() {
+        // A suggested fix under the pointer, with the words it's on.
+        let fix = response.interact_pointer_pos().and_then(|pos| {
+            let at = byte_at(output, text, pos)?;
+            let fix = fixes.iter().find(|f| f.range.start <= at && at < f.range.end && f.range.end <= text.len())?;
+            Some((fix.clone(), text[fix.range.clone()].to_owned()))
+        });
+        response.ctx.data_mut(|d| d.insert_temp(clicked_fix, fix));
         let picked = selection(&response.ctx, tab).unwrap_or(0..0);
         let word = settings
             .spell_check
@@ -588,6 +620,20 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
     response.context_menu(|ui| {
         let mut picked = None;
         let word: Option<Misspelling> = ui.ctx().data(|d| d.get_temp(clicked_word)).flatten();
+        let fix: Option<(Fix, String)> = ui.ctx().data(|d| d.get_temp(clicked_fix)).flatten();
+        if let Some((fix, was)) = &fix {
+            ui.add(egui::Label::new(egui::RichText::new(&fix.message).small().weak()).wrap());
+            for option in &fix.options {
+                let label = if option.is_empty() { format!("Remove \u{201c}{was}\u{201d}") } else { option.clone() };
+                if ui.button(egui::RichText::new(label).strong()).clicked() {
+                    picked = Some(MenuChoice::Fix(fix.clone(), was.clone(), option.clone()));
+                }
+            }
+            if ui.button("Ignore Suggestions Like This").on_hover_text("Stop checking for this, in every project (Style can bring them back)").clicked() {
+                picked = Some(MenuChoice::IgnoreFix(fix.key.clone()));
+            }
+            ui.separator();
+        }
         if let Some(word) = &word {
             if word.guesses.is_empty() {
                 ui.add_enabled(false, egui::Button::new("No Guesses Found"));
@@ -678,6 +724,15 @@ fn text_menu(output: &egui::text_edit::TextEditOutput, tab: TabId, text: &mut St
                         apply_edit(ctx, tab, text, |t, _| editing::replace(t, chars, &guess));
                     }
                 }
+                MenuChoice::Fix(fix, was, with) => {
+                    // Only if the words are still there (nothing changed meanwhile).
+                    if text.get(fix.range.clone()) == Some(was.as_str()) {
+                        let start = text[..fix.range.start].chars().count();
+                        let chars = start..start + was.chars().count();
+                        apply_edit(ctx, tab, text, |t, _| editing::replace(t, chars, &with));
+                    }
+                }
+                MenuChoice::IgnoreFix(key) => asks.ignore_fix = Some(key),
                 MenuChoice::Learn(word) => spell::learn(&word),
                 MenuChoice::Ignore(word) => spell::ignore(&word),
                 MenuChoice::Case(case) => {
@@ -821,6 +876,7 @@ pub fn show(
 
                 // For the lines under marks, drawn after the text.
                 let mark_lines = highlights.marks;
+                let fixes = highlights.fixes;
                 let edit = TextEdit::multiline(text)
                     .id(editor_id(tab))
                     .font(font.clone())
@@ -904,9 +960,10 @@ pub fn show(
                     paint_misspellings(ui, &output, text, &misspellings(text, cursor));
                 }
                 if menu {
-                    let asks = text_menu(&output, tab, text, settings);
+                    let asks = text_menu(&output, tab, text, settings, fixes);
                     info.split_at = asks.split_at;
                     info.add_to_glossary = asks.glossary;
+                    info.ignore_fix = asks.ignore_fix;
                 }
                 if let Some(pos) = output.response.hover_pos() {
                     info.hovered_byte = byte_at(&output, text, pos);

@@ -8,3 +8,14 @@ resolver = "3"
 [profile.release]
 lto = true
 strip = true
+
+# Harper (Writer's grammar checks) is slow unoptimised: build it optimised
+# in dev and test builds too, so checking keeps up with typing.
+[profile.dev.package.harper-core]
+opt-level = 3
+[profile.dev.package.harper-brill]
+opt-level = 3
+[profile.dev.package.harper-pos-utils]
+opt-level = 3
+[profile.dev.package.fst]
+opt-level = 3

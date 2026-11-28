@@ -4023,3 +4023,134 @@ fn a_projects_kind_hides_tools_it_doesnt_need() {
     harness.run_steps(3);
     harness.get_by_label("Web address");
 }
+
+// ----- style -----------------------------------------------------------------------
+
+#[test]
+fn style_marks_what_to_look_at_and_reports_it() {
+    use crate::style::Category;
+    let dir = TempDir::new("style");
+    let text = "In order to leave, she walked to the quay. He waited there. They talked for an hour. It rained. She left at noon. He stayed. She walks home now.";
+    let mut harness = harness(project(&dir, text));
+    // (Grammar has its own test: Harper loads in the background.)
+    harness.state_mut().settings.style_off.push("grammar".into());
+    harness.run_steps(3);
+    let visuals = egui::Visuals::dark();
+    let ctx = harness.ctx.clone();
+    // Off: no marks.
+    assert!(harness.state_mut().with_style_marks(Vec::new(), &ctx, &visuals).is_empty());
+    // ⌥⌘Y: the wordy phrase and the tense slip underlined.
+    harness.key_press_modifiers(sloth_core::keys::OPT_CMD, egui::Key::Y);
+    harness.run_steps(2);
+    assert!(harness.state().settings.show_style);
+    let marks = harness.state_mut().with_style_marks(Vec::new(), &ctx, &visuals);
+    let marked: Vec<&str> = marks.iter().map(|m| &text[m.range.clone()]).collect();
+    assert_eq!(marked, ["In order to", "walks"]);
+    harness.get_by_label("Style shown");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/style-marks.png")).unwrap();
+    }
+
+    // The window: figures, and the kinds to look for, with counts.
+    harness.state_mut().show_style_window = true;
+    harness.run_steps(3);
+    harness.get_by_label("Tense");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/style.png")).unwrap();
+    }
+    // Wordy phrases off: no longer marked.
+    harness.get_by_label(Category::Wordy.name()).click();
+    harness.run_steps(3);
+    assert!(harness.state().settings.style_off.iter().any(|o| o == "wordy"));
+    let marks = harness.state_mut().with_style_marks(Vec::new(), &ctx, &visuals);
+    assert_eq!(marks.len(), 1);
+}
+
+#[test]
+fn a_long_sentence_is_shaded_around_other_marks() {
+    let dir = TempDir::new("style-long");
+    let text = format!("{} in order to {}.", ["word"; 20].join(" "), ["more"; 12].join(" "));
+    let mut harness = harness(project(&dir, &text));
+    harness.state_mut().settings.show_style = true;
+    harness.state_mut().settings.style_off.push("grammar".into());
+    let ctx = harness.ctx.clone();
+    harness.run_steps(2);
+    let marks = harness.state_mut().with_style_marks(Vec::new(), &ctx, &egui::Visuals::dark());
+    // Three pieces: shaded, the wordy phrase (shaded and underlined), shaded.
+    assert_eq!(marks.len(), 3, "{marks:?}");
+    assert_eq!(&text[marks[1].range.clone()], "in order to");
+    assert!(marks.iter().all(|m| m.background != egui::Color32::TRANSPARENT));
+    assert!(marks.windows(2).all(|w| w[0].range.end <= w[1].range.start), "no overlaps");
+}
+
+#[test]
+fn grammar_marks_and_fixes_with_harper() {
+    let dir = TempDir::new("grammar");
+    let text = "Their was no ferry. She should of known better.";
+    let mut harness = harness(project(&dir, text));
+    harness.state_mut().settings.show_style = true;
+    // Harper loads on a thread: wait for it, and for every paragraph.
+    let ctx = harness.ctx.clone();
+    let visuals = egui::Visuals::dark();
+    let mut marks = Vec::new();
+    for _ in 0..500 {
+        harness.run_steps(1);
+        marks = harness.state_mut().with_style_marks(Vec::new(), &ctx, &visuals);
+        if marks.len() >= 2 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let marked: Vec<&str> = marks.iter().map(|m| &text[m.range.clone()]).collect();
+    assert_eq!(marked, ["Their", "should of"]);
+    let fixes = harness.state().style_fixes();
+    assert!(fixes[1].options.contains(&"should have".to_owned()), "{fixes:?}");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/grammar.png")).unwrap();
+    }
+
+    // Right-click the first word: Harper's fixes first in the menu.
+    let rect = harness.get_by_label("Document text").rect();
+    let pos = rect.min + egui::vec2(14.0, 12.0);
+    harness.event(egui::Event::PointerMoved(pos));
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE });
+        harness.run_steps(1);
+    }
+    harness.run_steps(2);
+    harness.get_by_label("Ignore Suggestions Like This");
+    harness.get_by_label("There").click();
+    harness.run_steps(3);
+    assert_eq!(current_text(&mut harness).as_deref(), Some("There was no ferry. She should of known better."));
+
+    // Ignore Suggestions Like This (for "should of"): that rule's quiet from now on.
+    let rule = fixes[1].key.clone();
+    harness.state_mut().ignore_grammar_rule(rule.clone());
+    let mut marks = Vec::new();
+    for _ in 0..200 {
+        harness.run_steps(1);
+        marks = harness.state_mut().with_style_marks(Vec::new(), &ctx, &visuals);
+        if marks.is_empty() {
+            break;
+        }
+    }
+    assert!(marks.is_empty(), "{marks:?}");
+    assert_eq!(harness.state().settings.grammar_ignored, [rule]);
+}
+
+#[test]
+fn about_credits_its_maker_and_the_work_it_stands_on() {
+    let dir = TempDir::new("acknowledgements");
+    let mut harness = harness(project(&dir, "Text."));
+    harness.state_mut().help = Some(super::about_ui::HelpPage::About);
+    harness.run_steps(3);
+    harness.get_by_label("Made by Brad Salomons.");
+    harness.get_by_label("Acknowledgements").click();
+    harness.run_steps(3);
+    harness.get_by_label("Sloth Writer is made by Brad Salomons.");
+    harness.get_by_label("Harper");
+    harness.get_by_label("Lucide");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/acknowledgements.png")).unwrap();
+    }
+}

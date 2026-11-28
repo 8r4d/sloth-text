@@ -13,7 +13,50 @@ pub(crate) enum HelpPage {
     About,
     Shortcuts,
     ReleaseNotes,
+    Acknowledgements,
 }
+
+/// Who made it.
+const AUTHOR: &str = "Brad Salomons";
+
+/// The open-source work Writer is built on: name, what it does here, its
+/// licence, and where it lives. (Keep in step with Cargo.toml.)
+const LIBRARIES: &[(&str, &str, &str, &str)] = &[
+    ("egui and eframe", "the whole interface", "MIT or Apache-2.0", "https://github.com/emilk/egui"),
+    ("winit", "windows on every platform", "Apache-2.0", "https://github.com/rust-windowing/winit"),
+    ("Harper", "grammar checks", "Apache-2.0", "https://github.com/automattic/harper"),
+    ("fst", "Harper's dictionary", "Unlicense or MIT", "https://github.com/BurntSushi/fst"),
+    ("spellbook", "spelling, from Hunspell dictionaries", "MPL-2.0", "https://github.com/helix-editor/spellbook"),
+    ("pulldown-cmark", "reading Markdown", "MIT", "https://github.com/raphlinus/pulldown-cmark"),
+    ("krilla", "compiling to PDF", "MIT or Apache-2.0", "https://github.com/LaurenzV/krilla"),
+    ("rustybuzz", "shaping text for PDFs", "MIT", "https://github.com/harfbuzz/rustybuzz"),
+    ("docx-rs", "compiling to Word", "MIT", "https://github.com/bokuweb/docx-rs"),
+    ("hayro", "showing PDFs in research", "Apache-2.0 or MIT", "https://github.com/LaurenzV/hayro"),
+    ("image", "showing pictures in research", "MIT or Apache-2.0", "https://github.com/image-rs/image"),
+    ("fontique and read-fonts", "finding and reading your fonts", "Apache-2.0 or MIT", "https://github.com/linebender/parley"),
+    ("syntect", "colouring code", "MIT", "https://github.com/trishume/syntect"),
+    ("similar", "comparing snapshots", "Apache-2.0", "https://github.com/mitsuhiko/similar"),
+    ("roxmltree", "importing from Scrivener", "MIT or Apache-2.0", "https://github.com/RazrFalcon/roxmltree"),
+    ("encoding_rs and chardetng", "opening text in any encoding", "Apache-2.0 or MIT, and BSD-3-Clause", "https://github.com/hsivonen/encoding_rs"),
+    ("zip", "backups", "MIT", "https://github.com/zip-rs/zip2"),
+    ("ureq", "syncing with the web helper", "MIT or Apache-2.0", "https://github.com/algesten/ureq"),
+    ("serde, serde_json and ron", "saving projects and settings", "MIT or Apache-2.0", "https://github.com/serde-rs/serde"),
+    ("chrono", "dates", "MIT or Apache-2.0", "https://github.com/chronotope/chrono"),
+    ("regex", "finding and replacing", "MIT or Apache-2.0", "https://github.com/rust-lang/regex"),
+    ("rfd", "open and save dialogs", "MIT", "https://github.com/PolyMeilex/rfd"),
+    ("arboard", "the clipboard", "MIT or Apache-2.0", "https://github.com/1Password/arboard"),
+    ("opener", "opening links and files", "MIT or Apache-2.0", "https://github.com/Seeker14491/opener"),
+    ("trash", "moving files to the Trash", "MIT", "https://github.com/ArturKovacs/trash"),
+    ("keyring", "keeping the helper's key safe on Windows", "MIT or Apache-2.0", "https://github.com/hwchen/keyring-rs"),
+    ("objc2", "talking to macOS", "MIT", "https://github.com/madsmtm/objc2"),
+];
+
+/// Fonts and word lists that come with it.
+const MATERIALS: &[(&str, &str, &str, &str)] = &[
+    ("Lucide", "Writer's icons", "ISC", "https://lucide.dev"),
+    ("Ubuntu, Hack, Noto Emoji and Emoji Icon Font", "the interface's fonts, with egui", "Ubuntu Font Licence, MIT and OFL-1.1", "https://github.com/emilk/egui/tree/main/crates/epaint_default_fonts"),
+    ("SCOWL and Hunspell dictionaries", "English word lists for spelling, by Kevin Atkinson and others", "SCOWL licence", "http://wordlist.sourceforge.net"),
+];
 
 /// Every keyboard shortcut, by where it applies.
 const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
@@ -64,6 +107,8 @@ const TIPS: &[&str] = &[
     "Build a Plot\u{2026} (in More, or Notes' right-click menu) walks through a story structure, from Story Circle to Save the Cat!, a beat at a time: your answers become a document in Notes with a heading per beat, ready for Break Up when it's time to draft.",
     "The Tracker (\u{2318}4, beside Corkboard and Outline) is a grid of who's in which scene, and how long anyone's away. Pick Threads above it, after making a Threads folder, to see where each of the story's questions opens and closes.",
     "Plan in the Tracker: right-click a square to note what a character or thread does in that scene, and turn on Notes to read the grid as a plot outline. Right-click the marks over the columns to add scenes you haven't written yet, and a name to choose what its row warns about.",
+    "Style\u{2026} (in More, or \u{2325}\u{2318}Y to mark them) looks for clich\u{e9}s, wordy phrases, hedges, long sentences and slips out of your tense, on this computer, with no AI. Hover a marked word to see why.",
+    "Style marks grammar too (\u{2325}\u{2318}Y), checked on your computer by Harper: right-click a green mark for its fix, like \u{201c}should of\u{201d} \u{2192} \u{201c}should have\u{201d}.",
     "Writing a short story? Set the project's kind to Short Fiction and the status bar says whether it's flash, a short story or a novelette. Bookends, in More, puts its first and last paragraphs side by side.",
     "Build a Character\u{2026} (right-click Characters, or a character) asks about a character a question at a time, from a quick sketch to a full arc, and puts the answers in their profile. Build an Essay\u{2026} (More, or right-click in the Manuscript) walks an essay's shape, from Argument to Personal Essay, into a draft with its synopsis, target and tags.",
     "Select a word, right-click, Add to Glossary\u{2026}: the project's glossary is one document of # terms and their definitions, kept A to Z, and can go at the end of a compiled book.",
@@ -104,6 +149,7 @@ impl WriterApp {
                     ui.selectable_value(&mut page, HelpPage::About, "About");
                     ui.selectable_value(&mut page, HelpPage::Shortcuts, "Keyboard Shortcuts");
                     ui.selectable_value(&mut page, HelpPage::ReleaseNotes, "Release Notes");
+                    ui.selectable_value(&mut page, HelpPage::Acknowledgements, "Acknowledgements");
                 });
                 ui.separator();
                 let icon = self.about_icon.get_or_insert_with(|| icon_texture(ctx)).clone();
@@ -111,6 +157,7 @@ impl WriterApp {
                     HelpPage::About => about_page(ui, &icon),
                     HelpPage::Shortcuts => shortcuts_page(ui),
                     HelpPage::ReleaseNotes => release_notes_page(ui),
+                    HelpPage::Acknowledgements => acknowledgements_page(ui),
                 });
             });
         self.help = open.then_some(page);
@@ -136,7 +183,36 @@ fn about_page(ui: &mut egui::Ui, icon: &egui::TextureHandle) {
         ui.label("A writing app for long projects: novels, scripts and anything else with chapters.");
         ui.add_space(4.0);
         ui.weak("Your work is kept as plain Markdown files in an ordinary folder.");
+        ui.add_space(14.0);
+        ui.label(format!("Made by {AUTHOR}."));
+        ui.weak("Built on open-source work: see Acknowledgements.");
     });
+}
+
+/// Who made it, and the open-source work it stands on, with each one's
+/// licence and a link.
+fn acknowledgements_page(ui: &mut egui::Ui) {
+    // Clear of the scroll bar.
+    ui.set_max_width(ui.available_width() - 14.0);
+    ui.add_space(6.0);
+    ui.label(RichText::new(format!("Sloth Writer is made by {AUTHOR}.")).strong());
+    ui.add(egui::Label::new("It stands on the work of many people who share their code, fonts and word lists. Thank you.").wrap());
+    ui.add_space(10.0);
+    for (heading, list) in [("Libraries", LIBRARIES), ("Fonts and word lists", MATERIALS)] {
+        ui.strong(heading);
+        ui.add_space(2.0);
+        for (name, what, licence, url) in list {
+            ui.horizontal(|ui| {
+                ui.hyperlink_to(*name, *url).on_hover_text(*url);
+                ui.label(RichText::new(*what).small().weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(*licence).small());
+                });
+            });
+        }
+        ui.add_space(10.0);
+    }
+    ui.weak("Each is used under its licence; the full text comes with its source, at the link.");
 }
 
 fn shortcuts_page(ui: &mut egui::Ui) {

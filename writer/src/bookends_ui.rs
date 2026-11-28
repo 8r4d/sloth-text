@@ -18,7 +18,7 @@ pub(super) struct Bookends {
 
 impl WriterApp {
     /// What's selected, as one text: a document's, or a folder's documents in order.
-    fn story_text(&self, id: &str) -> Option<String> {
+    pub(super) fn story_text(&self, id: &str) -> Option<String> {
         let project = self.project.as_ref()?;
         let node = project.node(id)?;
         if node.is_file() {
