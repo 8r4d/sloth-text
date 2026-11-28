@@ -68,7 +68,7 @@ impl Item {
 /// What the person did in a view; applied once it's drawn.
 enum ViewAction {
     Open(String),
-    Meta(String, Meta),
+    Meta(String, Box<Meta>),
     Move { id: String, place: Place },
     /// Its web mark was clicked: open this address.
     OpenUrl(String),
@@ -77,13 +77,17 @@ enum ViewAction {
 impl WriterApp {
     /// Show the selected folder's items, with a switch between the views.
     pub(super) fn folder_view(&mut self, ui: &mut egui::Ui, folder: &str) {
-        let mode = self.folder_views.get(folder).copied().unwrap_or_default();
+        let tracker = self.shows_tracker();
+        // The Tracker, hidden (Project Settings, or the kind): the corkboard instead.
+        let mode = self.folder_views.get(folder).copied().filter(|m| tracker || *m != FolderView::Tracker).unwrap_or_default();
         ui.horizontal(|ui| {
             let mut chosen = mode;
             ui.selectable_value(&mut chosen, FolderView::Slothenings, "Slothenings").on_hover_text(sloth_core::keys::shown("Its documents as one text (\u{2318}1)"));
             ui.selectable_value(&mut chosen, FolderView::Corkboard, "Corkboard").on_hover_text(sloth_core::keys::shown("\u{2318}2"));
             ui.selectable_value(&mut chosen, FolderView::Outline, "Outline").on_hover_text(sloth_core::keys::shown("\u{2318}3"));
-            ui.selectable_value(&mut chosen, FolderView::Tracker, "Tracker").on_hover_text(sloth_core::keys::shown("Who and what is in each scene, and the story's threads (\u{2318}4)"));
+            if tracker {
+                ui.selectable_value(&mut chosen, FolderView::Tracker, "Tracker").on_hover_text(sloth_core::keys::shown("Who and what is in each scene, and the story's threads (\u{2318}4)"));
+            }
             if chosen != mode {
                 self.folder_views.insert(folder.to_owned(), chosen);
             }
@@ -139,7 +143,7 @@ impl WriterApp {
                 ViewAction::Open(id) => self.select(id),
                 ViewAction::Meta(id, meta) => {
                     if let Some(project) = self.project.as_mut()
-                        && project.set_meta(&id, meta)
+                        && project.set_meta(&id, *meta)
                     {
                         self.manifest_dirty = true;
                     }
@@ -416,7 +420,7 @@ fn card(
             })
             .inner;
         if field.changed() {
-            actions.push(ViewAction::Meta(item.id.clone(), Meta { synopsis, ..item.meta.clone() }));
+            actions.push(ViewAction::Meta(item.id.clone(), Box::new(Meta { synopsis, ..item.meta.clone() })));
         }
     }
     // Words along the bottom, and the status as a stamp in the corner.
@@ -590,7 +594,7 @@ fn outline(
         });
 
         if meta != item.meta {
-            actions.push(ViewAction::Meta(item.id.clone(), meta));
+            actions.push(ViewAction::Meta(item.id.clone(), Box::new(meta)));
         }
         if response.double_clicked() {
             actions.push(ViewAction::Open(item.id.clone()));

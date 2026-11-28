@@ -345,6 +345,25 @@ impl WriterApp {
                     }
                 });
             });
+            // The Tracker's notes for this scene: what each one does here.
+            let noted: Vec<(String, String)> = all.iter().filter(|(id, _)| meta.plan.contains_key(id)).cloned().collect();
+            for (id, title) in noted {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{title}:")).small());
+                    if !linked.contains(&id) {
+                        ui.label(RichText::new("noted, not in this scene yet").small().color(ui.visuals().warn_fg_color));
+                        if ui.small_button("Add").on_hover_text("Put it in In This Scene").clicked() {
+                            add = Some(id.clone());
+                        }
+                    }
+                });
+                let Some(text) = meta.plan.get_mut(&id) else { continue };
+                let edit = egui::TextEdit::multiline(text).hint_text("What it does in this scene").desired_rows(1).desired_width(f32::INFINITY);
+                let response = ui.add(edit).on_hover_text("A note from the Tracker; empty it to remove it");
+                if response.lost_focus() && text.trim().is_empty() {
+                    meta.plan.remove(&id);
+                }
+            }
             if let Some(id) = add {
                 meta.links.entry(kind.id.clone()).or_default().push(id);
             }

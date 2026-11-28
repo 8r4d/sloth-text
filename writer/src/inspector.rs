@@ -297,6 +297,10 @@ impl WriterApp {
         let Some(node) = project.node(&id) else { return };
         let (title, role, mut meta) = (node.title.clone(), node.role, node.meta.clone());
         let is_document = node.is_document();
+        // Copy and the Web address are essay and web tools (a filled-in
+        // address stays shown, whatever the project's set to).
+        let essay = project.tools_on(crate::project::ToolSet::Essay);
+        let show_url = essay || !meta.url.trim().is_empty();
         // A research file: what it is and how big, not words.
         let file = node.file.as_ref().map(|rel| {
             let path = project.root.join(rel);
@@ -363,6 +367,7 @@ impl WriterApp {
             ui.label(if what.is_empty() { count } else { format!("{count} {what}") });
             // The text, formatted, ready to paste into WordPress (or anywhere).
             if is_document
+                && essay
                 && ui
                     .small_button("Copy")
                     .on_hover_text("Copy the text with its formatting, to paste into WordPress or anywhere else. Notes and comments are left out; the title isn\u{2019}t included.")
@@ -500,27 +505,29 @@ impl WriterApp {
                     ui.end_row();
 
                     // Where it's published, say, with a button to go there.
-                    ui.label("Web address");
-                    // Right to left: the button, then the field takes the rest.
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let url = web_address(&meta.url);
-                        let open = ui.add_enabled(url.is_some(), egui::Button::new("Open"));
-                        let open = match &url {
-                            Some(url) => open.on_hover_text(format!("Open {url} in your browser")),
-                            None => open.on_disabled_hover_text("A web address, like example.com/my-post"),
-                        };
-                        if open.clicked()
-                            && let Some(url) = &url
-                        {
-                            open_in_browser(url);
-                        }
-                        ui.add(
-                            egui::TextEdit::singleline(&mut meta.url)
-                                .hint_text("Where it\u{2019}s published")
-                                .desired_width(ui.available_width()),
-                        );
-                    });
-                    ui.end_row();
+                    if show_url {
+                        ui.label("Web address");
+                        // Right to left: the button, then the field takes the rest.
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let url = web_address(&meta.url);
+                            let open = ui.add_enabled(url.is_some(), egui::Button::new("Open"));
+                            let open = match &url {
+                                Some(url) => open.on_hover_text(format!("Open {url} in your browser")),
+                                None => open.on_disabled_hover_text("A web address, like example.com/my-post"),
+                            };
+                            if open.clicked()
+                                && let Some(url) = &url
+                            {
+                                open_in_browser(url);
+                            }
+                            ui.add(
+                                egui::TextEdit::singleline(&mut meta.url)
+                                    .hint_text("Where it\u{2019}s published")
+                                    .desired_width(ui.available_width()),
+                            );
+                        });
+                        ui.end_row();
+                    }
                 });
                 ui.add_space(4.0);
                 if in_manuscript && file.is_none() {

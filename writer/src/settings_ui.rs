@@ -353,6 +353,18 @@ impl WriterApp {
                         .on_hover_text("A word used again within about 100 words is tinted; words you watch for are underlined.");
                     row(ui, "Watch for", &mut |ui| {
                         ui.add(egui::TextEdit::singleline(&mut settings.watch_words).desired_width(320.0).hint_text("just, suddenly, began to"));
+                        ui.menu_button("Add\u{2026}", |ui| {
+                            let filter = ui.button("Filter words").on_hover_text("felt, saw, heard, noticed, realised, wondered, knew\u{2026}: the narrator noticing for the reader. Where a story over its length usually has words to cut.");
+                            if filter.clicked() {
+                                settings.watch_words = crate::repetition::add_to_list(&settings.watch_words, &crate::repetition::filter_words());
+                                ui.close();
+                            }
+                            let usual = ui.button("Intensifiers").on_hover_text("just, really, very, suddenly\u{2026}: the list Writer starts with");
+                            if usual.clicked() {
+                                settings.watch_words = crate::repetition::add_to_list(&settings.watch_words, &crate::repetition::default_watch_list());
+                                ui.close();
+                            }
+                        });
                     });
                     row(ui, "Common words", &mut |ui| {
                         ui.add(egui::TextEdit::singleline(&mut settings.common_words).desired_width(320.0).hint_text("people, really, maybe"))

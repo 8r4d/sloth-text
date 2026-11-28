@@ -3868,3 +3868,158 @@ fn the_tracker_shows_whos_where_and_how_threads_open_and_close() {
     let project = harness.state().project.as_ref().unwrap();
     assert_eq!(project.node(&scenes[0]).unwrap().meta.threads.get(&ferry), Some(&ThreadMark::Closes));
 }
+
+#[test]
+fn the_tracker_plans_with_notes_and_new_scenes() {
+    use crate::project::CHARACTERS;
+    let dir = TempDir::new("tracker-plan");
+    let mut harness = harness(project(&dir, "Mara waits at the quay."));
+    let first = harness.state().selected.clone().unwrap();
+    let (mara, second) = {
+        let project = harness.state_mut().project.as_mut().unwrap();
+        let mara = project.add_document(&Place::Into(CHARACTERS.into()), "Mara Tellin").unwrap();
+        let second = project.add_document(&Place::After(first.clone()), "The Storm").unwrap();
+        fs::write(project.file_path(&second).unwrap(), "Rain on the slates.").unwrap();
+        project.save().unwrap();
+        (mara, second)
+    };
+    harness.state_mut().select("manuscript".into());
+    harness.run_steps(2);
+    harness.state_mut().folder_views.insert("manuscript".into(), super::views::FolderView::Tracker);
+    harness.run_steps(3);
+
+    // A note where Mara isn't in the scene: planned, not in it.
+    harness.state_mut().tracker_act(super::tracker_ui::Act::Note { scene: second.clone(), profile: mara.clone(), at: egui::Pos2::ZERO }, CHARACTERS);
+    harness.run_steps(2);
+    type_text(&mut harness, "Finds the forged letter");
+    harness.get_by_label("Save").click();
+    harness.run_steps(3);
+    let meta = harness.state().project.as_ref().unwrap().node(&second).unwrap().meta.clone();
+    assert_eq!(meta.plan.get(&mara).map(String::as_str), Some("Finds the forged letter"));
+    assert!(!meta.links.contains_key(CHARACTERS), "a note doesn't put her in the scene");
+
+    // The Storm's written, so the note there is a warning: she isn't in it.
+    harness.run_steps(2);
+    let rows = harness.state().tracker_rows();
+    assert_eq!(rows[0].2, [crate::presence::Issue::NotIn(vec![1])]);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/tracker-not-in.png")).unwrap();
+    }
+    // Her row's rules: don't warn about notes. Then back on.
+    let rules = crate::project::TrackRules { ignore_notes: true, ..Default::default() };
+    harness.state_mut().tracker_act(super::tracker_ui::Act::Rules { profile: mara.clone(), rules: rules.clone() }, CHARACTERS);
+    harness.run_steps(2);
+    assert!(harness.state().tracker_rows()[0].2.is_empty());
+    assert_eq!(harness.state().project.as_ref().unwrap().node(&mara).unwrap().meta.tracker, rules);
+    harness.state_mut().tracker_act(super::tracker_ui::Act::Rules { profile: mara.clone(), rules: Default::default() }, CHARACTERS);
+    harness.run_steps(2);
+
+    // Notes shown: wide squares with the note in them.
+    harness.state_mut().tracker_notes = true;
+    harness.run_steps(3);
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/tracker-notes.png")).unwrap();
+    }
+
+    // A planned scene at the end: no words, so a hollow column.
+    harness.state_mut().tracker_act(super::tracker_ui::Act::NewScene { place: Place::After(second.clone()), at: egui::Pos2::ZERO }, CHARACTERS);
+    harness.run_steps(2);
+    type_text(&mut harness, "The Ferry");
+    harness.get_by_label("Add Scene").click();
+    harness.run_steps(3);
+    let planned: Vec<bool> = harness.state().tracker_columns().into_iter().map(|(_, p)| p).collect();
+    assert_eq!(planned, [false, false, true]);
+    assert_eq!(harness.state().tracker_columns()[2].0, "The Ferry");
+
+    // Drag the ferry to the front: before the first scene. To where it is: nothing.
+    assert_eq!(harness.state().tracker_drop(2, 3), None);
+    let place = harness.state().tracker_drop(2, 0).unwrap();
+    assert!(matches!(&place, Place::Before(id) if *id == first));
+    let ferry = harness.state().project.as_ref().unwrap().documents_under("manuscript").into_iter().find(|n| n.title == "The Ferry").unwrap().id.clone();
+    harness.state_mut().tracker_act(super::tracker_ui::Act::Move { scene: ferry, place }, CHARACTERS);
+    harness.run_steps(3);
+    assert_eq!(harness.state().tracker_columns()[0], ("The Ferry".to_owned(), true));
+
+    // In the scene's inspector: the note, and a way to put her in.
+    harness.state_mut().show_inspector = true;
+    harness.state_mut().select(second.clone());
+    harness.run_steps(3);
+    harness.get_by_label("Add").click();
+    harness.run_steps(3);
+    let meta = harness.state().project.as_ref().unwrap().node(&second).unwrap().meta.clone();
+    assert_eq!(meta.links[CHARACTERS], vec![mara.clone()]);
+}
+
+// ----- short stories -------------------------------------------------------------
+
+#[test]
+fn a_short_story_shows_its_length_and_bookends() {
+    let dir = TempDir::new("short-story");
+    let story = "The quay was empty.\n\nRain on the slates.\n\nThe quay was full, at last.\n";
+    let mut harness = harness(project(&dir, story));
+    let id = harness.state().selected.clone().unwrap();
+    harness.run_steps(3);
+    // Not a short fiction project: no length.
+    assert!(harness.query_by_label("Flash fiction").is_none());
+
+    harness.state_mut().project.as_mut().unwrap().set_kind(crate::project::Kind::ShortFiction).unwrap();
+    harness.run_steps(3);
+    harness.get_by_label("Flash fiction");
+
+    harness.state_mut().show_bookends = true;
+    harness.run_steps(3);
+    harness.get_by_label("The quay was empty.");
+    harness.get_by_label("The quay was full, at last.");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.render().unwrap().save(format!("{dir}/bookends.png")).unwrap();
+    }
+    let _ = id;
+}
+
+// ----- tools by kind --------------------------------------------------------------
+
+#[test]
+fn a_projects_kind_hides_tools_it_doesnt_need() {
+    use crate::project::{Kind, ToolSet};
+    let dir = TempDir::new("tools-by-kind");
+    let mut harness = harness(project(&dir, "A post about walking."));
+    let doc = harness.state().selected.clone().unwrap();
+    harness.state_mut().show_inspector = true;
+    harness.run_steps(3);
+    // Writing: everything.
+    harness.get_by_label("Web address");
+    harness.get_by_label("Copy");
+
+    // Poetry: no essay tools; the Tracker's gone from the folder views, and ⌘4 does nothing.
+    harness.state_mut().project.as_mut().unwrap().set_kind(Kind::Poetry).unwrap();
+    harness.run_steps(3);
+    assert!(harness.query_by_label("Web address").is_none());
+    assert!(harness.query_by_label("Copy").is_none());
+    harness.state_mut().select("manuscript".into());
+    harness.run_steps(3);
+    harness.get_by_label("Corkboard");
+    assert!(harness.query_by_label("Tracker").is_none());
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num4);
+    harness.run_steps(3);
+    assert!(harness.query_by_label("Tracker").is_none());
+    assert_ne!(harness.state().folder_views.get("manuscript"), Some(&super::views::FolderView::Tracker));
+
+    // Ticked in Project Settings: back.
+    harness.state_mut().project.as_mut().unwrap().set_tools(ToolSet::Story, true).unwrap();
+    harness.run_steps(3);
+    harness.get_by_label("Tracker");
+    if let Ok(dir) = std::env::var("SHOT_DIR") {
+        harness.state_mut().open_project_settings();
+        harness.run_steps(4);
+        harness.render().unwrap().save(format!("{dir}/project-settings-tools.png")).unwrap();
+        harness.state_mut().project_settings_open = false;
+        harness.run_steps(2);
+    }
+
+    // A web address already filled in stays shown.
+    let p = harness.state_mut().project.as_mut().unwrap();
+    p.set_meta(&doc, crate::project::Meta { url: "example.com/walking".into(), ..Default::default() });
+    harness.state_mut().select(doc);
+    harness.run_steps(3);
+    harness.get_by_label("Web address");
+}

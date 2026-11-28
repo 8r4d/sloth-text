@@ -35,6 +35,31 @@ pub fn default_watch_list() -> Vec<String> {
         .collect()
 }
 
+/// Filter words: the narrator noticing on the reader's behalf ("she saw
+/// the door open" for "the door opened"). Where a story over its length
+/// usually has words to cut.
+pub fn filter_words() -> Vec<String> {
+    [
+        "felt", "saw", "heard", "noticed", "realised", "realized", "wondered", "knew", "thought", "watched", "seemed", "decided", "could see",
+        "could hear", "could feel",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// `list` (comma separated, as typed) with `more` added after it, leaving
+/// out what it already has (whatever the capitals).
+pub fn add_to_list(list: &str, more: &[String]) -> String {
+    let mut words: Vec<String> = list.split(',').map(str::trim).filter(|w| !w.is_empty()).map(str::to_owned).collect();
+    for w in more {
+        if !words.iter().any(|have| have.eq_ignore_ascii_case(w)) {
+            words.push(w.clone());
+        }
+    }
+    words.join(", ")
+}
+
 /// What's marked in a text: echoes, and watch-list words (byte ranges).
 #[derive(Debug, Default, PartialEq)]
 pub struct Found {
@@ -216,5 +241,11 @@ mod tests {
         let b = "A ferry. Lanterns.";
         assert_eq!(most_used([a, b], 1, &Common::new(&[])), [("ferry".to_owned(), 3)]);
         assert_eq!(most_used([a, b], 5, &Common::new(&[])), [("ferry".to_owned(), 3), ("snow".to_owned(), 3)]);
+    }
+
+    #[test]
+    fn presets_add_only_whats_missing() {
+        assert_eq!(add_to_list("just, Felt", &["felt".to_owned(), "saw".to_owned()]), "just, Felt, saw");
+        assert_eq!(add_to_list("", &["saw".to_owned()]), "saw");
     }
 }

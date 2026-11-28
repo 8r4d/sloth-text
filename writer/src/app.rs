@@ -45,6 +45,8 @@ mod goal_ui;
 mod guide_ui;
 #[path = "tracker_ui.rs"]
 mod tracker_ui;
+#[path = "bookends_ui.rs"]
+mod bookends_ui;
 #[path = "inspector.rs"]
 pub(crate) mod inspector;
 #[path = "project_settings_ui.rs"]
@@ -78,7 +80,7 @@ mod sync_ui;
 #[path = "views.rs"]
 mod views;
 use search::{DocResults, Direction};
-use crate::project::{MANIFEST_FILE, Meta, Node, PathChange, Place, Project, Role};
+use crate::project::{MANIFEST_FILE, Meta, Node, PathChange, Place, Project, Role, ToolSet};
 
 /// Where the last open project is remembered between launches.
 const LAST_PROJECT_KEY: &str = "last_project";
@@ -282,6 +284,13 @@ pub struct WriterApp {
     tracker: Option<tracker_ui::Grid>,
     /// The kind of profile the Tracker shows, as last chosen.
     tracker_kind: Option<String>,
+    /// The Tracker drawn wide, with its notes written in the squares.
+    tracker_notes: bool,
+    /// A note or a new scene being written over the Tracker.
+    tracker_edit: Option<tracker_ui::Edit>,
+    /// The Bookends window: open, and what it last read.
+    show_bookends: bool,
+    bookends: Option<bookends_ui::Bookends>,
     about_icon: Option<egui::TextureHandle>,
     /// The text filtering the Settings window's font list.
     font_filter: String,
@@ -334,6 +343,10 @@ impl WriterApp {
             walks: Vec::new(),
             tracker: None,
             tracker_kind: None,
+            tracker_notes: false,
+            tracker_edit: None,
+            show_bookends: false,
+            bookends: None,
             about_icon: None,
             font_filter: String::new(),
             // Tests never touch the real Keychain.
@@ -802,6 +815,16 @@ impl WriterApp {
                 self.save_all();
             }
         }
+    }
+
+    /// Whether a set of tools is shown in this project (see `ToolSet`).
+    pub(super) fn tools_on(&self, set: ToolSet) -> bool {
+        self.project.as_ref().is_none_or(|p| p.tools_on(set))
+    }
+
+    /// Whether the Tracker is shown: with the story tools, or once used.
+    pub(super) fn shows_tracker(&self) -> bool {
+        self.project.as_ref().is_none_or(Project::shows_tracker)
     }
 
     /// Point open documents at their files' new paths after a rename or move.
@@ -1274,6 +1297,10 @@ impl WriterApp {
             (Key::Num4, views::FolderView::Tracker),
         ];
         for (key, view) in shown {
+            // (⌘4 only where the Tracker's shown.)
+            if view == views::FolderView::Tracker && !self.shows_tracker() {
+                continue;
+            }
             if self.project.is_some() && pressed(ctx, Modifiers::COMMAND, key) {
                 self.show_folder_as(ctx, view);
             }
@@ -1499,11 +1526,16 @@ impl WriterApp {
                 self.open_notepad();
                 ui.close();
             }
-            if ui.button("Build a Plot\u{2026}").on_hover_text("Walk through a story structure beat by beat; your answers become a document in Notes").clicked() {
+            let (story, essay) = (self.tools_on(ToolSet::Story), self.tools_on(ToolSet::Essay));
+            if story && ui.button("Build a Plot\u{2026}").on_hover_text("Walk through a story structure beat by beat; your answers become a document in Notes").clicked() {
                 self.start_plot();
                 ui.close();
             }
-            if ui.button("Build an Essay\u{2026}").on_hover_text("Walk through an essay's shape part by part; your answers become a draft beside what's selected").clicked() {
+            if ui.button("Bookends").on_hover_text("The first and last paragraphs of what's selected, side by side: does the ending answer the opening?").clicked() {
+                self.show_bookends = true;
+                ui.close();
+            }
+            if essay && ui.button("Build an Essay\u{2026}").on_hover_text("Walk through an essay's shape part by part; your answers become a draft beside what's selected").clicked() {
                 self.start_essay(self.selected.clone());
                 ui.close();
             }
@@ -1590,6 +1622,12 @@ impl WriterApp {
             }
             (words, _) => words,
         };
+        // In a short fiction project, what length a story in the Manuscript counts as.
+        let story_length = self.project.as_ref().filter(|p| p.tools_on(ToolSet::ShortStory)).and_then(|p| {
+            let id = self.selected.as_deref()?;
+            let inside = id != Role::Manuscript.folder() && p.role_of(id) == Some(Role::Manuscript);
+            words.filter(|_| inside).map(|(_, all)| all)
+        });
         let status = self.status.as_ref().map(|(message, _)| message.clone());
         let today = self.today_summary();
         let (written, goal) = self.today_goal();
@@ -1601,6 +1639,13 @@ impl WriterApp {
                     Some((None, n)) => ui.label(format!("{n} {}", plural(n))),
                     None => ui.label(""),
                 };
+                if let Some(n) = story_length {
+                    let hint = match crate::story::to_next(n) {
+                        Some(next) => format!("{next}.\n\n{}", crate::story::LENGTHS_HINT),
+                        None => crate::story::LENGTHS_HINT.to_owned(),
+                    };
+                    ui.label(egui::RichText::new(crate::story::length(n)).small().weak()).on_hover_text(hint);
+                }
                 ui.separator();
                 self.goal_ring(ui, &today, written, goal);
                 ui.separator();
@@ -1780,7 +1825,12 @@ impl WriterApp {
                     if let Some(project) = &self.project {
                         let selected = self.selected.as_deref();
                         let notepad = project.notepad().map(|n| n.id.as_str());
-                        actions = binder::show(ui, &project.manifest, selected, notepad, &mut self.renaming);
+                        let shown = binder::Shown {
+                            story: project.tools_on(ToolSet::Story),
+                            essay: project.tools_on(ToolSet::Essay),
+                            tracker: project.shows_tracker(),
+                        };
+                        actions = binder::show(ui, &project.manifest, shown, selected, notepad, &mut self.renaming);
                     }
                 });
             });
@@ -1963,6 +2013,7 @@ impl eframe::App for WriterApp {
         self.compile_window(&ctx);
         self.glossary_window(&ctx);
         self.walk_window(&ctx);
+        self.bookends_window(&ctx);
         self.compare_window(&ctx);
         self.rename_project_window(&ctx);
         self.sections_window(&ctx);

@@ -63,6 +63,8 @@ const TIPS: &[&str] = &[
     "A line with only # on it is a scene break.",
     "Build a Plot\u{2026} (in More, or Notes' right-click menu) walks through a story structure, from Story Circle to Save the Cat!, a beat at a time: your answers become a document in Notes with a heading per beat, ready for Break Up when it's time to draft.",
     "The Tracker (\u{2318}4, beside Corkboard and Outline) is a grid of who's in which scene, and how long anyone's away. Pick Threads above it, after making a Threads folder, to see where each of the story's questions opens and closes.",
+    "Plan in the Tracker: right-click a square to note what a character or thread does in that scene, and turn on Notes to read the grid as a plot outline. Right-click the marks over the columns to add scenes you haven't written yet, and a name to choose what its row warns about.",
+    "Writing a short story? Set the project's kind to Short Fiction and the status bar says whether it's flash, a short story or a novelette. Bookends, in More, puts its first and last paragraphs side by side.",
     "Build a Character\u{2026} (right-click Characters, or a character) asks about a character a question at a time, from a quick sketch to a full arc, and puts the answers in their profile. Build an Essay\u{2026} (More, or right-click in the Manuscript) walks an essay's shape, from Argument to Personal Essay, into a draft with its synopsis, target and tags.",
     "Select a word, right-click, Add to Glossary\u{2026}: the project's glossary is one document of # terms and their definitions, kept A to Z, and can go at the end of a compiled book.",
     "Keep PDFs and pictures in the project to look at as you write: Add File\u{2026} in the binder's right-click menu, or drop them on the window.",

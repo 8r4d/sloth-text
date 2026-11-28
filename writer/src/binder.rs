@@ -60,11 +60,20 @@ pub struct Renaming {
     pub focus: bool,
 }
 
+/// Which of the project's sets of tools its menus offer (see `ToolSet`).
+#[derive(Clone, Copy)]
+pub struct Shown {
+    pub story: bool,
+    pub essay: bool,
+    pub tracker: bool,
+}
+
 /// `manifest`: the project's binder, and its statuses, labels and profile
 /// kinds for the menus.
 pub fn show(
     ui: &mut egui::Ui,
     manifest: &Manifest,
+    shown: Shown,
     selected: Option<&str>,
     notepad: Option<&str>,
     renaming: &mut Option<Renaming>,
@@ -76,6 +85,7 @@ pub fn show(
         labels: &manifest.labels,
         default_target: manifest.goals.document,
         kinds: &manifest.profiles,
+        shown,
         selected,
         notepad,
         renaming,
@@ -96,6 +106,7 @@ struct Tree<'a> {
     default_target: Option<u32>,
     /// The project's profile kinds, to offer the rest as new folders.
     kinds: &'a [ProfileKind],
+    shown: Shown,
     selected: Option<&'a str>,
     /// The mobile notepad, shown with its own icon.
     notepad: Option<&'a str>,
@@ -213,6 +224,7 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
         actions.push(BinderAction::StartRename(node.id.clone()));
     }
     let kinds = tree.kinds;
+    let shown = tree.shown;
     let (statuses, labels) = (tree.statuses, tree.labels);
     // Targets are for the manuscript's documents.
     let default_target = (top == Some(Role::Manuscript)).then_some(tree.default_target);
@@ -220,7 +232,11 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
         // At the top level: profile folders to add (and this one to remove).
         if node.role.is_some() {
             ui.menu_button("New Profile Folder", |ui| {
-                let unused: Vec<_> = profile_presets().into_iter().filter(|(p, _)| !kinds.iter().any(|k| k.id == p.id)).collect();
+                // (Threads are a story tool.)
+                let unused: Vec<_> = profile_presets()
+                    .into_iter()
+                    .filter(|(p, _)| !kinds.iter().any(|k| k.id == p.id) && (shown.story || p.id != crate::project::THREADS))
+                    .collect();
                 for heading in crate::project::PresetGroup::ALL {
                     // Some kinds suit two groups: offered under both.
                     let group: Vec<_> = unused.iter().filter(|(p, g)| *g == heading || heading.also().contains(&p.id.as_str())).collect();
@@ -243,7 +259,7 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
             });
             if matches!(node.role, Some(Role::Profile | Role::Characters)) {
                 let hint = "The Manuscript's Tracker: which scenes each one is in, and how long they're away (threads: where they open and close)";
-                if ui.button("Track in the Manuscript").on_hover_text(hint).clicked() {
+                if shown.tracker && ui.button("Track in the Manuscript").on_hover_text(hint).clicked() {
                     actions.push(BinderAction::Track(node.id.clone()));
                     ui.close();
                 }
@@ -255,21 +271,21 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
             }
             ui.separator();
         }
-        if node.role == Some(Role::Notes) {
+        if node.role == Some(Role::Notes) && shown.story {
             if ui.button("Build a Plot\u{2026}").on_hover_text("Walk through a story structure beat by beat; your answers become a document here").clicked() {
                 actions.push(BinderAction::BuildPlot);
                 ui.close();
             }
             ui.separator();
         }
-        if node.role == Some(Role::Characters) {
+        if node.role == Some(Role::Characters) && shown.story {
             if ui.button("Build a Character\u{2026}").on_hover_text("Walk through a new character question by question, into their profile").clicked() {
                 actions.push(BinderAction::BuildCharacter(None));
                 ui.close();
             }
             ui.separator();
         }
-        if node.role.is_none() && top == Some(Role::Characters) && node.is_document() {
+        if node.role.is_none() && top == Some(Role::Characters) && node.is_document() && shown.story {
             if ui.button("Build This Character\u{2026}").on_hover_text("Walk through them question by question; answers go in their profile, and ones you've given already come back to revise").clicked() {
                 actions.push(BinderAction::BuildCharacter(Some(node.id.clone())));
                 ui.close();
@@ -293,6 +309,7 @@ fn row(ui: &mut egui::Ui, node: &Node, inside: bool, top: Option<Role>, next: Op
             ui.close();
         }
         if top == Some(Role::Manuscript)
+            && shown.essay
             && ui.button("Build an Essay\u{2026}").on_hover_text("Walk through an essay's shape part by part; your answers become a draft here").clicked()
         {
             actions.push(BinderAction::BuildEssay(node.id.clone()));

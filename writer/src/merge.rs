@@ -274,7 +274,7 @@ pub fn merge(base: &Manifest, ours: &Manifest, theirs: &Manifest, edited_here: &
             manifest.$field = serde_json::from_value(whole(|m| serde_json::to_value(&m.$field).unwrap_or(Value::Null))).unwrap_or_else(|_| ours.$field.clone());
         )*};
     }
-    settle!(title, statuses, labels, profiles, compile, goals, kind, notepad, glossary, new_at_top, card_size, no_characters, characteristics);
+    settle!(title, statuses, labels, profiles, compile, goals, kind, notepad, glossary, new_at_top, card_size, no_characters, characteristics, tools);
     Merged { manifest, clashes }
 }
 
@@ -317,6 +317,8 @@ fn field_name(key: &str) -> &str {
         "exclude_from_compile" => "compile setting",
         "on_ipad" => "web setting",
         "url" => "web address",
+        "plan" => "Tracker notes",
+        "tracker" => "Tracker warnings",
         other => other,
     }
 }

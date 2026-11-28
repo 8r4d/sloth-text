@@ -2,6 +2,31 @@
 
 Sloth Writer uses semantic versioning (major.minor.patch).
 
+## 2.17.0
+
+Plan in the Tracker: notes in its squares, and scenes before they're written.
+
+- Write a note in any square of the Tracker: what this character (or place, or thread) does in this scene, or is meant to. Right-click a square, Write a Note…. A note where they aren't in the scene yet shows as a hollow square: planned, not written. It doesn't put them in the scene; that's still yours to do.
+- Notes, beside the menu over the grid, widens the squares and writes each note in its own: the story as a grid of plotlines against scenes, with the scenes' titles over the columns. Click a square there to write in it.
+- Over the columns, a mark for each scene: filled when it has words, hollow when it's only planned. Click it to open the scene, drag it to move the scene (into another chapter, too), right-click it for New Scene Before… or After…, which asks for a title and what happens (its synopsis), so you can lay out an act before writing a word of it.
+- The Tracker checks the draft against your notes: a written scene with a note for someone who isn't in its In This Scene shows the hollow square in orange, and their row says so. (A scene with no words yet is only planned, so its notes aren't checked.)
+- Right-click a name in the Tracker to choose what its row warns about. Away for some number of scenes or more: a character can warn now too (shaded orange), and a thread's quiet limit, eight scenes, can be changed or turned off. For a thread: Never closed (off for one left open on purpose, for a sequel) and Closing out of order. And for any row: Noted in a scene, not in it.
+- A scene's inspector shows its notes under In This Scene, to edit or to keep an eye on while you write it. A note for someone who isn't in the scene says so, with Add to put them in.
+
+For short stories:
+
+- In a Short Fiction project (its kind, in Project Settings), the status bar says what length a story in the Manuscript counts as, beside its words: flash fiction (under 1,000), short story (up to 7,500), novelette, novella. Hover for how far it is to the next, and the lengths magazines usually ask for.
+- Bookends (More): the first and last paragraphs of what's selected, side by side, to see whether the ending answers the opening. It follows what you select, a story or the folder of its parts, and keeps up as you write. Notes, headings and scene breaks are skipped.
+- App Settings → Watch for has Add…, with two lists to add: Filter words (felt, saw, heard, noticed, realised, wondered, knew…, where a story over its length usually has words to cut) and Intensifiers, the list Writer starts with. Only words not already there are added.
+
+Tools that suit the project:
+
+- A project's kind (Project Settings, now called Kind rather than Icon) decides which tools it shows, to keep the rest out of the way. Story tools (Build a Plot, Build a Character, the Tracker and ⌘4, Track in the Manuscript, Threads) are for novels, short fiction, children's, genre fiction, scripts and lore. Essay and web tools (Build an Essay, the inspector's Web address and Copy) are for essays, nonfiction, blogs and podcasts. Short story length is for short fiction. Writing, the kind for anything, shows story and essay tools, so a project that never had a kind changes nothing.
+- Project Settings has a Tools section to tick or untick each set for a project: story tools in a blog of fiction, say.
+- Hiding never removes anything. The Tracker stays once it's been used (a Threads folder, Tracker notes or warnings), and a web address you've filled in stays shown. A folder last shown in the Tracker opens on the corkboard while it's hidden.
+
+If you sync a project between computers, update Writer on each of them, so an older one doesn't drop the notes, warnings and tool choices.
+
 ## 2.16.0
 
 The Tracker: who's in which scene, and the story's threads.

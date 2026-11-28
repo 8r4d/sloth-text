@@ -136,6 +136,14 @@ pub struct Meta {
     /// A thread in the scene's links with no mark here moves along.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub threads: BTreeMap<String, ThreadMark>,
+    /// The Tracker's notes: what each profile (by binder id) does in this
+    /// scene, or is meant to ("finds the forged letter"). A note doesn't
+    /// put the profile in the scene; it's the plan.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub plan: BTreeMap<String, String>,
+    /// On a profile: what the Tracker warns about in its row.
+    #[serde(skip_serializing_if = "TrackRules::is_default")]
+    pub tracker: TrackRules,
     /// A web address for it: where it's published, say. (Not `links`,
     /// which are to other documents.)
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -148,6 +156,32 @@ pub struct Meta {
 impl Meta {
     fn is_empty(&self) -> bool {
         *self == Meta::default()
+    }
+}
+
+/// What the Tracker warns about in a profile's row, as the writer set it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TrackRules {
+    /// Warn when it's away (a thread: quiet) for this many scenes or more.
+    /// `None`: the usual (a thread 8, anything else never); 0: never.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub away: Option<usize>,
+    /// A thread left open on purpose (for a sequel, say): not "never closed".
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub open_on_purpose: bool,
+    /// A thread that may close in any order, not only the reverse of how
+    /// threads opened.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub any_order: bool,
+    /// Don't say when a written scene has a note for it but doesn't have it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub ignore_notes: bool,
+}
+
+impl TrackRules {
+    fn is_default(&self) -> bool {
+        *self == TrackRules::default()
     }
 }
 
@@ -378,6 +412,76 @@ pub struct Manifest {
     /// documents marked for the web.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub whole_sync: bool,
+    /// Which sets of tools Project Settings shows or hides, where it
+    /// differs from what the kind has (see `ToolSet`).
+    #[serde(default, skip_serializing_if = "Tools::is_default")]
+    pub tools: Tools,
+}
+
+/// Tools that suit some kinds of writing and only clutter others: shown
+/// or hidden together, by the project's kind unless Project Settings says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolSet {
+    /// Build a Plot, Build a Character, the Tracker, Threads.
+    Story,
+    /// Build an Essay, the Web address field and the inspector's Copy.
+    Essay,
+    /// What length a story counts as, in the status bar.
+    ShortStory,
+}
+
+impl ToolSet {
+    pub const ALL: [ToolSet; 3] = [ToolSet::Story, ToolSet::Essay, ToolSet::ShortStory];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ToolSet::Story => "Story tools",
+            ToolSet::Essay => "Essay and web tools",
+            ToolSet::ShortStory => "Short story length",
+        }
+    }
+
+    pub fn what(self) -> &'static str {
+        match self {
+            ToolSet::Story => "Build a Plot, Build a Character, the Tracker (\u{2318}4) and Threads",
+            ToolSet::Essay => "Build an Essay, the inspector's Web address and Copy",
+            ToolSet::ShortStory => "Flash fiction, short story, novelette\u{2026} beside the word count",
+        }
+    }
+}
+
+/// Project Settings' choices for each set; `None`: as the kind has it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Tools {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub story: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub essay: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_story: Option<bool>,
+}
+
+impl Tools {
+    fn is_default(&self) -> bool {
+        *self == Tools::default()
+    }
+
+    fn get(&self, set: ToolSet) -> Option<bool> {
+        match set {
+            ToolSet::Story => self.story,
+            ToolSet::Essay => self.essay,
+            ToolSet::ShortStory => self.short_story,
+        }
+    }
+
+    fn slot(&mut self, set: ToolSet) -> &mut Option<bool> {
+        match set {
+            ToolSet::Story => &mut self.story,
+            ToolSet::Essay => &mut self.essay,
+            ToolSet::ShortStory => &mut self.short_story,
+        }
+    }
 }
 
 /// What sort of writing a project is, shown by its icon and colour on the
@@ -421,6 +525,20 @@ impl Kind {
 
     fn is_default(&self) -> bool {
         *self == Kind::Writing
+    }
+
+    /// Whether this kind shows a set of tools unless Project Settings says
+    /// otherwise. Writing, the kind for anything, has story and essay tools.
+    pub fn has_tools(self, set: ToolSet) -> bool {
+        use Kind::*;
+        match set {
+            ToolSet::Story => matches!(
+                self,
+                Writing | Novel | ShortFiction | Children | Fantasy | Mystery | ScienceFiction | Horror | Screenplay | StagePlay | Lore
+            ),
+            ToolSet::Essay => matches!(self, Writing | Essay | Nonfiction | Blog | Podcast),
+            ToolSet::ShortStory => self == ShortFiction,
+        }
     }
 
     pub fn name(self) -> &'static str {
@@ -582,6 +700,7 @@ impl Project {
                 new_at_top: false,
                 card_size: CardSize::default(),
                 whole_sync: false,
+                tools: Tools::default(),
             },
         };
         project.repair();
@@ -678,6 +797,31 @@ impl Project {
     pub fn set_kind(&mut self, kind: Kind) -> io::Result<()> {
         self.manifest.kind = kind;
         self.save()
+    }
+
+    /// Whether a set of tools is shown: as Project Settings says, or as
+    /// the kind has it.
+    pub fn tools_on(&self, set: ToolSet) -> bool {
+        self.manifest.tools.get(set).unwrap_or_else(|| self.kind().has_tools(set))
+    }
+
+    /// Show or hide a set of tools. Back to what the kind has, it's
+    /// forgotten, so changing the kind later changes it too.
+    pub fn set_tools(&mut self, set: ToolSet, on: bool) -> io::Result<()> {
+        *self.manifest.tools.slot(set) = (on != self.kind().has_tools(set)).then_some(on);
+        self.save()
+    }
+
+    /// Whether the Tracker has been used here (a Threads folder, notes or
+    /// warnings set), so it stays shown whatever the kind.
+    pub fn uses_tracker(&self) -> bool {
+        self.profile_kind(THREADS).is_some()
+            || self.all_documents().iter().any(|n| !n.meta.plan.is_empty() || n.meta.tracker != TrackRules::default())
+    }
+
+    /// The Tracker: shown with the story tools, or once it's been used.
+    pub fn shows_tracker(&self) -> bool {
+        self.tools_on(ToolSet::Story) || self.uses_tracker()
     }
 
     /// The target a new document made at or beside `near` starts with: the
@@ -2027,6 +2171,33 @@ mod tests {
     }
 
     #[test]
+    fn tools_follow_the_kind_unless_chosen() {
+        let dir = TempDir::new("tools");
+        let mut p = Project::create(&dir.0, "Book").unwrap();
+        // Writing, the kind for anything: story and essay tools.
+        assert!(p.tools_on(ToolSet::Story) && p.tools_on(ToolSet::Essay) && !p.tools_on(ToolSet::ShortStory));
+        p.set_kind(Kind::Blog).unwrap();
+        assert!(!p.tools_on(ToolSet::Story) && p.tools_on(ToolSet::Essay));
+        assert!(!p.shows_tracker());
+        // Chosen here: kept, and saved.
+        p.set_tools(ToolSet::Story, true).unwrap();
+        assert!(p.tools_on(ToolSet::Story));
+        assert_eq!(Project::open(&dir.0).unwrap().manifest.tools.story, Some(true));
+        // Back to what the kind has: forgotten, so it follows the kind again.
+        p.set_tools(ToolSet::Story, false).unwrap();
+        assert_eq!(p.manifest.tools, Tools::default());
+        p.set_kind(Kind::ShortFiction).unwrap();
+        assert!(p.tools_on(ToolSet::Story) && !p.tools_on(ToolSet::Essay) && p.tools_on(ToolSet::ShortStory));
+
+        // A Tracker note keeps the Tracker, whatever the kind.
+        p.set_kind(Kind::Poetry).unwrap();
+        assert!(!p.shows_tracker());
+        let scene = p.manifest.binder[0].children[0].id.clone();
+        p.set_meta(&scene, Meta { plan: [("x".to_owned(), "A note.".to_owned())].into(), ..Meta::default() });
+        assert!(p.shows_tracker());
+    }
+
+    #[test]
     fn metadata_round_trips_and_stays_out_of_the_way() {
         let dir = TempDir::new("meta");
         let mut p = Project::create(&dir.0, "Book").unwrap();
@@ -2042,6 +2213,8 @@ mod tests {
             characters: Vec::new(),
             links: [("characters".to_owned(), vec!["c0ffee".to_owned()])].into(),
             threads: [("beef".to_owned(), ThreadMark::Closes)].into(),
+            plan: [("beef".to_owned(), "Answered at last.".to_owned())].into(),
+            tracker: TrackRules { away: Some(5), open_on_purpose: true, ..TrackRules::default() },
             url: "https://example.com/the-harbour".into(),
             on_ipad: true,
         };

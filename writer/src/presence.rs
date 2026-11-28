@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::project::ThreadMark;
+use crate::project::{ThreadMark, TrackRules};
 
 /// A scene, as the tracker needs it.
 pub struct Scene {
@@ -19,6 +19,8 @@ pub struct Scene {
     /// The profiles of the kind tracked that its In This Scene has.
     pub links: Vec<String>,
     pub marks: BTreeMap<String, ThreadMark>,
+    /// The profiles it has a Tracker note for.
+    pub noted: Vec<String>,
 }
 
 /// What a cell of the grid shows.
@@ -131,9 +133,14 @@ pub fn summary(cells: &[Cell], scenes: &[Scene]) -> Summary {
 /// quiet.
 pub const QUIET: usize = 8;
 
-/// Something to look at in a thread.
+/// Something to look at in a row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Issue {
+    /// Away for longer than its rules allow (not a thread: see `Quiet`).
+    Away(Gap),
+    /// Written scenes (by index) with a note for it that don't have it in
+    /// In This Scene.
+    NotIn(Vec<usize>),
     /// It comes up, but no scene opens it.
     NeverOpened,
     /// A scene closes it before the scene that opens it.
@@ -157,13 +164,49 @@ fn span(cells: &[Cell]) -> (Option<usize>, Option<usize>) {
     (opens, closes)
 }
 
-/// What to look at in each thread: `rows` are the threads' titles and
-/// cells, in order.
-pub fn thread_issues(rows: &[(String, Vec<Cell>)], scenes: &[Scene]) -> Vec<Vec<Issue>> {
-    let spans: Vec<(Option<usize>, Option<usize>)> = rows.iter().map(|(_, cells)| span(cells)).collect();
+/// A row, as the checks need it.
+pub struct Track<'a> {
+    pub id: &'a str,
+    pub title: &'a str,
+    pub cells: &'a [Cell],
+    pub rules: &'a TrackRules,
+}
+
+/// What to look at in each row. `threads`: the rows are threads, which
+/// open and close; otherwise they come and go.
+pub fn issues(rows: &[Track], scenes: &[Scene], threads: bool) -> Vec<Vec<Issue>> {
+    let mut all = if threads { thread_issues(rows, scenes) } else { rows.iter().map(|r| away(r, scenes)).collect() };
+    for (row, issues) in rows.iter().zip(&mut all) {
+        if row.rules.ignore_notes {
+            continue;
+        }
+        // Noted in a written scene that hasn't got it. (In a scene with no
+        // words yet, the note is the plan.)
+        let missing: Vec<usize> = scenes
+            .iter()
+            .enumerate()
+            .filter(|(i, s)| s.words > 0 && s.noted.iter().any(|n| n == row.id) && !s.links.iter().any(|l| l == row.id) && row.cells.get(*i).is_some())
+            .map(|(i, _)| i)
+            .collect();
+        if !missing.is_empty() {
+            issues.push(Issue::NotIn(missing));
+        }
+    }
+    all
+}
+
+/// A row away for as long as its rules allow, or longer.
+fn away(row: &Track, scenes: &[Scene]) -> Vec<Issue> {
+    let Some(limit) = row.rules.away.filter(|n| *n > 0) else { return Vec::new() };
+    longest_gap(row.cells, scenes, Cell::present).filter(|g| g.scenes >= limit).map(Issue::Away).into_iter().collect()
+}
+
+fn thread_issues(rows: &[Track], scenes: &[Scene]) -> Vec<Vec<Issue>> {
+    let spans: Vec<(Option<usize>, Option<usize>)> = rows.iter().map(|r| span(r.cells)).collect();
     rows.iter()
         .zip(&spans)
-        .map(|((_, cells), &(opens, closes))| {
+        .map(|(row, &(opens, closes))| {
+            let cells = row.cells;
             let mut issues = Vec::new();
             let first_close = cells.iter().position(|c| *c == Cell::Closes);
             match opens {
@@ -173,7 +216,7 @@ pub fn thread_issues(rows: &[(String, Vec<Cell>)], scenes: &[Scene]) -> Vec<Vec<
                     if first_close.is_some_and(|c| c < o) {
                         issues.push(Issue::ClosedBeforeOpened);
                     }
-                    if closes.is_none() {
+                    if closes.is_none() && !row.rules.open_on_purpose {
                         issues.push(Issue::NeverClosed);
                     }
                     // While it's open: from where it opens to where it closes (or the end).
@@ -185,7 +228,10 @@ pub fn thread_issues(rows: &[(String, Vec<Cell>)], scenes: &[Scene]) -> Vec<Vec<
                             *last = Cell::Moves;
                         }
                     }
-                    if let Some(gap) = longest_gap(&open_cells, &scenes[o..], Cell::present).filter(|g| g.scenes >= QUIET) {
+                    let quiet = row.rules.away.unwrap_or(QUIET);
+                    if quiet > 0
+                        && let Some(gap) = longest_gap(&open_cells, &scenes[o..], Cell::present).filter(|g| g.scenes >= quiet)
+                    {
                         issues.push(Issue::Quiet(Gap { after: gap.after + o, before: gap.before + o, ..gap }));
                     }
                 }
@@ -196,15 +242,18 @@ pub fn thread_issues(rows: &[(String, Vec<Cell>)], scenes: &[Scene]) -> Vec<Vec<
         .map(|(i, mut issues)| {
             // Nesting: this one opened first, another opened inside it,
             // and this one closes before the other does.
-            if let (Some(oa), Some(ca)) = spans[i] {
+            if let (Some(oa), Some(ca)) = spans[i]
+                && !rows[i].rules.any_order
+            {
                 for (j, &(ob, cb)) in spans.iter().enumerate() {
                     if let (Some(ob), Some(cb)) = (ob, cb)
                         && j != i
                         && oa < ob
                         && ob < ca
                         && ca < cb
+                        && !rows[j].rules.any_order
                     {
-                        issues.push(Issue::OutOfOrder(rows[j].0.clone()));
+                        issues.push(Issue::OutOfOrder(rows[j].title.to_owned()));
                     }
                 }
             }
@@ -223,7 +272,18 @@ mod tests {
             text: text.to_owned(),
             links: links.iter().map(|s| s.to_string()).collect(),
             marks: marks.iter().map(|(k, m)| (k.to_string(), *m)).collect(),
+            noted: Vec::new(),
         }
+    }
+
+    /// The checks on rows named by their titles (their ids too).
+    fn check(rows: &[(&str, Vec<Cell>, TrackRules)], scenes: &[Scene], threads: bool) -> Vec<Vec<Issue>> {
+        let tracks: Vec<Track> = rows.iter().map(|(t, cells, rules)| Track { id: t, title: t, cells, rules }).collect();
+        issues(&tracks, scenes, threads)
+    }
+
+    fn plain(rows: Vec<(&str, Vec<Cell>)>) -> Vec<(&str, Vec<Cell>, TrackRules)> {
+        rows.into_iter().map(|(t, c)| (t, c, TrackRules::default())).collect()
     }
 
     #[test]
@@ -279,11 +339,18 @@ mod tests {
         backwards[3] = Closes;
         backwards[4] = Opens;
         backwards[5] = Closes;
-        let rows = vec![("Hanging".to_owned(), hanging), ("Never opened".to_owned(), never_opened), ("Backwards".to_owned(), backwards)];
-        let issues = thread_issues(&rows, &scenes);
+        let rows = plain(vec![("Hanging", hanging.clone()), ("Never opened", never_opened), ("Backwards", backwards)]);
+        let issues = check(&rows, &scenes, true);
         assert_eq!(issues[0], [Issue::NeverClosed, Issue::Quiet(Gap { after: 1, before: 11, scenes: 9, words: 9000 })]);
         assert_eq!(issues[1], [Issue::NeverOpened]);
         assert_eq!(issues[2], [Issue::ClosedBeforeOpened]);
+
+        // Left open on purpose, and allowed to be quiet longer: nothing to say.
+        let rules = TrackRules { open_on_purpose: true, away: Some(10), ..TrackRules::default() };
+        assert!(check(&[("Hanging", hanging.clone(), rules)], &scenes, true)[0].is_empty());
+        // Quiet never counts.
+        let rules = TrackRules { away: Some(0), ..TrackRules::default() };
+        assert_eq!(check(&[("Hanging", hanging, rules)], &scenes, true)[0], [Issue::NeverClosed]);
     }
 
     #[test]
@@ -293,13 +360,43 @@ mod tests {
         // Outer opens 0, inner opens 1; outer closes 3, inner closes 4: crossed.
         let outer = vec![Opens, Empty, Moves, Closes, Empty, Empty];
         let inner = vec![Empty, Opens, Empty, Empty, Closes, Empty];
-        let rows = vec![("Outer".to_owned(), outer.clone()), ("Inner".to_owned(), inner)];
-        let issues = thread_issues(&rows, &scenes);
+        let rows = plain(vec![("Outer", outer.clone()), ("Inner", inner.clone())]);
+        let issues = check(&rows, &scenes, true);
         assert_eq!(issues[0], [Issue::OutOfOrder("Inner".to_owned())]);
         assert!(issues[1].is_empty());
         // Nested properly: nothing to say.
         let nested = vec![Empty, Opens, Closes, Empty, Empty, Empty];
-        let issues = thread_issues(&[("Outer".to_owned(), outer), ("Inner".to_owned(), nested)], &scenes);
+        let issues = check(&plain(vec![("Outer", outer.clone()), ("Inner", nested)]), &scenes, true);
         assert!(issues.iter().all(Vec::is_empty), "{issues:?}");
+        // Either may close in any order: nothing to say.
+        let any = TrackRules { any_order: true, ..TrackRules::default() };
+        let issues = check(&[("Outer", outer, TrackRules::default()), ("Inner", inner, any)], &scenes, true);
+        assert!(issues.iter().all(Vec::is_empty), "{issues:?}");
+    }
+
+    #[test]
+    fn away_too_long_only_when_asked() {
+        let scenes: Vec<Scene> = (0..8).map(|_| scene(100, "", &[], &[])).collect();
+        use Cell::*;
+        let mara = vec![In, Empty, Empty, Empty, Empty, In, Empty, Empty];
+        assert!(check(&plain(vec![("Mara", mara.clone())]), &scenes, false)[0].is_empty(), "no limit: no warning");
+        let rules = TrackRules { away: Some(4), ..TrackRules::default() };
+        assert_eq!(check(&[("Mara", mara.clone(), rules)], &scenes, false)[0], [Issue::Away(Gap { after: 0, before: 5, scenes: 4, words: 400 })]);
+        let rules = TrackRules { away: Some(5), ..TrackRules::default() };
+        assert!(check(&[("Mara", mara, rules)], &scenes, false)[0].is_empty());
+    }
+
+    #[test]
+    fn notes_in_written_scenes_that_dont_have_it() {
+        let mut scenes = vec![scene(100, "", &["Mara"], &[]), scene(100, "", &[], &[]), scene(0, "", &[], &[])];
+        for s in &mut scenes {
+            s.noted = vec!["Mara".to_owned()];
+        }
+        use Cell::*;
+        let mara = vec![In, Empty, Empty];
+        // Noted in all three: in the first, missing from the second; the third's only planned.
+        assert_eq!(check(&plain(vec![("Mara", mara.clone())]), &scenes, false)[0], [Issue::NotIn(vec![1])]);
+        let rules = TrackRules { ignore_notes: true, ..TrackRules::default() };
+        assert!(check(&[("Mara", mara, rules)], &scenes, false)[0].is_empty());
     }
 }

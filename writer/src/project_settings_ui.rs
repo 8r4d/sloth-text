@@ -10,6 +10,7 @@ use super::WriterApp;
 use super::inspector::label_color;
 use super::projects_ui::kind_picker;
 use super::settings_ui::group;
+use crate::project::ToolSet;
 
 impl WriterApp {
     pub(super) fn open_project_settings(&mut self) {
@@ -28,6 +29,9 @@ impl WriterApp {
             self.project_settings_open = false;
             return;
         };
+        let tools_before: Vec<(ToolSet, bool)> = ToolSet::ALL.into_iter().map(|t| (t, project.tools_on(t))).collect();
+        let mut tools = tools_before.clone();
+        let tracker_used = project.uses_tracker();
         let goals = &mut project.manifest.goals;
         let fields = self.goal_fields.get_or_insert_with(|| {
             [
@@ -76,16 +80,31 @@ impl WriterApp {
                             }
                         });
                         ui.end_row();
-                        ui.label("Icon");
+                        ui.label("Kind");
                         let shown = RichText::new(format!("{}  {}", kind.icon(), kind.name()));
                         egui::ComboBox::from_id_salt("project-settings-kind").selected_text(shown).width(180.0).show_ui(ui, |ui| {
                             ui.set_min_width(380.0);
                             new_kind = kind_picker(ui, "project-settings-kinds", kind);
                         })
                         .response
-                        .on_hover_text("Its icon on the start screen");
+                        .on_hover_text("Its icon on the start screen, and which tools it shows (below)");
                         ui.end_row();
                     });
+
+                    group(ui, "Tools");
+                    ui.weak(format!("What a {} project shows. Tick or untick to choose for this one; hidden tools keep everything you made with them.", kind.name()));
+                    ui.add_space(4.0);
+                    for (set, on) in &mut tools {
+                        ui.checkbox(on, set.name());
+                        let mut note = sloth_core::keys::shown(set.what());
+                        if *on != kind.has_tools(*set) {
+                            note.push_str(if *on { " (chosen here)" } else { " (hidden here)" });
+                        }
+                        if *set == ToolSet::Story && !*on && tracker_used {
+                            note.push_str(". The Tracker stays: it's been used here");
+                        }
+                        ui.indent(set.name(), |ui| ui.label(RichText::new(note).small().weak()));
+                    }
 
                     group(ui, "Binder");
                     ui.checkbox(&mut new_at_top, "New documents and folders go at the top of their folder")
@@ -171,10 +190,18 @@ impl WriterApp {
         {
             self.error = Some(format!("Couldn't change where new items go: {e}"));
         }
+        for ((set, on), (_, was)) in tools.iter().zip(&tools_before) {
+            if on != was
+                && let Err(e) = project.set_tools(*set, *on)
+            {
+                self.error = Some(format!("Couldn't change the project's tools: {e}"));
+            }
+        }
+        // (After the tools: what they say is kept as chosen, against the old kind.)
         if let Some(kind) = new_kind
             && let Err(e) = project.set_kind(kind)
         {
-            self.error = Some(format!("Couldn't change the project's icon: {e}"));
+            self.error = Some(format!("Couldn't change the project's kind: {e}"));
         }
         if rename {
             self.start_renaming_project();
